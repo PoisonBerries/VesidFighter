@@ -427,13 +427,21 @@ class Fighter {
     const phased = this.isPhased; // ultimate phase-out: can move, can't act
 
     if (!phased) {
-      // Blocking: only while grounded, roots you in place. Re-checked every
-      // frame (unlike attack/special above) so releasing the key immediately
-      // frees the player up to move/attack again.
+      // Blocking: only while grounded. Re-checked every frame (unlike
+      // attack/special above) so releasing the key immediately frees the
+      // player up to move/attack again. Still allows a slow crouch-walk
+      // rather than fully rooting the player in place.
       if (held.block && this.grounded) {
         this.blocking = true;
         this.state = 'block';
-        this.vx *= 0.5;
+        let crouchDir = 0;
+        if (held.left && !held.right) crouchDir = -1;
+        else if (held.right && !held.left) crouchDir = 1;
+        if (crouchDir !== 0) {
+          this.vx = crouchDir * this.moveSpeedEff * CROUCH_SPEED_MULTIPLIER;
+        } else {
+          this.vx *= FRICTION;
+        }
         return;
       }
     }

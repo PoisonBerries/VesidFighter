@@ -7,6 +7,7 @@ const CANVAS_HEIGHT = 720;
 const GROUND_Y = 560; // y coordinate of the floor (feet position when standing)
 const GRAVITY = 0.75; // px / frame^2 at 60fps
 const FRICTION = 0.82; // velocity multiplier applied when no input
+const CROUCH_SPEED_MULTIPLIER = 0.35; // how much slower crouch-walking is vs normal movement
 
 // The stage is a raised platform with open air on either side. Walking past
 // these x values means there's no ground underfoot -> fighter falls.

@@ -257,6 +257,12 @@ const Renderer = (() => {
     return { ...DEFAULT_BODY_PROFILE, ...(BODY_PROFILES[id] || {}) };
   }
 
+  // Judgment call made by looking at each shipped head photo: Artur and
+  // Owen are both clearly turned/gazing toward camera-left in their source
+  // images; everyone else reads close enough to frontal that no correction
+  // is needed. See the flip-math note where this is used, in drawPlaceholder.
+  const HEAD_FLIP_FIX = new Set(['artur', 'owen']);
+
   // Fist for most characters; a small three-talon claw for Carlos (his
   // whole kit is "Iron Claw"), drawn in the accent color like the fist was.
   function drawHand(ctx, x, y, profile, accent) {
@@ -409,13 +415,22 @@ const Renderer = (() => {
         armPose = chore.armPose ?? 'forward';
         break;
       }
-      case 'block':
+      case 'block': {
         crouchAmount = 0.24;
-        kneeForward = 26;
-        stride = 15 * profile.stanceMul;
         lean = 6;
         armPose = 'crossed';
+        // Still crouched and guarding either way; legs cycle through a low
+        // duck-walk when there's actually crouch-movement to animate.
+        if (Math.abs(fighter.vx) > 0.4) {
+          const cyc = fighter.walkCycle;
+          stride = (16 + Math.sin(cyc) * 10) * profile.stanceMul;
+          kneeForward = 22 + Math.abs(Math.cos(cyc)) * 12;
+        } else {
+          kneeForward = 26;
+          stride = 15 * profile.stanceMul;
+        }
         break;
+      }
       case 'knockdown':
         crouchAmount = 0.1;
         kneeForward = 28;
@@ -576,10 +591,22 @@ const Renderer = (() => {
     }
 
     // Head -- a real portrait if one's been shipped for this character,
-    // otherwise the plain colored circle.
+    // otherwise the plain colored circle. The body's own facing flip
+    // (applied once, up in drawFighter) makes a head that's naturally
+    // gazing/turned toward camera-left in its source photo appear to look
+    // backward exactly half the time; HEAD_FLIP_FIX corrects those specific
+    // photos with one constant extra mirror so the gaze always tracks the
+    // body's facing direction instead.
     const headImg = CharacterHeads.getImage(fighter.character.id);
     if (headImg) {
-      drawHeadImage(ctx, headImg, 0, headY, headR);
+      if (HEAD_FLIP_FIX.has(fighter.character.id)) {
+        ctx.save();
+        ctx.scale(-1, 1);
+        drawHeadImage(ctx, headImg, 0, headY, headR);
+        ctx.restore();
+      } else {
+        drawHeadImage(ctx, headImg, 0, headY, headR);
+      }
     } else {
       ctx.fillStyle = accent;
       ctx.beginPath();
