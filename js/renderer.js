@@ -211,31 +211,80 @@ const Renderer = (() => {
     ctx.restore();
   }
 
-  // A two-bone leg: hip -> knee -> foot, with the knee kicked forward by
-  // `kneeForward` so standing/crouching/walking actually shows a bent joint
-  // instead of a single rigid line.
-  function drawLeg(ctx, hipX, hipY, footX, kneeForward) {
-    const kneeX = (hipX + footX) / 2 + kneeForward;
-    const kneeY = hipY * 0.5;
-    ctx.beginPath();
-    ctx.moveTo(hipX, hipY);
-    ctx.lineTo(kneeX, kneeY);
-    ctx.lineTo(footX, 0);
-    ctx.stroke();
+  // ---- Filled-body drawing primitives -------------------------------
+  // Replaces the old single-width stroked-line limbs with tapered, filled
+  // "capsule" bones (thicker at the joint nearer the torso, narrower toward
+  // the extremity, like real limbs) plus small joint discs to hide the
+  // seams. This is what actually moves the placeholder from "stick figure"
+  // to something with real body volume.
+
+  function shadeColor(hex, percent) {
+    // percent < 0 darkens toward black, > 0 lightens toward white.
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    const t = percent < 0 ? 0 : 255;
+    const p = Math.abs(percent) / 100;
+    const mix = (c) => Math.round((t - c) * p) + c;
+    return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
   }
 
-  // A two-bone arm: shoulder -> elbow -> hand, elbow offset perpendicular to
-  // the shoulder-hand line by `bend` (sign controls which way it bends).
-  function drawArm(ctx, shX, shY, handX, handY, bend) {
+  function fillCapsule(ctx, x1, y1, x2, y2, r1, r2, fillStyle) {
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    const perp = angle + Math.PI / 2;
+    const cos = Math.cos(perp), sin = Math.sin(perp);
+    ctx.beginPath();
+    ctx.moveTo(x1 + cos * r1, y1 + sin * r1);
+    ctx.lineTo(x2 + cos * r2, y2 + sin * r2);
+    ctx.arc(x2, y2, r2, perp, perp + Math.PI, false);
+    ctx.lineTo(x1 - cos * r1, y1 - sin * r1);
+    ctx.arc(x1, y1, r1, perp + Math.PI, perp + Math.PI * 2, false);
+    ctx.closePath();
+    ctx.fillStyle = fillStyle;
+    ctx.fill();
+  }
+
+  function fillJoint(ctx, x, y, r, fillStyle) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = fillStyle;
+    ctx.fill();
+  }
+
+  // Hip -> knee -> foot, each bone a tapered capsule; the shin renders in a
+  // shaded tone (reads as a boot/sleeve) and the foot is a small flattened
+  // ellipse so it plants naturally on the ground.
+  function drawLeg(ctx, hipX, hipY, footX, kneeForward, thickness, color, footColor) {
+    const kneeX = (hipX + footX) / 2 + kneeForward;
+    const kneeY = hipY * 0.5;
+    const rHip = thickness * 0.66, rKnee = thickness * 0.48, rFoot = thickness * 0.4;
+    fillCapsule(ctx, hipX, hipY, kneeX, kneeY, rHip, rKnee, color);
+    fillCapsule(ctx, kneeX, kneeY, footX, 0, rKnee, rFoot, footColor);
+    fillJoint(ctx, kneeX, kneeY, rKnee * 0.92, color);
+    const footDir = footX >= hipX ? 1 : -1;
+    ctx.save();
+    ctx.translate(footX + footDir * rFoot * 0.5, 1);
+    ctx.rotate(footDir > 0 ? 0.15 : -0.15);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rFoot * 1.5, rFoot * 0.72, 0, 0, Math.PI * 2);
+    ctx.fillStyle = footColor;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Shoulder -> elbow -> hand, elbow offset perpendicular to the
+  // shoulder-hand line by `bend` (sign controls which way it bends).
+  function drawArm(ctx, shX, shY, handX, handY, bend, thickness, color, sleeveColor) {
     const mx = (shX + handX) / 2, my = (shY + handY) / 2;
     const dx = handX - shX, dy = handY - shY;
     const len = Math.hypot(dx, dy) || 1;
     const px = -dy / len, py = dx / len;
-    ctx.beginPath();
-    ctx.moveTo(shX, shY);
-    ctx.lineTo(mx + px * bend, my + py * bend);
-    ctx.lineTo(handX, handY);
-    ctx.stroke();
+    const elbowX = mx + px * bend, elbowY = my + py * bend;
+    const rSh = thickness * 0.5, rEl = thickness * 0.37, rHand = thickness * 0.32;
+    fillCapsule(ctx, shX, shY, elbowX, elbowY, rSh, rEl, color);
+    fillCapsule(ctx, elbowX, elbowY, handX, handY, rEl, rHand, sleeveColor);
+    fillJoint(ctx, elbowX, elbowY, rEl * 0.9, color);
   }
 
   // ---- Per-character build: differentiates silhouette/stance beyond just
@@ -263,26 +312,185 @@ const Renderer = (() => {
   // is needed. See the flip-math note where this is used, in drawPlaceholder.
   const HEAD_FLIP_FIX = new Set(['artur', 'owen']);
 
-  // Fist for most characters; a small three-talon claw for Carlos (his
-  // whole kit is "Iron Claw"), drawn in the accent color like the fist was.
+  // Fist for most characters; a small three-talon metal claw for Carlos
+  // (his whole kit is "Iron Claw"), drawn in the accent color.
   function drawHand(ctx, x, y, profile, accent) {
     if (profile.clawHands) {
       ctx.save();
+      ctx.fillStyle = shadeColor(accent, -10);
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fill();
       ctx.strokeStyle = accent;
-      ctx.lineWidth = 4;
+      ctx.lineWidth = 4.5;
       ctx.lineCap = 'round';
-      for (const deg of [-16, 0, 16]) {
+      for (const deg of [-20, 0, 20]) {
         const rad = deg * Math.PI / 180;
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(x + Math.cos(rad) * 15, y + Math.sin(rad) * 15 - 5);
+        ctx.lineTo(x + Math.cos(rad) * 17, y + Math.sin(rad) * 17 - 5);
         ctx.stroke();
       }
       ctx.restore();
     } else {
       ctx.fillStyle = accent;
       ctx.beginPath();
-      ctx.arc(x, y, 10, 0, Math.PI * 2);
+      ctx.arc(x, y, 10.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath();
+      ctx.arc(x - 3, y - 3, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // ---- Per-character costume accents, layered onto the base filled body so
+  // the roster reads as distinct characters (not just recolored stick
+  // figures) even before anyone has a real body sprite uploaded.
+
+  // Drawn first, before the legs -- for anything that sits behind/under the
+  // whole figure (Carlos's hover thrusters glowing beneath his feet).
+  function drawBackAccessory(ctx, id) {
+    if (id === 'carlos') {
+      const pulse = 0.55 + Math.sin(performance.now() / 90) * 0.2;
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = '#ffd166';
+      for (const fx of [-9, 9]) {
+        ctx.beginPath();
+        ctx.ellipse(fx, 7, 9, 4.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  // Drawn right after the torso fill (so it sits under the arms), before the
+  // head accessory and head itself.
+  function drawTorsoCostume(ctx, id, hipY, shoulderY, color, accent, transformed) {
+    const midY = (hipY + shoulderY) / 2;
+    switch (id) {
+      case 'artur': { // sleeveless athletic vest
+        ctx.fillStyle = shadeColor(color, -18);
+        ctx.beginPath();
+        ctx.moveTo(-11, shoulderY + 4);
+        ctx.lineTo(11, shoulderY + 4);
+        ctx.lineTo(9, hipY - 3);
+        ctx.lineTo(-9, hipY - 3);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      case 'carlos': { // angular chest-plate accent
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-10, shoulderY + 6);
+        ctx.lineTo(0, midY + 2);
+        ctx.lineTo(10, shoulderY + 6);
+        ctx.stroke();
+        break;
+      }
+      case 'nathan': { // ribbed stretchy-rubber texture lines
+        ctx.strokeStyle = shadeColor(color, -25);
+        ctx.lineWidth = 2;
+        for (let t = 0.28; t < 1; t += 0.28) {
+          const y = shoulderY + (hipY - shoulderY) * t;
+          ctx.beginPath();
+          ctx.moveTo(-8, y);
+          ctx.lineTo(8, y);
+          ctx.stroke();
+        }
+        break;
+      }
+      case 'owen': { // tech collar with a glowing plasma core
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(-9, shoulderY + 5);
+        ctx.lineTo(0, shoulderY + 15);
+        ctx.lineTo(9, shoulderY + 5);
+        ctx.stroke();
+        ctx.save();
+        ctx.globalAlpha = 0.7 + Math.sin(performance.now() / 100) * 0.3;
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.arc(0, midY, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        break;
+      }
+      case 'robert': { // tank top; hem rips jagged once transformed
+        ctx.fillStyle = shadeColor(color, transformed ? 20 : -15);
+        ctx.beginPath();
+        ctx.moveTo(-12, shoulderY + 3);
+        ctx.lineTo(12, shoulderY + 3);
+        if (transformed) {
+          ctx.lineTo(9, hipY - 11);
+          ctx.lineTo(5, hipY - 3);
+          ctx.lineTo(1, hipY - 12);
+          ctx.lineTo(-3, hipY - 3);
+          ctx.lineTo(-7, hipY - 11);
+          ctx.lineTo(-10, hipY - 3);
+        } else {
+          ctx.lineTo(10, hipY - 6);
+          ctx.lineTo(-10, hipY - 6);
+        }
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      case 'ryan': { // open performer jacket collar + a little music note
+        ctx.strokeStyle = shadeColor(color, -20);
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-10, shoulderY + 4);
+        ctx.lineTo(-2, shoulderY + 17);
+        ctx.moveTo(10, shoulderY + 4);
+        ctx.lineTo(2, shoulderY + 17);
+        ctx.stroke();
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.arc(2, midY + 7, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(4.3, midY - 6, 1.6, 13);
+        break;
+      }
+      case 'sam': { // wetsuit diagonal stripe
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(-9, shoulderY + 6);
+        ctx.lineTo(8, hipY - 4);
+        ctx.stroke();
+        break;
+      }
+      case 'john': { // suspender straps over a broad frame
+        ctx.strokeStyle = shadeColor(color, -25);
+        ctx.lineWidth = 3.2;
+        ctx.beginPath();
+        ctx.moveTo(-8, shoulderY + 2);
+        ctx.lineTo(-6, hipY);
+        ctx.moveTo(8, shoulderY + 2);
+        ctx.lineTo(6, hipY);
+        ctx.stroke();
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  // Drawn immediately before the head, so it naturally sits behind it.
+  function drawHeadAccessory(ctx, id, headY, headR, color) {
+    if (id === 'keenan') {
+      ctx.fillStyle = shadeColor(color, -35);
+      ctx.beginPath();
+      ctx.moveTo(-headR * 1.15, headY - headR * 0.25);
+      ctx.quadraticCurveTo(0, headY - headR * 2.05, headR * 1.15, headY - headR * 0.25);
+      ctx.quadraticCurveTo(headR * 0.9, headY + headR * 0.65, 0, headY + headR * 0.8);
+      ctx.quadraticCurveTo(-headR * 0.9, headY + headR * 0.65, -headR * 1.15, headY - headR * 0.25);
+      ctx.closePath();
       ctx.fill();
     }
   }
@@ -364,13 +572,8 @@ const Renderer = (() => {
     const accent = fighter.displayAccent;
     const H = fighter.height;
     const profile = getBodyProfile(fighter.character.id);
+    const id = fighter.character.id;
     const bulk = fighter.transformed ? 1.18 : 1;
-
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.lineWidth = 14 * profile.limbWidth * bulk;
 
     let stride = 9 * profile.stanceMul;   // how far apart the feet are
     let kneeForward = 10;                  // how much the knees bow forward
@@ -451,6 +654,22 @@ const Renderer = (() => {
         break; // idle -- defaults above already give a subtle sway
     }
 
+    // Smooth the continuous body parameters toward their new target every
+    // frame instead of snapping to them, so pose changes (idle -> walk ->
+    // attack -> block, etc) ease into each other. Persisted on the fighter
+    // instance itself (reset each round in game.js) so it survives frames.
+    if (!fighter._visualPose) {
+      fighter._visualPose = { stride, kneeForward, crouchAmount, lean, elbowBend };
+    }
+    const vp = fighter._visualPose;
+    const smoothRate = 0.4;
+    vp.stride += (stride - vp.stride) * smoothRate;
+    vp.kneeForward += (kneeForward - vp.kneeForward) * smoothRate;
+    vp.crouchAmount += (crouchAmount - vp.crouchAmount) * smoothRate;
+    vp.lean += (lean - vp.lean) * smoothRate;
+    vp.elbowBend += (elbowBend - vp.elbowBend) * smoothRate;
+    ({ stride, kneeForward, crouchAmount, lean, elbowBend } = vp);
+
     // Carlos hovers -- never quite touches the ground while upright.
     const floatY = (profile.floaty && pose !== 'knockdown' && pose !== 'ko') ? -8 : 0;
 
@@ -460,10 +679,20 @@ const Renderer = (() => {
     const headY = -H * 0.86 * crouchScale + floatY;
     const headR = H * 0.14 * profile.headScale;
 
+    const limbThickness = 15 * profile.limbWidth * bulk;
+    const sleeveColor = shadeColor(color, -22);
+    const bootColor = shadeColor(color, -30);
+    const arm = (shX, shY2, handX, handY, bend) =>
+      drawArm(ctx, shX, shY2, handX, handY, bend, limbThickness, color, sleeveColor);
+    const leg = (hipX, hY, footX, kneeFwd) =>
+      drawLeg(ctx, hipX, hY, footX, kneeFwd, limbThickness, color, bootColor);
+
+    drawBackAccessory(ctx, id);
+
     // Legs are drawn in world space -- feet planted at y=0 -- so leaning the
     // torso below doesn't lift them off the ground or distort their shape.
-    drawLeg(ctx, -stride * 0.3, hipY, -stride, kneeForward);
-    drawLeg(ctx, stride * 0.3, hipY, stride, kneeForward);
+    leg(-stride * 0.3, hipY, -stride, kneeForward);
+    leg(stride * 0.3, hipY, stride, kneeForward);
 
     ctx.save();
     // Lean the upper body (torso/arms/head) from the hip joint, not the
@@ -472,11 +701,18 @@ const Renderer = (() => {
     ctx.rotate(lean * Math.PI / 180);
     ctx.translate(0, -hipY);
 
-    // Torso
+    // Torso -- a filled, slightly tapered body instead of a bare line.
+    const shoulderW = limbThickness * 0.62, hipW = limbThickness * 0.5;
     ctx.beginPath();
-    ctx.moveTo(0, hipY);
-    ctx.lineTo(0, shoulderY);
-    ctx.stroke();
+    ctx.moveTo(-shoulderW, shoulderY);
+    ctx.lineTo(shoulderW, shoulderY);
+    ctx.lineTo(hipW, hipY);
+    ctx.lineTo(-hipW, hipY);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    drawTorsoCostume(ctx, id, hipY, shoulderY, color, accent, fighter.transformed);
 
     // Arms -- see choreographAbility()/the pose switch above for how each
     // character's kit maps onto these.
@@ -484,38 +720,38 @@ const Renderer = (() => {
     const reach = 46 + profile.reachBoost;
     switch (armPose) {
       case 'forward':
-        drawArm(ctx, 0, shY, -18, shY + 20, -elbowBend);
-        drawArm(ctx, 0, shY, reach, shY - 4, elbowBend);
+        arm(0, shY, -18, shY + 20, -elbowBend);
+        arm(0, shY, reach, shY - 4, elbowBend);
         drawHand(ctx, reach, shY - 4, profile, accent);
         break;
       case 'crossed':
-        drawArm(ctx, 0, shY, 22, shY + 18, -elbowBend);
-        drawArm(ctx, 0, shY, -6, shY + 30, elbowBend);
+        arm(0, shY, 22, shY + 18, -elbowBend);
+        arm(0, shY, -6, shY + 30, elbowBend);
         break;
       case 'crossedGuard': // Nathan's Rubber Guard -- tight symmetric brace
-        drawArm(ctx, 0, shY, 16, shY + 8, -10);
-        drawArm(ctx, 0, shY, -16, shY + 8, 10);
+        arm(0, shY, 16, shY + 8, -10);
+        arm(0, shY, -16, shY + 8, 10);
         break;
       case 'up':
-        drawArm(ctx, 0, shY, -16, shoulderY - 26, -elbowBend);
-        drawArm(ctx, 0, shY, 16, shoulderY - 26, elbowBend);
+        arm(0, shY, -16, shoulderY - 26, -elbowBend);
+        arm(0, shY, 16, shoulderY - 26, elbowBend);
         break;
       case 'powerUp': { // Overgrowth / Encore cast -- triumphant raised fists
         const hy = shoulderY - 30;
-        drawArm(ctx, 0, shY, -24, hy, -elbowBend);
-        drawArm(ctx, 0, shY, 24, hy, elbowBend);
+        arm(0, shY, -24, hy, -elbowBend);
+        arm(0, shY, 24, hy, elbowBend);
         drawHand(ctx, -24, hy, profile, accent);
         drawHand(ctx, 24, hy, profile, accent);
         break;
       }
       case 'guard': // Keenan's Foresight -- hands up, ready to react
-        drawArm(ctx, 0, shY, -10, shY - 14, -6);
-        drawArm(ctx, 0, shY, 10, shY - 14, 6);
+        arm(0, shY, -10, shY - 14, -6);
+        arm(0, shY, 10, shY - 14, 6);
         break;
       case 'aim': { // Owen charging a plasma bolt -- one hand out, glowing
-        drawArm(ctx, 0, shY, -14, shY + 22, elbowBend);
+        arm(0, shY, -14, shY + 22, elbowBend);
         const hx = reach + 2, hy = shY - 6;
-        drawArm(ctx, 0, shY, hx, hy, -elbowBend);
+        arm(0, shY, hx, hy, -elbowBend);
         ctx.fillStyle = accent;
         ctx.beginPath();
         ctx.arc(hx, hy, 7, 0, Math.PI * 2);
@@ -523,72 +759,74 @@ const Renderer = (() => {
         break;
       }
       case 'shoutIn': // Ryan winding up Soundwave
-        drawArm(ctx, 0, shY, -12, shY + 10, elbowBend);
-        drawArm(ctx, 0, shY, 12, shY + 10, -elbowBend);
+        arm(0, shY, -12, shY + 10, elbowBend);
+        arm(0, shY, 12, shY + 10, -elbowBend);
         break;
       case 'shoutOut': // Ryan releasing it -- both hands thrust out
-        drawArm(ctx, 0, shY, reach - 6, shY - 2, elbowBend);
-        drawArm(ctx, 0, shY, (reach - 6) * 0.7, shY + 10, -elbowBend);
+        arm(0, shY, reach - 6, shY - 2, elbowBend);
+        arm(0, shY, (reach - 6) * 0.7, shY + 10, -elbowBend);
         break;
       case 'channelUp': // Owen's Plasma Nuke, channeling
-        drawArm(ctx, 0, shY, -20, shoulderY - 20, -6);
-        drawArm(ctx, 0, shY, 20, shoulderY - 20, 6);
+        arm(0, shY, -20, shoulderY - 20, -6);
+        arm(0, shY, 20, shoulderY - 20, 6);
         break;
       case 'thrust': // Owen's Plasma Nuke, released
-        drawArm(ctx, 0, shY, reach - 2, shY - 10, 4);
-        drawArm(ctx, 0, shY, reach - 6, shY + 8, -4);
+        arm(0, shY, reach - 2, shY - 10, 4);
+        arm(0, shY, reach - 6, shY + 8, -4);
         break;
       case 'slash1': { // Carlos's Double Slash, first claw swipe
         const hx = reach - 6, hy = shY - 22;
-        drawArm(ctx, 0, shY, hx, hy, elbowBend);
-        drawArm(ctx, 0, shY, -16, shY + 18, -elbowBend);
+        arm(0, shY, hx, hy, elbowBend);
+        arm(0, shY, -16, shY + 18, -elbowBend);
         drawHand(ctx, hx, hy, profile, accent);
         break;
       }
       case 'slash2': { // second swipe, opposite diagonal
         const hx = reach - 6, hy = shY + 22;
-        drawArm(ctx, 0, shY, hx, hy, -elbowBend);
-        drawArm(ctx, 0, shY, -16, shY - 10, elbowBend);
+        arm(0, shY, hx, hy, -elbowBend);
+        arm(0, shY, -16, shY - 10, elbowBend);
         drawHand(ctx, hx, hy, profile, accent);
         break;
       }
       case 'raisedFists': { // Robert winding up Double Fist Slam
         const hy = shoulderY - 30;
-        drawArm(ctx, 0, shY, -18, hy, -elbowBend);
-        drawArm(ctx, 0, shY, 18, hy, elbowBend);
+        arm(0, shY, -18, hy, -elbowBend);
+        arm(0, shY, 18, hy, elbowBend);
         drawHand(ctx, -18, hy, profile, accent);
         drawHand(ctx, 18, hy, profile, accent);
         break;
       }
       case 'slamDown': { // ...and bringing both fists down
         const hy = shY + 34;
-        drawArm(ctx, 0, shY, -22, hy, -elbowBend);
-        drawArm(ctx, 0, shY, 22, hy, elbowBend);
+        arm(0, shY, -22, hy, -elbowBend);
+        arm(0, shY, 22, hy, elbowBend);
         drawHand(ctx, -22, hy, profile, accent);
         drawHand(ctx, 22, hy, profile, accent);
         break;
       }
       case 'tackle': { // Carlos's Rending Dive / Robert's Body Slam
         const h1x = reach, h1y = shY - 6, h2x = reach - 6, h2y = shY + 4;
-        drawArm(ctx, 0, shY, h1x, h1y, elbowBend * 0.5);
-        drawArm(ctx, 0, shY, h2x, h2y, -elbowBend * 0.5);
+        arm(0, shY, h1x, h1y, elbowBend * 0.5);
+        arm(0, shY, h2x, h2y, -elbowBend * 0.5);
         drawHand(ctx, h1x, h1y, profile, accent);
         drawHand(ctx, h2x, h2y, profile, accent);
         break;
       }
       case 'tuckedDive': // Sam's dives / John's Big Silb Roll
-        drawArm(ctx, 0, shY, -16, shY + 8, elbowBend);
-        drawArm(ctx, 0, shY, 16, shY + 8, -elbowBend);
+        arm(0, shY, -16, shY + 8, elbowBend);
+        arm(0, shY, 16, shY + 8, -elbowBend);
         break;
       case 'balance': // Artur's Poison Fart -- arms out for balance
-        drawArm(ctx, 0, shY, -30, shY - 2, -6);
-        drawArm(ctx, 0, shY, 30, shY - 2, 6);
+        arm(0, shY, -30, shY - 2, -6);
+        arm(0, shY, 30, shY - 2, 6);
         break;
       default: // 'swing' -- idle/walk/hit/knockdown
-        drawArm(ctx, 0, shY, -14 + armSwing * 0.3, shY + 26, elbowBend);
-        drawArm(ctx, 0, shY, 14 - armSwing * 0.3, shY + 26, -elbowBend);
+        arm(0, shY, -14 + armSwing * 0.3, shY + 26, elbowBend);
+        arm(0, shY, 14 - armSwing * 0.3, shY + 26, -elbowBend);
         break;
     }
+
+    drawHeadAccessory(ctx, id, headY, headR, color);
 
     // Head -- a real portrait if one's been shipped for this character,
     // otherwise the plain colored circle. The body's own facing flip
@@ -614,7 +852,7 @@ const Renderer = (() => {
       ctx.fill();
     }
     ctx.strokeStyle = color;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.arc(0, headY, headR, 0, Math.PI * 2);
     ctx.stroke();

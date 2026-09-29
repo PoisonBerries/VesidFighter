@@ -32,9 +32,9 @@ const Game = (() => {
     const startX1 = STAGE_LEFT_EDGE + 220;
     const startX2 = STAGE_RIGHT_EDGE - 220;
     p1.x = startX1; p1.y = GROUND_Y; p1.vx = 0; p1.vy = 0;
-    p1.hp = p1.maxHp; p1.state = 'idle'; p1.facing = 1; p1.specialCooldownTimer = 0; p1.ultCharge = 0;
+    p1.hp = p1.maxHp; p1.state = 'idle'; p1.facing = 1; p1.specialCooldownTimer = 0; p1.ultCharge = 0; p1._visualPose = null;
     p2.x = startX2; p2.y = GROUND_Y; p2.vx = 0; p2.vy = 0;
-    p2.hp = p2.maxHp; p2.state = 'idle'; p2.facing = -1; p2.specialCooldownTimer = 0; p2.ultCharge = 0;
+    p2.hp = p2.maxHp; p2.state = 'idle'; p2.facing = -1; p2.specialCooldownTimer = 0; p2.ultCharge = 0; p2._visualPose = null;
     roundTimeLeft = ROUND_TIME;
     matchState = 'countdown';
     stateTimer = 3.0;
