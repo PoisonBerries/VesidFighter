@@ -126,20 +126,28 @@ const Renderer = (() => {
 
     if (fighter.isPhased) ctx.globalAlpha = 0.35;
 
+    // Status tints -- mixed directly into the fill colors drawPlaceholder
+    // uses, rather than ctx.filter (a full CSS-style filter pass over the
+    // rasterized scene, which got dramatically more expensive once the body
+    // became many gradient-filled shapes instead of plain strokes -- this
+    // was the actual cause of block, and any of these other states, tanking
+    // to ~5fps) or a post-hoc 'source-atop' rectangle (which composites
+    // against the *entire canvas so far*, including the background already
+    // painted underneath, not just this character -- it left a visible
+    // tinted box over the arena rather than just tinting the fighter).
     const flashing = fighter.hitFlashTimer > 0 && Math.floor(fighter.hitFlashTimer / 3) % 2 === 0;
-    if (flashing) ctx.filter = 'brightness(2.2) saturate(0.4)';
-    else if (fighter.reflectTimer > 0) ctx.filter = 'brightness(1.2) hue-rotate(-20deg) saturate(1.6)';
-    else if (fighter.state === 'special' || fighter.state === 'ultimate') ctx.filter = 'brightness(1.3) saturate(1.4)';
-    else if (fighter.state === 'block') ctx.filter = 'brightness(0.9)';
-    else if (fighter.poisonTicksLeft > 0) ctx.filter = 'saturate(0.7) hue-rotate(60deg)';
+    let tint = null;
+    if (flashing) tint = { color: '#ffffff', alpha: 0.55 };
+    else if (fighter.reflectTimer > 0) tint = { color: '#ff3c3c', alpha: 0.32 };
+    else if (fighter.state === 'block') tint = { color: '#000000', alpha: 0.22 };
+    else if (fighter.poisonTicksLeft > 0) tint = { color: '#78c85a', alpha: 0.3 };
 
     if (customImg) {
       drawCustomSprite(ctx, customImg, fighter);
     } else {
-      drawPlaceholder(ctx, fighter, pose);
+      drawPlaceholder(ctx, fighter, pose, tint);
     }
 
-    ctx.filter = 'none';
     ctx.globalAlpha = 1;
     ctx.restore();
 
@@ -232,24 +240,36 @@ const Renderer = (() => {
   // seams. This is what actually moves the placeholder from "stick figure"
   // to something with real body volume.
 
-  function shadeColor(input, percent) {
-    // percent < 0 darkens toward black, > 0 lightens toward white. Accepts
-    // either "#rrggbb" or "rgb(r,g,b)" so it can safely re-shade a color
-    // that's already been shaded once (e.g. for a gradient's dark stop).
-    let r, g, b;
+  // Accepts either "#rrggbb" or "rgb(r,g,b)" -- lets these color helpers
+  // safely re-process a color that's already been through one of them.
+  function parseColor(input) {
     if (input.startsWith('#')) {
       const h = input.replace('#', '');
-      r = parseInt(h.substring(0, 2), 16);
-      g = parseInt(h.substring(2, 4), 16);
-      b = parseInt(h.substring(4, 6), 16);
-    } else {
-      const m = input.match(/\d+/g);
-      r = +m[0]; g = +m[1]; b = +m[2];
+      return [parseInt(h.substring(0, 2), 16), parseInt(h.substring(2, 4), 16), parseInt(h.substring(4, 6), 16)];
     }
+    const m = input.match(/\d+/g);
+    return [+m[0], +m[1], +m[2]];
+  }
+
+  function shadeColor(input, percent) {
+    // percent < 0 darkens toward black, > 0 lightens toward white.
+    const [r, g, b] = parseColor(input);
     const t = percent < 0 ? 0 : 255;
     const p = Math.abs(percent) / 100;
     const mix = (c) => Math.round((t - c) * p) + c;
     return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
+  }
+
+  // Alpha-blends tintInput over baseInput by tintAlpha (0-1). Used to apply
+  // status tints (block darken, poison green, etc) directly into the fill
+  // colors drawPlaceholder uses, so every shape just naturally draws in the
+  // tinted color -- cheap, and correctly scoped to the character (unlike a
+  // ctx.filter pass or a post-hoc 'source-atop' overlay rectangle).
+  function mixColor(baseInput, tintInput, tintAlpha) {
+    const [br, bg, bb] = parseColor(baseInput);
+    const [tr, tg, tb] = parseColor(tintInput);
+    const mix = (b, t) => Math.round(b * (1 - tintAlpha) + t * tintAlpha);
+    return `rgb(${mix(br, tr)},${mix(bg, tg)},${mix(bb, tb)})`;
   }
 
   // A perpendicular light-to-dark gradient across a shape's own bounding
@@ -627,9 +647,13 @@ const Renderer = (() => {
   }
 
   // ---- Procedural placeholder figure (used until real sprites are uploaded) ----
-  function drawPlaceholder(ctx, fighter, pose) {
-    const color = fighter.displayColor;
-    const accent = fighter.displayAccent;
+  function drawPlaceholder(ctx, fighter, pose, tint) {
+    let color = fighter.displayColor;
+    let accent = fighter.displayAccent;
+    if (tint) {
+      color = mixColor(color, tint.color, tint.alpha);
+      accent = mixColor(accent, tint.color, tint.alpha);
+    }
     const H = fighter.height;
     const profile = getBodyProfile(fighter.character.id);
     const id = fighter.character.id;
