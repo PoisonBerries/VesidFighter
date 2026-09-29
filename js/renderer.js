@@ -702,7 +702,9 @@ const Renderer = (() => {
     ctx.translate(0, -hipY);
 
     // Torso -- a filled, slightly tapered body instead of a bare line.
-    const shoulderW = limbThickness * 0.62, hipW = limbThickness * 0.5;
+    // Shoulders are kept at least as wide as the head so it reads as "head
+    // sits on shoulders" rather than a big head balanced on a narrow body.
+    const shoulderW = Math.max(limbThickness * 0.62, headR * 0.95), hipW = limbThickness * 0.5;
     ctx.beginPath();
     ctx.moveTo(-shoulderW, shoulderY);
     ctx.lineTo(shoulderW, shoulderY);
@@ -710,6 +712,19 @@ const Renderer = (() => {
     ctx.lineTo(-hipW, hipY);
     ctx.closePath();
     ctx.fillStyle = color;
+    ctx.fill();
+
+    // Neck -- bridges up into the underside of the head (drawn later, on
+    // top, so it naturally tucks under the chin) instead of leaving the
+    // head looking like it's floating just above the shoulders.
+    const neckW = headR * 0.4;
+    ctx.beginPath();
+    ctx.moveTo(-neckW, headY + headR * 0.5);
+    ctx.lineTo(neckW, headY + headR * 0.5);
+    ctx.lineTo(neckW * 1.35, shoulderY + 3);
+    ctx.lineTo(-neckW * 1.35, shoulderY + 3);
+    ctx.closePath();
+    ctx.fillStyle = shadeColor(color, -12);
     ctx.fill();
 
     drawTorsoCostume(ctx, id, hipY, shoulderY, color, accent, fighter.transformed);
