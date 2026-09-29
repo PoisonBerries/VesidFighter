@@ -119,8 +119,20 @@ const Renderer = (() => {
       ctx.rotate(fighter.facing * Math.PI / 2 * (fighter.state === 'ko' ? 1 : 0.82));
     }
 
+    // A roll/spin ability rotates the whole sprite, but drawPlaceholder
+    // draws it standing upright with y=0 at the FEET -- rotating around
+    // that point swings the head down through the ground and flings the
+    // legs straight up into the air every half-turn (looks like he's being
+    // flung around, not rolling). Pivoting around the body's vertical
+    // center instead keeps the whole silhouette inside a band above the
+    // ground, the way an actual tumbling roll would look.
     const spin = getSpinRadians(fighter);
-    if (spin) ctx.rotate(spin);
+    if (spin) {
+      const pivotY = -fighter.height * 0.5;
+      ctx.translate(0, pivotY);
+      ctx.rotate(spin);
+      ctx.translate(0, -pivotY);
+    }
 
     ctx.scale(fighter.facing, 1);
 
@@ -628,6 +640,14 @@ const Renderer = (() => {
     const t = fighter.actionTimer;
     switch (def.type) {
       case 'lunge':
+        // Windup pose (fist cocked forward) during startup/recovery, but
+        // tuck in tight during the actual dash -- the body spins through
+        // two full rotations right then, and a wide standing pose with an
+        // arm stuck out just windmills; a tucked pose reads as an actual
+        // rolling body the way growRoll's does.
+        if (t > def.startup && t <= def.startup + def.active) {
+          return { lean: 14, armPose: 'tuckedDive', crouchAmount: 0.12, kneeForward: 20 };
+        }
         return { lean: 12, elbowBend: 4, armPose: 'forward' };
       case 'multiHit': {
         const idx = def.hits.findIndex((w) => t > w.start && t <= w.end);
