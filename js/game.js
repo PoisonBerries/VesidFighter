@@ -49,10 +49,12 @@ const Game = (() => {
       p1.roundsWon++;
       roundMessage = (p1.character.name + ' WINS THE ROUND');
       p2.state = 'ko';
+      p1.state = 'victory';
     } else if (winnerSlot === 'p2') {
       p2.roundsWon++;
       roundMessage = (p2.character.name + ' WINS THE ROUND');
       p1.state = 'ko';
+      p2.state = 'victory';
     } else {
       roundMessage = "TIME'S UP -- DRAW";
     }

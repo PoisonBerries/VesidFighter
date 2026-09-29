@@ -318,17 +318,26 @@ const Renderer = (() => {
   // Hip -> knee -> foot, each bone a tapered capsule; the shin renders in a
   // shaded tone (reads as a boot/sleeve) and the foot is a small flattened
   // ellipse so it plants naturally on the ground.
-  function drawLeg(ctx, hipX, hipY, footX, kneeForward, thickness, color, footColor) {
+  // footY defaults to 0 (planted on the ground); a raised foot (e.g. a kick)
+  // can pass a negative footY to lift it, in which case the foot ellipse
+  // orients along the shin's own direction instead of the standing-flat
+  // angle that looks right for a planted foot.
+  function drawLeg(ctx, hipX, hipY, footX, kneeForward, thickness, color, footColor, footY) {
+    footY = footY || 0;
     const kneeX = (hipX + footX) / 2 + kneeForward;
-    const kneeY = hipY * 0.5;
+    const kneeY = (hipY + footY) / 2;
     const rHip = thickness * 0.66, rKnee = thickness * 0.48, rFoot = thickness * 0.4;
     fillCapsule(ctx, hipX, hipY, kneeX, kneeY, rHip, rKnee, color);
-    fillCapsule(ctx, kneeX, kneeY, footX, 0, rKnee, rFoot, footColor);
+    fillCapsule(ctx, kneeX, kneeY, footX, footY, rKnee, rFoot, footColor);
     fillJoint(ctx, kneeX, kneeY, rKnee * 0.92, color);
     const footDir = footX >= hipX ? 1 : -1;
     ctx.save();
-    ctx.translate(footX + footDir * rFoot * 0.5, 1);
-    ctx.rotate(footDir > 0 ? 0.15 : -0.15);
+    ctx.translate(footX + footDir * rFoot * 0.5, footY + 1);
+    if (footY === 0) {
+      ctx.rotate(footDir > 0 ? 0.15 : -0.15);
+    } else {
+      ctx.rotate(Math.atan2(footY - kneeY, footX - kneeX));
+    }
     ctx.beginPath();
     ctx.ellipse(0, 0, rFoot * 1.5, rFoot * 0.72, 0, 0, Math.PI * 2);
     ctx.fillStyle = footColor;
@@ -353,17 +362,17 @@ const Renderer = (() => {
   // ---- Per-character build: differentiates silhouette/stance beyond just
   // sizeScale, so e.g. Carlos reads as a hovering claw-fighter and Robert
   // reads as stocky even before any custom sprite exists.
-  const DEFAULT_BODY_PROFILE = { limbWidth: 1, headScale: 1, stanceMul: 1, idleCrouch: 0, floaty: false, clawHands: false, dancer: false, reachBoost: 0 };
+  const DEFAULT_BODY_PROFILE = { limbWidth: 1, headScale: 1, stanceMul: 1, idleCrouch: 0, floaty: false, clawHands: false, dancer: false, reachBoost: 0, staggerMul: 1 };
   const BODY_PROFILES = {
-    keenan: { limbWidth: 0.82, headScale: 1.05, stanceMul: 0.9 },
+    keenan: { limbWidth: 0.82, headScale: 1.05, stanceMul: 0.9, staggerMul: 1.25 },
     artur: { limbWidth: 1.0, stanceMul: 1.3, idleCrouch: 0.14 }, // squat frog stance
-    carlos: { limbWidth: 1.05, headScale: 0.95, floaty: true, clawHands: true },
-    nathan: { limbWidth: 0.78, headScale: 0.95, reachBoost: 26 }, // stretchy long reach
-    owen: { limbWidth: 0.85, stanceMul: 0.95 },
-    robert: { limbWidth: 1.3, headScale: 0.95, stanceMul: 1.2 },
-    ryan: { limbWidth: 0.78, dancer: true },
-    sam: { limbWidth: 0.85, headScale: 1.05, stanceMul: 0.85 },
-    john: { limbWidth: 1.4, headScale: 0.9, stanceMul: 1.3 },
+    carlos: { limbWidth: 1.05, headScale: 0.95, floaty: true, clawHands: true, staggerMul: 0.85 },
+    nathan: { limbWidth: 0.78, headScale: 0.95, reachBoost: 26, staggerMul: 1.2 }, // stretchy long reach
+    owen: { limbWidth: 0.85, stanceMul: 0.95, staggerMul: 1.2 },
+    robert: { limbWidth: 1.3, headScale: 0.95, stanceMul: 1.2, staggerMul: 0.6 },
+    ryan: { limbWidth: 0.78, dancer: true, staggerMul: 1.3 },
+    sam: { limbWidth: 0.85, headScale: 1.05, stanceMul: 0.85, staggerMul: 1.3 },
+    john: { limbWidth: 1.4, headScale: 0.9, stanceMul: 1.3, staggerMul: 0.5 },
   };
   function getBodyProfile(id) {
     return { ...DEFAULT_BODY_PROFILE, ...(BODY_PROFILES[id] || {}) };
@@ -682,11 +691,24 @@ const Renderer = (() => {
         armPose = 'up';
         break;
       case 'attack':
-        stride = 16 * profile.stanceMul;
-        kneeForward = 16;
-        lean = 9;
-        elbowBend = 6;
-        armPose = 'forward';
+        if (id === 'artur') {
+          // Froggy front kick instead of a punch -- arms just balance.
+          stride = 10 * profile.stanceMul;
+          armPose = 'balance';
+        } else if (id === 'john' || id === 'robert') {
+          // Big wind-up haymaker: wider brace, deeper forward lean.
+          stride = 22 * profile.stanceMul;
+          kneeForward = 20;
+          lean = 15;
+          elbowBend = 8;
+          armPose = 'forward';
+        } else {
+          stride = 16 * profile.stanceMul;
+          kneeForward = 16;
+          lean = 9;
+          elbowBend = 6;
+          armPose = 'forward';
+        }
         break;
       case 'special': {
         // currentPose() collapses both 'special' and 'ultimate' fighter
@@ -724,12 +746,16 @@ const Renderer = (() => {
         stride = 24;
         armSwing = 34;
         break;
-      case 'hit':
-        lean = -16;
+      case 'hit': {
+        // Heavier characters barely budge; light ones stagger hard --
+        // makes contact feel different depending on who's eating the hit.
+        const stagger = profile.staggerMul * (fighter.transformed ? 0.6 : 1);
+        lean = -16 * stagger;
         kneeForward = 18;
-        stride = 16;
-        armSwing = 28;
+        stride = 16 * Math.max(0.7, stagger);
+        armSwing = 28 * stagger;
         break;
+      }
       case 'victory':
         kneeForward = 6;
         armPose = 'up';
@@ -768,15 +794,22 @@ const Renderer = (() => {
     const bootColor = shadeColor(color, -30);
     const arm = (shX, shY2, handX, handY, bend) =>
       drawArm(ctx, shX, shY2, handX, handY, bend, limbThickness, color, sleeveColor);
-    const leg = (hipX, hY, footX, kneeFwd) =>
-      drawLeg(ctx, hipX, hY, footX, kneeFwd, limbThickness, color, bootColor);
+    const leg = (hipX, hY, footX, kneeFwd, footY) =>
+      drawLeg(ctx, hipX, hY, footX, kneeFwd, limbThickness, color, bootColor, footY);
 
     drawBackAccessory(ctx, id);
 
     // Legs are drawn in world space -- feet planted at y=0 -- so leaning the
     // torso below doesn't lift them off the ground or distort their shape.
-    leg(-stride * 0.3, hipY, -stride, kneeForward);
-    leg(stride * 0.3, hipY, stride, kneeForward);
+    if (id === 'artur' && pose === 'attack') {
+      // Froggy front kick: support leg plants centered, kicking leg drives
+      // up and out toward the opponent instead of staying on the ground.
+      leg(-stride * 0.15, hipY, -stride * 0.55, kneeForward * 0.6);
+      leg(stride * 0.2, hipY, stride * 3.6, 6, hipY * 0.65);
+    } else {
+      leg(-stride * 0.3, hipY, -stride, kneeForward);
+      leg(stride * 0.3, hipY, stride, kneeForward);
+    }
 
     ctx.save();
     // Lean the upper body (torso/arms/head) from the hip joint, not the
