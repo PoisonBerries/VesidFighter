@@ -4,10 +4,19 @@
 // their kit needs a genuinely new ability `type`.
 //
 // Stat tiers used across the roster (rough guide, not hard rules):
-//   sizeScale:  0.85 small, 1.0 mid, 1.1-1.25 big
-//   moveSpeed:  4.6 low, 5.2-5.6 medium, 6.4-6.6 high
-//   maxHp:      80 low, 100 medium, 110-120 high
-//   attack dmg: 6-7 low, 9-11 normal, 14-16 high
+//   sizeScale:    0.85 small, 1.0 mid, 1.1-1.25 big
+//   moveSpeed:    4.6 low, 5.0-5.6 medium, 6.4-6.6 high
+//   attackSpeed:  total basic-attack frames (startup+active+recovery), lower
+//                 is faster -- 16-19 fast, 24-27 normal, 29-32 slow, 38 slowest
+//   maxHp:        78-80 low, 100 medium, 108-122 high
+//   attack dmg:   6-7 low, 8-11 normal, 14-16 high
+//
+// Attack speed and damage are meant to trade off against each other, and
+// baseline stats generally trade off against how strong a character's
+// special/ultimate is -- e.g. Owen has the roster's best burst (a charged
+// plasma shot and the single hardest-hitting ultimate) so he's the most
+// fragile and slowest character in a straight fight; Keenan's ultimate does
+// no damage at all (pure evasion) so his normal kit is fast, if weak.
 
 const CHARACTERS = {
   keenan: {
@@ -20,11 +29,11 @@ const CHARACTERS = {
     moveSpeed: 5.6,
     jumpForce: 15,
     maxJumps: 1,
-    maxHp: 80,
+    maxHp: 78,
     attack: {
       damage: 6, offset: 24, width: 60, height: 82,
-      startup: 5, active: 3, recovery: 10,
-      knockback: 6, knockbackUp: 3, hitstun: 12,
+      startup: 5, active: 3, recovery: 8,
+      knockback: 6, knockbackUp: 3, hitstun: 11,
     },
     special: {
       type: 'counterDodge',
@@ -62,8 +71,8 @@ const CHARACTERS = {
     maxHp: 100,
     attack: {
       damage: 9, offset: 26, width: 70, height: 90,
-      startup: 7, active: 4, recovery: 14,
-      knockback: 8, knockbackUp: 3, hitstun: 16,
+      startup: 7, active: 4, recovery: 13,
+      knockback: 8, knockbackUp: 3, hitstun: 15,
     },
     special: {
       type: 'poisonBurst',
@@ -100,8 +109,8 @@ const CHARACTERS = {
     maxHp: 100,
     attack: {
       damage: 16, offset: 28, width: 78, height: 100,
-      startup: 12, active: 5, recovery: 20,
-      knockback: 12, knockbackUp: 4, hitstun: 22,
+      startup: 12, active: 5, recovery: 21,
+      knockback: 13, knockbackUp: 4, hitstun: 21,
     },
     special: {
       type: 'multiHit',
@@ -140,11 +149,11 @@ const CHARACTERS = {
     moveSpeed: 5.4,
     jumpForce: 15,
     maxJumps: 1,
-    maxHp: 120,
+    maxHp: 122,
     attack: {
       damage: 10, offset: 30, width: 76, height: 96,
-      startup: 7, active: 4, recovery: 15,
-      knockback: 8, knockbackUp: 3, hitstun: 17,
+      startup: 8, active: 4, recovery: 15,
+      knockback: 8, knockbackUp: 3, hitstun: 16,
     },
     special: {
       type: 'reflectStance',
@@ -177,11 +186,11 @@ const CHARACTERS = {
     moveSpeed: 4.6,
     jumpForce: 14,
     maxJumps: 1,
-    maxHp: 80,
+    maxHp: 78,
     attack: {
       damage: 8, offset: 26, width: 66, height: 88,
-      startup: 8, active: 4, recovery: 16,
-      knockback: 7, knockbackUp: 3, hitstun: 15,
+      startup: 8, active: 4, recovery: 17,
+      knockback: 7, knockbackUp: 3, hitstun: 14,
     },
     special: {
       type: 'projectileCharge',
@@ -229,7 +238,7 @@ const CHARACTERS = {
     attack: {
       damage: 11, offset: 26, width: 74, height: 94,
       startup: 7, active: 4, recovery: 14,
-      knockback: 8, knockbackUp: 3, hitstun: 17,
+      knockback: 9, knockbackUp: 3, hitstun: 16,
     },
     special: {
       type: 'slam',
@@ -267,8 +276,8 @@ const CHARACTERS = {
     maxHp: 80,
     attack: {
       damage: 7, offset: 24, width: 64, height: 84,
-      startup: 6, active: 3, recovery: 12,
-      knockback: 7, knockbackUp: 3, hitstun: 13,
+      startup: 6, active: 3, recovery: 10,
+      knockback: 7, knockbackUp: 3, hitstun: 12,
     },
     special: {
       type: 'soundwaveProjectile',
@@ -303,11 +312,11 @@ const CHARACTERS = {
     jumpForce: 19,
     maxJumps: 2,
     doubleJumpFlip: true,
-    maxHp: 80,
+    maxHp: 78,
     attack: {
       damage: 7, offset: 22, width: 60, height: 80,
-      startup: 6, active: 3, recovery: 12,
-      knockback: 7, knockbackUp: 3, hitstun: 13,
+      startup: 6, active: 3, recovery: 9,
+      knockback: 7, knockbackUp: 3, hitstun: 12,
     },
     special: {
       type: 'dive',
@@ -347,11 +356,11 @@ const CHARACTERS = {
     moveSpeed: 5.0,
     jumpForce: 13,
     maxJumps: 1,
-    maxHp: 105,
+    maxHp: 108,
     attack: {
       damage: 14, offset: 32, width: 84, height: 106,
-      startup: 9, active: 5, recovery: 17,
-      knockback: 10, knockbackUp: 3, hitstun: 20,
+      startup: 9, active: 5, recovery: 18,
+      knockback: 11, knockbackUp: 4, hitstun: 19,
     },
     special: {
       type: 'lunge',

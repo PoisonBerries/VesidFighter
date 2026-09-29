@@ -136,16 +136,51 @@ const Renderer = (() => {
 
   function drawProjectiles(ctx, projectiles) {
     for (const p of projectiles) {
+      const dir = p.vx >= 0 ? 1 : -1;
+
+      // Fake motion trail -- a few fading, shrinking copies behind the
+      // direction of travel, so a fast-moving shot reads clearly even
+      // against a busy background instead of looking like a static dot.
+      for (let i = 3; i >= 1; i--) {
+        const k = i / 3;
+        ctx.save();
+        ctx.translate(p.x - dir * i * p.w * 0.4, p.y);
+        ctx.globalAlpha = 0.22 * (1 - k * 0.4);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, (p.w / 2) * (1 - k * 0.35), (p.h / 2) * (1 - k * 0.35), 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
       ctx.save();
       ctx.translate(p.x, p.y);
-      const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.max(p.w, p.h) * 0.6);
+
+      // Soft outer glow so it stands out even over similarly-colored terrain.
+      const glowR = Math.max(p.w, p.h) * 0.9;
+      const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, glowR);
+      glow.addColorStop(0, p.color);
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, glowR, glowR * 0.85, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Hot white-cored body with a bright outline for contrast at any size.
+      ctx.globalAlpha = 1;
+      const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.max(p.w, p.h) * 0.55);
       grad.addColorStop(0, '#ffffff');
-      grad.addColorStop(0.4, p.color);
-      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      grad.addColorStop(0.55, p.color);
+      grad.addColorStop(1, p.color);
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.ellipse(0, 0, p.w / 2, p.h / 2, 0, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
       ctx.restore();
     }
   }

@@ -34,8 +34,16 @@ const UI = (() => {
     const vals = CHARACTER_LIST.map(accessor);
     return { min: Math.min(...vals), max: Math.max(...vals) };
   }
+  // Attack speed has no single stored field -- it's the basic attack's total
+  // frame count (startup+active+recovery). Lower frames = faster, so we
+  // invert it here into a "higher is faster" score that fits the same
+  // higher-is-fuller stat-bar convention as everything else.
+  function atkSpeedScore(c) {
+    return 1000 / (c.attack.startup + c.attack.active + c.attack.recovery);
+  }
   const STAT_RANGES = {
     speed: statRange((c) => c.moveSpeed),
+    atkSpeed: statRange(atkSpeedScore),
     power: statRange((c) => c.attack.damage),
     hp: statRange((c) => c.maxHp),
     size: statRange((c) => c.sizeScale),
@@ -62,6 +70,7 @@ const UI = (() => {
     container.style.setProperty('--fp-glow', hexToRgba(char.color, 0.45));
 
     const speedPct = statPct(char.moveSpeed, STAT_RANGES.speed);
+    const atkSpeedPct = statPct(atkSpeedScore(char), STAT_RANGES.atkSpeed);
     const powerPct = statPct(char.attack.damage, STAT_RANGES.power);
     const hpPct = statPct(char.maxHp, STAT_RANGES.hp);
     const sizePct = statPct(char.sizeScale, STAT_RANGES.size);
@@ -75,6 +84,7 @@ const UI = (() => {
       <div class="preview-title">${char.title}</div>
       <div class="stat-bars">
         <div class="stat-row"><span class="stat-label">Speed</span><div class="stat-bar"><div class="stat-fill" style="width:${speedPct}%"></div></div></div>
+        <div class="stat-row"><span class="stat-label">Atk Spd</span><div class="stat-bar"><div class="stat-fill" style="width:${atkSpeedPct}%"></div></div></div>
         <div class="stat-row"><span class="stat-label">Power</span><div class="stat-bar"><div class="stat-fill" style="width:${powerPct}%"></div></div></div>
         <div class="stat-row"><span class="stat-label">HP</span><div class="stat-bar"><div class="stat-fill" style="width:${hpPct}%"></div></div></div>
         <div class="stat-row"><span class="stat-label">Size</span><div class="stat-bar"><div class="stat-fill" style="width:${sizePct}%"></div></div></div>

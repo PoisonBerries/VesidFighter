@@ -252,11 +252,12 @@ button:active {
 }
 
 .stat-label {
-  width: 48px;
+  width: 58px;
   flex-shrink: 0;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   color: #cbb9e0;
   text-align: right;
+  white-space: nowrap;
 }
 
 .stat-bar {
