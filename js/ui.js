@@ -27,33 +27,104 @@ const UI = (() => {
   }
 
   // ---- Character select ----
+
+  // Stat bars read a 30-100% scale (not 0-100%) so even the roster's lowest
+  // value still reads as a visible bar rather than a near-invisible sliver.
+  function statRange(accessor) {
+    const vals = CHARACTER_LIST.map(accessor);
+    return { min: Math.min(...vals), max: Math.max(...vals) };
+  }
+  const STAT_RANGES = {
+    speed: statRange((c) => c.moveSpeed),
+    power: statRange((c) => c.attack.damage),
+    hp: statRange((c) => c.maxHp),
+    size: statRange((c) => c.sizeScale),
+  };
+  function statPct(value, range) {
+    if (range.max === range.min) return 100;
+    return Math.round(((value - range.min) / (range.max - range.min)) * 70 + 30);
+  }
+
+  function hexToRgba(hex, alpha) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function renderPreview(slot, charId) {
+    const char = CHARACTERS[charId];
+    const controls = CONTROLS[slot];
+    const container = document.getElementById('preview-' + slot);
+
+    container.style.setProperty('--fp-color', char.color);
+    container.style.setProperty('--fp-glow', hexToRgba(char.color, 0.45));
+
+    const speedPct = statPct(char.moveSpeed, STAT_RANGES.speed);
+    const powerPct = statPct(char.attack.damage, STAT_RANGES.power);
+    const hpPct = statPct(char.maxHp, STAT_RANGES.hp);
+    const sizePct = statPct(char.sizeScale, STAT_RANGES.size);
+
+    container.innerHTML = `
+      <div class="preview-avatar-wrap">
+        <div class="avatar-fallback" style="background:${char.color}"></div>
+        <img class="avatar-img" src="assets/heads/${char.id}.png" alt="" onerror="this.style.display='none'">
+      </div>
+      <div class="preview-name">${char.name}</div>
+      <div class="preview-title">${char.title}</div>
+      <div class="stat-bars">
+        <div class="stat-row"><span class="stat-label">Speed</span><div class="stat-bar"><div class="stat-fill" style="width:${speedPct}%"></div></div></div>
+        <div class="stat-row"><span class="stat-label">Power</span><div class="stat-bar"><div class="stat-fill" style="width:${powerPct}%"></div></div></div>
+        <div class="stat-row"><span class="stat-label">HP</span><div class="stat-bar"><div class="stat-fill" style="width:${hpPct}%"></div></div></div>
+        <div class="stat-row"><span class="stat-label">Size</span><div class="stat-bar"><div class="stat-fill" style="width:${sizePct}%"></div></div></div>
+      </div>
+      <div class="ability-row">
+        <span class="key-badge">${keyLabel(controls.special)}</span>
+        <div>
+          <div class="ability-name">Special: ${char.special.name}</div>
+          <div class="ability-desc">${char.special.description}</div>
+        </div>
+      </div>
+      <div class="ability-row">
+        <span class="key-badge">${keyLabel(controls.ultimate)}</span>
+        <div>
+          <div class="ability-name">Ultimate: ${char.ultimate.name}</div>
+          <div class="ability-desc">${char.ultimate.description}</div>
+        </div>
+      </div>
+    `;
+  }
+
   function buildCharCards(containerId, slot) {
     const container = document.getElementById(containerId);
     container.innerHTML = '';
     for (const char of CHARACTER_LIST) {
-      const card = document.createElement('div');
-      card.className = 'char-card' + (selected[slot] === char.id ? ' selected' : '');
-      card.innerHTML = `
-        <div class="card-head">
-          <div class="head-fallback" style="background:${char.color}"></div>
-          <img class="head-img" src="assets/heads/${char.id}.png" alt="" onerror="this.style.display='none'">
+      const icon = document.createElement('div');
+      icon.className = 'roster-icon' + (selected[slot] === char.id ? ' selected' : '');
+      icon.innerHTML = `
+        <div class="roster-avatar">
+          <div class="icon-fallback" style="background:${char.color}"></div>
+          <img class="icon-img" src="assets/heads/${char.id}.png" alt="" onerror="this.style.display='none'">
         </div>
-        <div class="char-name">${char.name}</div>
-        <div class="char-title">${char.title}</div>
-        <div class="char-special">Special: ${char.special.name}</div>
-        <div class="char-ultimate">Ultimate: ${char.ultimate.name}</div>
+        <div class="roster-name">${char.name}</div>
       `;
-      card.addEventListener('click', () => {
+      icon.addEventListener('mouseenter', () => renderPreview(slot, char.id));
+      icon.addEventListener('mouseleave', () => renderPreview(slot, selected[slot]));
+      icon.addEventListener('click', () => {
         selected[slot] = char.id;
         buildCharCards(containerId, slot);
+        renderPreview(slot, char.id);
       });
-      container.appendChild(card);
+      container.appendChild(icon);
     }
   }
 
   function openSelect() {
     buildCharCards('p1-cards', 'p1');
     buildCharCards('p2-cards', 'p2');
+    renderPreview('p1', selected.p1);
+    renderPreview('p2', selected.p2);
     show('select');
   }
 

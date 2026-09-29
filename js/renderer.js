@@ -426,22 +426,59 @@ const Renderer = (() => {
     ctx.restore();
   }
 
+  function roundRectPath(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // A small rounded key-binding chip. `x` is the left edge normally, or the
+  // right edge when `alignRight` is true (so P2's badges can mirror P1's).
+  function drawKeyBadge(ctx, x, y, label, alignRight) {
+    ctx.save();
+    ctx.font = 'bold 11px sans-serif';
+    const textW = ctx.measureText(label).width;
+    const boxW = Math.max(18, textW + 10);
+    const boxH = 16;
+    const boxX = alignRight ? x - boxW : x;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1;
+    roundRectPath(ctx, boxX, y - boxH / 2, boxW, boxH, 4);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, boxX + boxW / 2, y + 1);
+    ctx.restore();
+  }
+
   function drawHUD(ctx, p1, p2) {
     const barW = 380;
     const barH = 26;
     const margin = 30;
+    const gaugeW = 160;
 
     drawHealthBar(ctx, margin, 30, barW, barH, p1.hp, p1.maxHp, false);
     drawHealthBar(ctx, CANVAS_WIDTH - margin - barW, 30, barW, barH, p2.hp, p2.maxHp, true);
 
-    drawSpecialGauge(ctx, margin, 60, 160, 8, p1.specialCooldownTimer, p1.character.special.cooldown, false);
-    drawSpecialGauge(ctx, CANVAS_WIDTH - margin - 160, 60, 160, 8, p2.specialCooldownTimer, p2.character.special.cooldown, true);
+    drawSpecialGauge(ctx, margin, 60, gaugeW, 8, p1.specialCooldownTimer, p1.character.special.cooldown, false);
+    drawSpecialGauge(ctx, CANVAS_WIDTH - margin - gaugeW, 60, gaugeW, 8, p2.specialCooldownTimer, p2.character.special.cooldown, true);
+    drawKeyBadge(ctx, margin + gaugeW + 8, 64, keyLabel(CONTROLS.p1.special), false);
+    drawKeyBadge(ctx, CANVAS_WIDTH - margin - gaugeW - 8, 64, keyLabel(CONTROLS.p2.special), true);
 
-    drawUltGauge(ctx, margin, 71, 160, 10, p1.ultCharge, false);
-    drawUltGauge(ctx, CANVAS_WIDTH - margin - 160, 71, 160, 10, p2.ultCharge, true);
+    drawUltGauge(ctx, margin, 74, gaugeW, 10, p1.ultCharge, false);
+    drawUltGauge(ctx, CANVAS_WIDTH - margin - gaugeW, 74, gaugeW, 10, p2.ultCharge, true);
+    drawKeyBadge(ctx, margin + gaugeW + 8, 79, keyLabel(CONTROLS.p1.ultimate), false);
+    drawKeyBadge(ctx, CANVAS_WIDTH - margin - gaugeW - 8, 79, keyLabel(CONTROLS.p2.ultimate), true);
 
-    drawRoundPips(ctx, margin, 96, p1.roundsWon, false);
-    drawRoundPips(ctx, CANVAS_WIDTH - margin, 96, p2.roundsWon, true);
+    drawRoundPips(ctx, margin, 99, p1.roundsWon, false);
+    drawRoundPips(ctx, CANVAS_WIDTH - margin, 99, p2.roundsWon, true);
 
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 20px sans-serif';

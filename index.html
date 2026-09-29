@@ -46,14 +46,17 @@
 
     <div id="screen-select" class="screen hidden">
       <h2>Choose Your Fighters</h2>
-      <div class="select-columns">
-        <div class="select-column">
-          <h3>Player 1</h3>
-          <div id="p1-cards" class="char-cards"></div>
+      <div class="select-arena">
+        <div class="select-side">
+          <div class="side-label p1-label">Player 1</div>
+          <div class="fighter-preview" id="preview-p1"></div>
+          <div class="roster-grid" id="p1-cards"></div>
         </div>
-        <div class="select-column">
-          <h3>Player 2</h3>
-          <div id="p2-cards" class="char-cards"></div>
+        <div class="vs-divider">VS</div>
+        <div class="select-side">
+          <div class="side-label p2-label">Player 2</div>
+          <div class="fighter-preview" id="preview-p2"></div>
+          <div class="roster-grid" id="p2-cards"></div>
         </div>
       </div>
       <div class="row-buttons">

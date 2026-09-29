@@ -52,3 +52,16 @@ const ULT_METER_MAX = 100;
 const ULT_GAIN_ON_LAND_NORMAL = 7;
 const ULT_GAIN_ON_LAND_SPECIAL = 12;
 const ULT_GAIN_ON_TAKEN = 5;
+
+// Turns a KeyboardEvent.code into the short label shown on-screen (HUD key
+// badges, the character select panel). Shared by renderer.js and ui.js.
+function keyLabel(code) {
+  const named = {
+    Semicolon: ';', Quote: "'", ArrowLeft: '←', ArrowRight: '→',
+    ArrowUp: '↑', ArrowDown: '↓', Space: 'Space',
+  };
+  if (named[code]) return named[code];
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  return code;
+}
