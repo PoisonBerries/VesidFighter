@@ -19,7 +19,7 @@ const CHARACTERS = {
     sizeScale: 0.85,
     moveSpeed: 5.6,
     jumpForce: 15,
-    maxJumps: 2,
+    maxJumps: 1,
     maxHp: 80,
     attack: {
       damage: 6, offset: 24, width: 60, height: 82,
@@ -95,7 +95,7 @@ const CHARACTERS = {
     sizeScale: 1.05,
     moveSpeed: 5.2,
     jumpForce: 14,
-    maxJumps: 2,
+    maxJumps: 1,
     gravityMul: 0.82, // hovers -- floatier than everyone else
     maxHp: 100,
     attack: {
@@ -139,7 +139,7 @@ const CHARACTERS = {
     sizeScale: 1.1,
     moveSpeed: 5.4,
     jumpForce: 15,
-    maxJumps: 2,
+    maxJumps: 1,
     maxHp: 120,
     attack: {
       damage: 10, offset: 30, width: 76, height: 96,
@@ -176,7 +176,7 @@ const CHARACTERS = {
     sizeScale: 1.0,
     moveSpeed: 4.6,
     jumpForce: 14,
-    maxJumps: 2,
+    maxJumps: 1,
     maxHp: 80,
     attack: {
       damage: 8, offset: 26, width: 66, height: 88,
@@ -217,7 +217,7 @@ const CHARACTERS = {
     sizeScale: 1.0,
     moveSpeed: 5.6,
     jumpForce: 15,
-    maxJumps: 2,
+    maxJumps: 1,
     maxHp: 100,
     transform: {
       hpThreshold: 0.5,
@@ -263,7 +263,7 @@ const CHARACTERS = {
     sizeScale: 1.0,
     moveSpeed: 6.6,
     jumpForce: 15,
-    maxJumps: 2,
+    maxJumps: 1,
     maxHp: 80,
     attack: {
       damage: 7, offset: 24, width: 64, height: 84,
@@ -346,7 +346,7 @@ const CHARACTERS = {
     sizeScale: 1.25,
     moveSpeed: 5.0,
     jumpForce: 13,
-    maxJumps: 2,
+    maxJumps: 1,
     maxHp: 105,
     attack: {
       damage: 14, offset: 32, width: 84, height: 106,

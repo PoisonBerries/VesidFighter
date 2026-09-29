@@ -173,15 +173,38 @@ const Renderer = (() => {
     ctx.restore();
   }
 
+  // A two-bone leg: hip -> knee -> foot, with the knee kicked forward by
+  // `kneeForward` so standing/crouching/walking actually shows a bent joint
+  // instead of a single rigid line.
+  function drawLeg(ctx, hipX, hipY, footX, kneeForward) {
+    const kneeX = (hipX + footX) / 2 + kneeForward;
+    const kneeY = hipY * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(hipX, hipY);
+    ctx.lineTo(kneeX, kneeY);
+    ctx.lineTo(footX, 0);
+    ctx.stroke();
+  }
+
+  // A two-bone arm: shoulder -> elbow -> hand, elbow offset perpendicular to
+  // the shoulder-hand line by `bend` (sign controls which way it bends).
+  function drawArm(ctx, shX, shY, handX, handY, bend) {
+    const mx = (shX + handX) / 2, my = (shY + handY) / 2;
+    const dx = handX - shX, dy = handY - shY;
+    const len = Math.hypot(dx, dy) || 1;
+    const px = -dy / len, py = dx / len;
+    ctx.beginPath();
+    ctx.moveTo(shX, shY);
+    ctx.lineTo(mx + px * bend, my + py * bend);
+    ctx.lineTo(handX, handY);
+    ctx.stroke();
+  }
+
   // ---- Procedural placeholder figure (used until real sprites are uploaded) ----
   function drawPlaceholder(ctx, fighter, pose) {
     const color = fighter.displayColor;
     const accent = fighter.displayAccent;
     const H = fighter.height;
-    const hipY = -H * 0.38;
-    const shoulderY = -H * 0.72;
-    const headY = -H * 0.86;
-    const headR = H * 0.14;
 
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -189,65 +212,86 @@ const Renderer = (() => {
     ctx.fillStyle = color;
     ctx.lineWidth = 14;
 
-    let legSpread = 10;
-    let armSwing = 0;
-    let armsForward = false;
-    let armsCrossed = false;
-    let armsUp = false;
-    let lean = 0;
-    let crouch = 0;
+    let stride = 9;          // how far apart the feet are
+    let kneeForward = 10;     // how much the knees bow forward
+    let crouchAmount = 0;     // 0 = standing tall, ~0.25 = deep crouch
+    let lean = 0;             // upper-body lean, pivoting at the hip
+    let elbowBend = 8;
+    let armPose = 'swing';    // swing | forward | crossed | up
+    let armSwing = Math.sin(performance.now() / 400) * 3; // idle sway by default
 
     switch (pose) {
-      case 'walk':
-        legSpread = 22 + Math.sin(fighter.walkCycle) * 14;
-        armSwing = Math.sin(fighter.walkCycle) * 18;
+      case 'walk': {
+        const cyc = fighter.walkCycle;
+        stride = 20 + Math.sin(cyc) * 15;
+        kneeForward = 12 + Math.abs(Math.cos(cyc)) * 14;
+        armSwing = Math.sin(cyc) * 22;
         break;
+      }
       case 'jump':
-        legSpread = -6;
-        armsUp = true;
+        stride = -8;
+        kneeForward = 22;
+        crouchAmount = 0.06;
+        armPose = 'up';
         break;
       case 'attack':
-        armsForward = true;
-        lean = 6;
+        stride = 16;
+        kneeForward = 16;
+        lean = 9;
+        elbowBend = 6;
+        armPose = 'forward';
         break;
       case 'special':
-        armsForward = true;
-        lean = 10;
+        stride = 20;
+        kneeForward = 18;
+        lean = 13;
+        elbowBend = 4;
+        armPose = 'forward';
         break;
       case 'block':
-        armsCrossed = true;
-        crouch = 10;
-        break;
-      case 'hit':
-        lean = -14;
-        armSwing = 30;
+        crouchAmount = 0.24;
+        kneeForward = 26;
+        stride = 15;
+        lean = 6;
+        armPose = 'crossed';
         break;
       case 'knockdown':
-        legSpread = 26;
-        armSwing = 40;
-        crouch = 6;
+        crouchAmount = 0.1;
+        kneeForward = 28;
+        stride = 24;
+        armSwing = 34;
+        break;
+      case 'hit':
+        lean = -16;
+        kneeForward = 18;
+        stride = 16;
+        armSwing = 28;
         break;
       case 'victory':
-        armsUp = true;
+        kneeForward = 6;
+        armPose = 'up';
         break;
       default:
-        break;
+        break; // idle -- defaults above already give a subtle sway
     }
 
-    ctx.save();
-    ctx.rotate(lean * Math.PI / 180);
-    ctx.translate(0, crouch);
+    const crouchScale = 1 - crouchAmount;
+    const hipY = -H * 0.38 * crouchScale;
+    const shoulderY = -H * 0.72 * crouchScale;
+    const headY = -H * 0.86 * crouchScale;
+    const headR = H * 0.14;
 
-    // Back leg
-    ctx.beginPath();
-    ctx.moveTo(-legSpread * 0.5, hipY);
-    ctx.lineTo(-legSpread, 0);
-    ctx.stroke();
-    // Front leg
-    ctx.beginPath();
-    ctx.moveTo(legSpread * 0.5, hipY);
-    ctx.lineTo(legSpread, 0);
-    ctx.stroke();
+    // Legs are drawn in world space -- feet planted at y=0 -- so leaning the
+    // torso below doesn't lift them off the ground or distort their shape.
+    drawLeg(ctx, -stride * 0.3, hipY, -stride, kneeForward);
+    drawLeg(ctx, stride * 0.3, hipY, stride, kneeForward);
+
+    ctx.save();
+    // Lean the upper body (torso/arms/head) from the hip joint, not the
+    // feet, so an attack's forward lean doesn't warp the legs.
+    ctx.translate(0, hipY);
+    ctx.rotate(lean * Math.PI / 180);
+    ctx.translate(0, -hipY);
 
     // Torso
     ctx.beginPath();
@@ -256,48 +300,23 @@ const Renderer = (() => {
     ctx.stroke();
 
     // Arms
-    if (armsForward) {
-      // back arm, pulled back
-      ctx.beginPath();
-      ctx.moveTo(0, shoulderY + 6);
-      ctx.lineTo(-18, shoulderY + 20);
-      ctx.stroke();
-      // front arm, extended out (the "punch")
-      ctx.beginPath();
-      ctx.moveTo(0, shoulderY + 6);
-      ctx.lineTo(46, shoulderY - 4);
-      ctx.stroke();
+    const shY = shoulderY + 6;
+    if (armPose === 'forward') {
+      drawArm(ctx, 0, shY, -18, shY + 20, -elbowBend); // back arm, pulled back
+      drawArm(ctx, 0, shY, 46, shY - 4, elbowBend);    // front arm, punching
       ctx.beginPath();
       ctx.fillStyle = accent;
-      ctx.arc(50, shoulderY - 4, 10, 0, Math.PI * 2);
+      ctx.arc(50, shY - 4, 10, 0, Math.PI * 2);
       ctx.fill();
-    } else if (armsCrossed) {
-      ctx.beginPath();
-      ctx.moveTo(0, shoulderY + 6);
-      ctx.lineTo(22, shoulderY + 18);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, shoulderY + 6);
-      ctx.lineTo(-6, shoulderY + 30);
-      ctx.stroke();
-    } else if (armsUp) {
-      ctx.beginPath();
-      ctx.moveTo(0, shoulderY + 6);
-      ctx.lineTo(-16, shoulderY - 26);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, shoulderY + 6);
-      ctx.lineTo(16, shoulderY - 26);
-      ctx.stroke();
+    } else if (armPose === 'crossed') {
+      drawArm(ctx, 0, shY, 22, shY + 18, -elbowBend);
+      drawArm(ctx, 0, shY, -6, shY + 30, elbowBend);
+    } else if (armPose === 'up') {
+      drawArm(ctx, 0, shY, -16, shoulderY - 26, -elbowBend);
+      drawArm(ctx, 0, shY, 16, shoulderY - 26, elbowBend);
     } else {
-      ctx.beginPath();
-      ctx.moveTo(0, shoulderY + 6);
-      ctx.lineTo(-14 + armSwing * 0.3, shoulderY + 26);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, shoulderY + 6);
-      ctx.lineTo(14 - armSwing * 0.3, shoulderY + 26);
-      ctx.stroke();
+      drawArm(ctx, 0, shY, -14 + armSwing * 0.3, shY + 26, elbowBend);
+      drawArm(ctx, 0, shY, 14 - armSwing * 0.3, shY + 26, -elbowBend);
     }
 
     // Head -- a real portrait if one's been shipped for this character,
