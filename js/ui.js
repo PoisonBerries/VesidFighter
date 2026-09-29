@@ -34,7 +34,10 @@ const UI = (() => {
       const card = document.createElement('div');
       card.className = 'char-card' + (selected[slot] === char.id ? ' selected' : '');
       card.innerHTML = `
-        <div class="swatch" style="background:${char.color}"></div>
+        <div class="card-head">
+          <div class="head-fallback" style="background:${char.color}"></div>
+          <img class="head-img" src="assets/heads/${char.id}.png" alt="" onerror="this.style.display='none'">
+        </div>
         <div class="char-name">${char.name}</div>
         <div class="char-title">${char.title}</div>
         <div class="char-special">Special: ${char.special.name}</div>

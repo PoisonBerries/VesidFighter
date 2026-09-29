@@ -181,11 +181,27 @@ button:active {
   box-shadow: 0 0 12px rgba(255, 209, 102, 0.5);
 }
 
-.char-card .swatch {
+.card-head {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 8px auto;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+}
+
+.card-head .head-fallback {
+  position: absolute;
+  inset: 0;
+}
+
+.card-head .head-img {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  height: 12px;
-  border-radius: 4px;
-  margin-bottom: 6px;
+  height: 100%;
+  object-fit: cover;
 }
 
 .char-card .char-name {

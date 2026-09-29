@@ -300,15 +300,35 @@ const Renderer = (() => {
       ctx.stroke();
     }
 
-    // Head
-    ctx.fillStyle = accent;
-    ctx.beginPath();
-    ctx.arc(0, headY, headR, 0, Math.PI * 2);
-    ctx.fill();
+    // Head -- a real portrait if one's been shipped for this character,
+    // otherwise the plain colored circle.
+    const headImg = CharacterHeads.getImage(fighter.character.id);
+    if (headImg) {
+      drawHeadImage(ctx, headImg, 0, headY, headR);
+    } else {
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.arc(0, headY, headR, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.strokeStyle = color;
     ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(0, headY, headR, 0, Math.PI * 2);
     ctx.stroke();
 
+    ctx.restore();
+  }
+
+  function drawHeadImage(ctx, img, cx, cy, radius) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.clip();
+    const aspect = img.width / img.height;
+    let dw, dh;
+    if (aspect > 1) { dh = radius * 2.1; dw = dh * aspect; } else { dw = radius * 2.1; dh = dw / aspect; }
+    ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
     ctx.restore();
   }
 
