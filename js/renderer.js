@@ -98,6 +98,20 @@ const Renderer = (() => {
       Effects.spawnAuraPuff(fighter.x + fighter.facing * fighter.width * 0.4, fighter.y - fighter.height * 0.55, chargeColor);
     }
 
+    // Ground contact shadow, drawn in world space (not the fighter's own
+    // translated/rotated space) so it stays flat on the platform and
+    // shrinks/fades with height instead of following a jumping character
+    // straight up.
+    const heightAboveGround = Math.max(0, GROUND_Y - fighter.y);
+    const shadowScale = Math.max(0.35, 1 - heightAboveGround / 220);
+    ctx.save();
+    ctx.globalAlpha = 0.32 * shadowScale;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(fighter.x, GROUND_Y + 3, fighter.width * 0.34 * shadowScale, 7 * shadowScale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
     ctx.save();
     ctx.translate(fighter.x, fighter.y);
 
@@ -218,16 +232,35 @@ const Renderer = (() => {
   // seams. This is what actually moves the placeholder from "stick figure"
   // to something with real body volume.
 
-  function shadeColor(hex, percent) {
-    // percent < 0 darkens toward black, > 0 lightens toward white.
-    const h = hex.replace('#', '');
-    const r = parseInt(h.substring(0, 2), 16);
-    const g = parseInt(h.substring(2, 4), 16);
-    const b = parseInt(h.substring(4, 6), 16);
+  function shadeColor(input, percent) {
+    // percent < 0 darkens toward black, > 0 lightens toward white. Accepts
+    // either "#rrggbb" or "rgb(r,g,b)" so it can safely re-shade a color
+    // that's already been shaded once (e.g. for a gradient's dark stop).
+    let r, g, b;
+    if (input.startsWith('#')) {
+      const h = input.replace('#', '');
+      r = parseInt(h.substring(0, 2), 16);
+      g = parseInt(h.substring(2, 4), 16);
+      b = parseInt(h.substring(4, 6), 16);
+    } else {
+      const m = input.match(/\d+/g);
+      r = +m[0]; g = +m[1]; b = +m[2];
+    }
     const t = percent < 0 ? 0 : 255;
     const p = Math.abs(percent) / 100;
     const mix = (c) => Math.round((t - c) * p) + c;
     return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
+  }
+
+  // A perpendicular light-to-dark gradient across a shape's own bounding
+  // radius, so flat-filled limbs/torso read as cylindrical volume instead
+  // of flat cutout shapes. `nx,ny` is the direction to lighten toward.
+  function bodyGradient(ctx, cx, cy, nx, ny, radius, baseColor) {
+    const grad = ctx.createLinearGradient(cx + nx * radius, cy + ny * radius, cx - nx * radius, cy - ny * radius);
+    grad.addColorStop(0, shadeColor(baseColor, 30));
+    grad.addColorStop(0.5, baseColor);
+    grad.addColorStop(1, shadeColor(baseColor, -26));
+    return grad;
   }
 
   function fillCapsule(ctx, x1, y1, x2, y2, r1, r2, fillStyle) {
@@ -241,15 +274,25 @@ const Renderer = (() => {
     ctx.lineTo(x1 - cos * r1, y1 - sin * r1);
     ctx.arc(x1, y1, r1, perp + Math.PI, perp + Math.PI * 2, false);
     ctx.closePath();
-    ctx.fillStyle = fillStyle;
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    ctx.fillStyle = bodyGradient(ctx, mx, my, cos, sin, Math.max(r1, r2), fillStyle);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
   }
 
   function fillJoint(ctx, x, y, r, fillStyle) {
+    const grad = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
+    grad.addColorStop(0, shadeColor(fillStyle, 24));
+    grad.addColorStop(1, shadeColor(fillStyle, -16));
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = fillStyle;
+    ctx.fillStyle = grad;
     ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
   }
 
   // Hip -> knee -> foot, each bone a tapered capsule; the shin renders in a
@@ -317,10 +360,16 @@ const Renderer = (() => {
   function drawHand(ctx, x, y, profile, accent) {
     if (profile.clawHands) {
       ctx.save();
-      ctx.fillStyle = shadeColor(accent, -10);
+      const palmGrad = ctx.createRadialGradient(x - 2, y - 2, 1, x, y, 7);
+      palmGrad.addColorStop(0, shadeColor(accent, 8));
+      palmGrad.addColorStop(1, shadeColor(accent, -18));
+      ctx.fillStyle = palmGrad;
       ctx.beginPath();
-      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.arc(x, y, 6.5, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
       ctx.strokeStyle = accent;
       ctx.lineWidth = 4.5;
       ctx.lineCap = 'round';
@@ -331,16 +380,27 @@ const Renderer = (() => {
         ctx.lineTo(x + Math.cos(rad) * 17, y + Math.sin(rad) * 17 - 5);
         ctx.stroke();
       }
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 0.8;
+      for (const deg of [-20, 0, 20]) {
+        const rad = deg * Math.PI / 180;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + Math.cos(rad) * 17, y + Math.sin(rad) * 17 - 5);
+        ctx.stroke();
+      }
       ctx.restore();
     } else {
-      ctx.fillStyle = accent;
+      const grad = ctx.createRadialGradient(x - 3, y - 3, 1, x, y, 10.5);
+      grad.addColorStop(0, shadeColor(accent, 24));
+      grad.addColorStop(1, shadeColor(accent, -14));
+      ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(x, y, 10.5, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.beginPath();
-      ctx.arc(x - 3, y - 3, 3.5, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
     }
   }
 
@@ -701,18 +761,27 @@ const Renderer = (() => {
     ctx.rotate(lean * Math.PI / 180);
     ctx.translate(0, -hipY);
 
-    // Torso -- a filled, slightly tapered body instead of a bare line.
+    // Torso -- a filled body with a natural waist taper instead of a rigid
+    // straight-sided trapezoid, shaded like the limbs for consistent volume.
     // Shoulders are kept at least as wide as the head so it reads as "head
     // sits on shoulders" rather than a big head balanced on a narrow body.
     const shoulderW = Math.max(limbThickness * 0.62, headR * 0.95), hipW = limbThickness * 0.5;
+    const waistY = shoulderY + (hipY - shoulderY) * 0.58;
+    const waistW = Math.min(shoulderW, hipW) * 0.82;
     ctx.beginPath();
     ctx.moveTo(-shoulderW, shoulderY);
     ctx.lineTo(shoulderW, shoulderY);
-    ctx.lineTo(hipW, hipY);
+    ctx.quadraticCurveTo(shoulderW * 0.92, waistY, waistW, waistY);
+    ctx.quadraticCurveTo(hipW * 1.06, waistY, hipW, hipY);
     ctx.lineTo(-hipW, hipY);
+    ctx.quadraticCurveTo(-hipW * 1.06, waistY, -waistW, waistY);
+    ctx.quadraticCurveTo(-shoulderW * 0.92, waistY, -shoulderW, shoulderY);
     ctx.closePath();
-    ctx.fillStyle = color;
+    ctx.fillStyle = bodyGradient(ctx, 0, (shoulderY + hipY) / 2, 1, 0, shoulderW, color);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
 
     // Neck -- bridges up into the underside of the head (drawn later, on
     // top, so it naturally tucks under the chin) instead of leaving the
@@ -726,6 +795,9 @@ const Renderer = (() => {
     ctx.closePath();
     ctx.fillStyle = shadeColor(color, -12);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
 
     drawTorsoCostume(ctx, id, hipY, shoulderY, color, accent, fighter.transformed);
 
