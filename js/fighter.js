@@ -1,0 +1,821 @@
+// A single fighter's state machine, physics, and combat logic.
+// Runs on a fixed timestep (see FIXED_STEP in constants.js); all durations
+// below are expressed in frames at that fixed rate (60fps) rather than
+// wall-clock time, which keeps combat timing exact regardless of the
+// display's refresh rate.
+//
+// Specials and ultimates are data-driven: character.special / .ultimate
+// carry a `type` (lunge, slam, dive, multiHit, projectileCharge,
+// soundwaveProjectile, nuke, counterDodge, reflectStance, buff, poisonBurst,
+// growRoll, phase) and _updateAbilityState() dispatches on it. Adding a hero
+// whose kit reuses an existing type is pure data in characters.js; a
+// genuinely new mechanic needs a new case here.
+
+class Fighter {
+  constructor(slot, character, startX, facing) {
+    this.slot = slot; // 'p1' | 'p2' -- used to look up custom sprites
+    this.character = character;
+    this.x = startX;
+    this.y = GROUND_Y;
+    this.vx = 0;
+    this.vy = 0;
+    this.facing = facing; // 1 = facing right, -1 = facing left
+    this.grounded = true;
+    this.jumpsUsed = 0;
+    this.doubleJumpFlipTimer = 0;
+
+    this.maxHp = character.maxHp;
+    this.hp = character.maxHp;
+
+    this.state = 'idle';
+    this.actionTimer = 0; // frames elapsed in current action (attack/special/hitstun/etc)
+    this.attackHasHit = false;
+    this.specialCooldownTimer = 0; // seconds remaining
+    this.ultCharge = 0;
+
+    this.blocking = false;
+    this.facingLocked = false;
+
+    this.roundsWon = 0;
+
+    // Purely cosmetic: bob/flash timers the renderer uses.
+    this.hitFlashTimer = 0;
+    this.walkCycle = 0;
+
+    // Status effects, all decremented in _updateStatusTimers().
+    this.poisonTicksLeft = 0;
+    this.poisonTickTimer = 0;
+    this.poisonDamagePerTick = 0;
+    this.poisonTickInterval = 20;
+    this.invulnerableTimer = 0;
+    this._dodging = false; // true only during a Keenan-style counter-dodge window
+    this._dodgeSuccess = false;
+    this.reflectTimer = 0;
+    this.reflectMultiplier = 1;
+    this.knockdownTimer = 0;
+
+    // Timed buffs (Ryan/Nathan ultimates).
+    this.buffTimer = 0;
+    this.buffAtkMul = 1;
+    this.buffSpdMul = 1;
+    this.buffSizeMul = 1;
+    this.atkSpeedMul = 1;
+
+    // Robert-style permanent mid-match transformation.
+    this.transformed = false;
+    this._justTransformed = false;
+
+    // Scratch state for whichever special/ultimate is currently running.
+    this._ability = {};
+    this._controls = null;
+  }
+
+  get sizeMultiplier() {
+    let m = this.character.sizeScale * this.buffSizeMul;
+    if (this.transformed && this.character.transform) m *= this.character.transform.sizeMul;
+    return m;
+  }
+
+  get width() { return FIGHTER_WIDTH * this.sizeMultiplier; }
+  get height() { return FIGHTER_HEIGHT * this.sizeMultiplier; }
+
+  get moveSpeedEff() {
+    let s = this.character.moveSpeed * this.buffSpdMul;
+    if (this.transformed && this.character.transform) s *= this.character.transform.spdMul;
+    return s;
+  }
+
+  get damageMultiplier() {
+    let d = this.buffAtkMul;
+    if (this.transformed && this.character.transform) d *= this.character.transform.dmgMul;
+    return d;
+  }
+
+  get displayColor() {
+    return (this.transformed && this.character.transformColor) ? this.character.transformColor : this.character.color;
+  }
+
+  get displayAccent() {
+    return (this.transformed && this.character.transformAccent) ? this.character.transformAccent : this.character.accent;
+  }
+
+  get isPhased() {
+    return this.invulnerableTimer > 0 && !this._dodging;
+  }
+
+  getHurtbox() {
+    return {
+      x: this.x - this.width / 2,
+      y: this.y - this.height,
+      w: this.width,
+      h: this.height,
+    };
+  }
+
+  _forwardBox(offset, w, h) {
+    const centerX = this.x + this.facing * offset;
+    return {
+      x: centerX - (this.facing === 1 ? 0 : w),
+      y: this.y - h,
+      w,
+      h,
+    };
+  }
+
+  _centeredBox(w, h) {
+    return { x: this.x - w / 2, y: this.y - h, w, h };
+  }
+
+  // Returns the active melee hitbox rect, or null. Projectile-type abilities
+  // don't return anything here -- they're spawned into Game.projectiles
+  // instead and collide independently (see game.js).
+  getHitbox() {
+    this._pendingHitIndex = -1;
+
+    if (this.state === 'attack' && !this.attackHasHit) {
+      const a = this.character.attack;
+      if (this.actionTimer > a.startup && this.actionTimer <= a.startup + a.active) {
+        return this._forwardBox(a.offset, a.width, a.height);
+      }
+      return null;
+    }
+    if (this.state === 'special') return this._abilityHitbox(this.character.special);
+    if (this.state === 'ultimate') return this._abilityHitbox(this.character.ultimate);
+    return null;
+  }
+
+  _abilityHitbox(def) {
+    if (this.attackHasHit) return null;
+    const a = this._ability;
+
+    switch (def.type) {
+      case 'lunge':
+      case 'poisonBurst':
+        if (this.actionTimer > def.startup && this.actionTimer <= def.startup + def.active) {
+          return this._forwardBox(def.offset, def.width, def.height);
+        }
+        return null;
+
+      case 'multiHit':
+        for (let i = 0; i < def.hits.length; i++) {
+          const w = def.hits[i];
+          if (!a.hitFlags[i] && this.actionTimer > w.start && this.actionTimer <= w.end) {
+            this._pendingHitIndex = i;
+            return this._forwardBox(def.offset, def.width, def.height);
+          }
+        }
+        return null;
+
+      case 'slam':
+        if (a.justLanded) {
+          return this._centeredBox(def.radius * 2, this.height * 0.65);
+        }
+        return null;
+
+      case 'dive':
+        if (a.diving) {
+          return def.angle === 'down'
+            ? this._centeredBox(def.width, def.height)
+            : this._forwardBox(def.offset || 30, def.width, def.height);
+        }
+        return null;
+
+      case 'growRoll':
+        if (this.actionTimer > a.tGrowEnd && this.actionTimer <= a.tRollEnd) {
+          return this._forwardBox(def.offset || 30, def.width, def.height);
+        }
+        return null;
+
+      case 'counterDodge':
+        if (a.phase === 'counter') {
+          return this._forwardBox(30, def.counterWidth, def.counterHeight);
+        }
+        return null;
+
+      case 'nuke':
+        if (a.fired && a.firedFrame === this.actionTimer) {
+          return this._forwardBox(def.offset, def.radius * 2, def.radius * 1.3);
+        }
+        return null;
+
+      default:
+        return null; // projectileCharge, soundwaveProjectile, reflectStance, buff, phase
+    }
+  }
+
+  // Called by Game once a hitbox from getHitbox() is confirmed to overlap
+  // the opponent -- separate from getHitbox() so multi-hit abilities can
+  // mark just the window that connected rather than the whole action.
+  markHit() {
+    if (this._pendingHitIndex >= 0 && this._ability.hitFlags) {
+      this._ability.hitFlags[this._pendingHitIndex] = true;
+    } else {
+      this.attackHasHit = true;
+    }
+  }
+
+  startAttack() {
+    this.state = 'attack';
+    this.actionTimer = 0;
+    this.attackHasHit = false;
+    this.facingLocked = true;
+    this.vx = 0;
+  }
+
+  startSpecial() {
+    const def = this.character.special;
+    if (this.specialCooldownTimer > 0) return;
+    this.specialCooldownTimer = def.cooldown;
+    this._beginAbility(def, false);
+  }
+
+  startUltimate() {
+    const def = this.character.ultimate;
+    if (this.ultCharge < ULT_METER_MAX) return;
+
+    // Phase is instant and non-committing -- it wouldn't make sense to lock
+    // a dodge/escape ultimate into an uninterruptible animation.
+    if (def.type === 'phase') {
+      this.ultCharge = 0;
+      this.invulnerableTimer = def.duration;
+      this._dodging = false;
+      return;
+    }
+
+    this.ultCharge = 0;
+    this._beginAbility(def, true);
+  }
+
+  _beginAbility(def, isUlt) {
+    this.state = isUlt ? 'ultimate' : 'special';
+    this.actionTimer = 0;
+    this.attackHasHit = false;
+    this.facingLocked = true;
+    this.vx = 0;
+    this._ability = { hitFlags: def.hits ? def.hits.map(() => false) : [] };
+
+    switch (def.type) {
+      case 'projectileCharge':
+        this._ability.charging = true;
+        this._ability.chargeFrames = 0;
+        break;
+      case 'slam':
+        this._ability.launched = false;
+        this._ability.justLanded = false;
+        this._ability.hasLanded = false;
+        break;
+      case 'dive':
+        this._ability.diving = false;
+        this._ability.hasHitOrLanded = false;
+        break;
+      case 'growRoll':
+        this._ability.tGrowEnd = def.growFrames;
+        this._ability.tRollEnd = def.growFrames + def.active;
+        this._ability.tShrinkEnd = this._ability.tRollEnd + def.shrinkFrames;
+        this._ability.tTotal = this._ability.tShrinkEnd + def.recovery;
+        break;
+      case 'counterDodge':
+        this._ability.phase = 'dodge';
+        break;
+      case 'soundwaveProjectile':
+      case 'nuke':
+        this._ability.fired = false;
+        break;
+      default:
+        break;
+    }
+  }
+
+  _endAbility() {
+    this.state = this.grounded ? 'idle' : 'fall';
+    this.facingLocked = false;
+  }
+
+  applyPoison(def) {
+    this.poisonTicksLeft = def.poisonTicks;
+    this.poisonTickInterval = def.poisonTickInterval;
+    this.poisonTickTimer = def.poisonTickInterval;
+    this.poisonDamagePerTick = def.poisonDamage;
+  }
+
+  // hit: { damage, knockback, knockbackUp, hitstun, fromFacing, knockdown, knockdownDuration }
+  // Returns 'dodged' | 'phased' | 'reflected' | 'blocked' | 'hit'.
+  applyHit(hit) {
+    if (this.invulnerableTimer > 0) {
+      if (this._dodging) this._dodgeSuccess = true;
+      return this._dodging ? 'dodged' : 'phased';
+    }
+    if (this.reflectTimer > 0) {
+      return 'reflected';
+    }
+    if (this.blocking) {
+      this.hp = Math.max(0, this.hp - hit.damage * 0.15);
+      this.vx = hit.fromFacing * hit.knockback * 0.25;
+      this.hitFlashTimer = 6;
+      this._maybeTransform();
+      return 'blocked';
+    }
+
+    this.hp = Math.max(0, this.hp - hit.damage);
+    this.vx = hit.fromFacing * hit.knockback;
+    this.vy = -hit.knockbackUp;
+    this.grounded = false;
+    this.hitFlashTimer = 10;
+    this.facingLocked = false;
+    this.actionTimer = 0;
+
+    if (hit.knockdown) {
+      this.state = 'knockdown';
+      this.knockdownTimer = hit.knockdownDuration || 45;
+    } else {
+      this.state = 'hitstun';
+      this.stunFrames = hit.hitstun;
+    }
+
+    this._maybeTransform();
+    return 'hit';
+  }
+
+  _maybeTransform() {
+    const t = this.character.transform;
+    if (!t || this.transformed) return;
+    if (this.hp > 0 && this.hp <= this.maxHp * t.hpThreshold) {
+      this.transformed = true;
+      this.maxHp += t.bonusHp;
+      this.hp = Math.min(this.maxHp, this.hp + t.bonusHp);
+      this._justTransformed = true;
+    }
+  }
+
+  consumeTransformFlag() {
+    if (this._justTransformed) {
+      this._justTransformed = false;
+      return true;
+    }
+    return false;
+  }
+
+  koByRingOut() {
+    this.hp = 0;
+    this.state = 'ko';
+    this.actionTimer = 0;
+  }
+
+  update(controls, opponent) {
+    this._controls = controls;
+    this._updateStatusTimers();
+
+    if (this.state !== 'ko' && this.state !== 'victory') {
+      this._handleInput(controls, opponent);
+    }
+    this._updateActionState();
+    this._applyPhysics();
+    this._resolveFacing(opponent);
+  }
+
+  _updateStatusTimers() {
+    if (this.specialCooldownTimer > 0) {
+      this.specialCooldownTimer = Math.max(0, this.specialCooldownTimer - FIXED_STEP);
+    }
+    if (this.hitFlashTimer > 0) this.hitFlashTimer--;
+    if (this.invulnerableTimer > 0) this.invulnerableTimer--;
+    if (this.reflectTimer > 0) this.reflectTimer--;
+    if (this.doubleJumpFlipTimer > 0) this.doubleJumpFlipTimer--;
+
+    if (this.buffTimer > 0) {
+      this.buffTimer--;
+      if (this.buffTimer <= 0) {
+        this.buffAtkMul = 1;
+        this.buffSpdMul = 1;
+        this.buffSizeMul = 1;
+        this.atkSpeedMul = 1;
+      }
+    }
+
+    if (this.poisonTicksLeft > 0) {
+      this.poisonTickTimer--;
+      if (this.poisonTickTimer <= 0) {
+        this.hp = Math.max(0, this.hp - this.poisonDamagePerTick);
+        this.poisonTicksLeft--;
+        this.poisonTickTimer = this.poisonTickInterval;
+        this.hitFlashTimer = Math.max(this.hitFlashTimer, 4);
+        this._maybeTransform();
+      }
+    }
+  }
+
+  _handleInput(controls, opponent) {
+    const held = {
+      left: InputManager.isDown(controls.left),
+      right: InputManager.isDown(controls.right),
+      block: InputManager.isDown(controls.block),
+    };
+    const pressed = {
+      jump: InputManager.isPressed(controls.jump),
+      attack: InputManager.isPressed(controls.attack),
+      special: InputManager.isPressed(controls.special),
+      ultimate: InputManager.isPressed(controls.ultimate),
+    };
+
+    if (this.state === 'hitstun' || this.state === 'knockdown') {
+      return; // no input while stunned or downed
+    }
+    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate') {
+      return; // committed to the action until it finishes
+    }
+
+    const phased = this.isPhased; // ultimate phase-out: can move, can't act
+
+    if (!phased) {
+      // Blocking: only while grounded, roots you in place. Re-checked every
+      // frame (unlike attack/special above) so releasing the key immediately
+      // frees the player up to move/attack again.
+      if (held.block && this.grounded) {
+        this.blocking = true;
+        this.state = 'block';
+        this.vx *= 0.5;
+        return;
+      }
+    }
+    this.blocking = false;
+
+    if (!phased) {
+      if (pressed.ultimate && this.ultCharge >= ULT_METER_MAX) {
+        this.startUltimate();
+        if (this.state === 'ultimate') return;
+        // Non-committing ultimates (phase) fall through so movement below
+        // still applies on the same frame -- but re-check phased status
+        // below so this same frame's attack/special input can't sneak in.
+      }
+    }
+
+    if (!this.isPhased) {
+      if (pressed.attack) {
+        this.startAttack();
+        return;
+      }
+      if (pressed.special) {
+        this.startSpecial();
+        if (this.state === 'special') return;
+      }
+    }
+
+    let moveDir = 0;
+    if (held.left && !held.right) moveDir = -1;
+    else if (held.right && !held.left) moveDir = 1;
+
+    if (moveDir !== 0) {
+      this.vx = moveDir * this.moveSpeedEff;
+      if (this.grounded) this.state = 'walk';
+    } else if (this.grounded) {
+      this.state = 'idle';
+    }
+
+    if (pressed.jump && this.jumpsUsed < this.character.maxJumps) {
+      this.vy = -this.character.jumpForce;
+      this.jumpsUsed++;
+      this.grounded = false;
+      this.state = 'jump';
+      if (this.jumpsUsed === 2 && this.character.doubleJumpFlip) {
+        this.doubleJumpFlipTimer = 24;
+      }
+    }
+  }
+
+  _updateActionState() {
+    // Ryan's Encore ultimate speeds up whatever animation is currently
+    // playing (his own) by advancing the action clock faster than realtime.
+    this.actionTimer += (this.atkSpeedMul || 1);
+
+    if (this.state === 'attack') {
+      const a = this.character.attack;
+      const total = a.startup + a.active + a.recovery;
+      this.vx *= FRICTION;
+      if (this.actionTimer > total) this._endAbility();
+    }
+
+    if (this.state === 'special') this._updateAbilityState(this.character.special);
+    if (this.state === 'ultimate') this._updateAbilityState(this.character.ultimate);
+
+    if (this.state === 'hitstun') {
+      if (this.actionTimer > (this.stunFrames || 0) && this.grounded) {
+        this.state = 'idle';
+      }
+    }
+
+    if (this.state === 'knockdown') {
+      if (this.actionTimer > this.knockdownTimer && this.grounded) {
+        this.state = 'idle';
+      }
+    }
+
+    if (!this.grounded && (this.state === 'idle' || this.state === 'walk')) {
+      this.state = this.vy < 0 ? 'jump' : 'fall';
+    }
+  }
+
+  _updateAbilityState(def) {
+    switch (def.type) {
+      case 'lunge': return this._updateLunge(def);
+      case 'multiHit': return this._updateMultiHit(def);
+      case 'slam': return this._updateSlam(def);
+      case 'poisonBurst': return this._updatePoisonBurstAction(def);
+      case 'dive': return this._updateDive(def);
+      case 'growRoll': return this._updateGrowRoll(def);
+      case 'counterDodge': return this._updateCounterDodge(def);
+      case 'projectileCharge': return this._updateProjectileCharge(def);
+      case 'soundwaveProjectile': return this._updateInstantProjectile(def);
+      case 'nuke': return this._updateNuke(def);
+      case 'reflectStance': return this._updateReflectStance(def);
+      case 'buff': return this._updateBuffCast(def);
+      default: this._endAbility();
+    }
+  }
+
+  _updateLunge(def) {
+    const total = def.startup + def.active + def.recovery;
+    if (this.actionTimer <= def.startup) {
+      this.vx *= FRICTION;
+    } else if (this.actionTimer <= def.startup + def.active) {
+      this.vx = this.facing * def.dashSpeed;
+    } else {
+      this.vx *= FRICTION;
+    }
+    if (this.actionTimer > total) this._endAbility();
+  }
+
+  _updateMultiHit(def) {
+    this.vx *= FRICTION;
+    const lastWindow = def.hits[def.hits.length - 1];
+    if (this.actionTimer > lastWindow.end + def.recovery) this._endAbility();
+  }
+
+  _updatePoisonBurstAction(def) {
+    this.vx *= FRICTION;
+    const total = def.startup + def.active + def.recovery;
+    if (this.actionTimer > total) this._endAbility();
+  }
+
+  _updateSlam(def) {
+    const a = this._ability;
+    a.justLanded = false;
+    if (!a.launched) {
+      this.vy = -def.riseSpeed;
+      this.grounded = false;
+      a.launched = true;
+    } else if (this.actionTimer === def.riseFrames) {
+      this.vy = def.fallSpeed;
+    } else if (!a.hasLanded && this.actionTimer > def.riseFrames && this.grounded) {
+      // Landing frame: stay in 'special'/'ultimate' for a short recovery
+      // window so getHitbox() (checked right after this update by the game
+      // loop) still sees the right state for the AOE to register.
+      a.justLanded = true;
+      a.hasLanded = true;
+      a.recoveryTimer = 14;
+    } else if (a.hasLanded) {
+      a.recoveryTimer--;
+      if (a.recoveryTimer <= 0) this._endAbility();
+    }
+    if (this.actionTimer > def.riseFrames + 180) this._endAbility();
+  }
+
+  _updateDive(def) {
+    const a = this._ability;
+    if (this.actionTimer <= def.startup) {
+      if (def.angle === 'down' && this.actionTimer === 1 && this.grounded) {
+        this.vy = -8;
+        this.grounded = false;
+      }
+      this.vx *= FRICTION;
+      return;
+    }
+    if (!a.diving && !a.hasHitOrLanded) {
+      a.diving = true;
+      a.diveEndTimer = this.actionTimer + def.travel;
+      if (def.angle === 'down') {
+        this.vx = 0;
+        this.vy = def.speed;
+      } else {
+        this.vx = this.facing * def.speed;
+        this.vy = def.speed * 0.35;
+      }
+      return; // don't evaluate end-conditions the same frame the dive begins --
+      // `grounded` still reflects last frame and would end a forward dive
+      // (which is allowed to slide along the ground) before it ever swings.
+    }
+    if (a.diving) {
+      if (def.angle === 'forward') this.vx = this.facing * def.speed;
+      // Only a downward dive ends on landing; a forward dive is allowed to
+      // slide along the ground and only ends by travel timeout or a hit.
+      const groundEnds = def.angle === 'down' && this.grounded;
+      if (groundEnds || this.actionTimer >= a.diveEndTimer || this.attackHasHit) {
+        a.diving = false;
+        a.hasHitOrLanded = true;
+        a.recoveryTimer = def.recovery;
+        this.vx *= FRICTION;
+      }
+    } else if (a.hasHitOrLanded) {
+      a.recoveryTimer--;
+      this.vx *= FRICTION;
+      if (a.recoveryTimer <= 0) this._endAbility();
+    }
+  }
+
+  _updateGrowRoll(def) {
+    const a = this._ability;
+    if (this.actionTimer <= a.tGrowEnd) {
+      const t = this.actionTimer / a.tGrowEnd;
+      this.buffSizeMul = 1 + (def.sizeMul - 1) * t;
+      this.vx *= FRICTION;
+    } else if (this.actionTimer <= a.tRollEnd && !this.attackHasHit) {
+      this.buffSizeMul = def.sizeMul;
+      this.vx = this.facing * def.dashSpeed;
+    } else if (this.actionTimer <= a.tShrinkEnd) {
+      const t = Math.max(0, Math.min(1, (this.actionTimer - a.tRollEnd) / (a.tShrinkEnd - a.tRollEnd)));
+      this.buffSizeMul = def.sizeMul + (1 - def.sizeMul) * t;
+      this.vx *= FRICTION;
+    } else {
+      this.buffSizeMul = 1;
+      this.vx *= FRICTION;
+      if (this.actionTimer > a.tTotal) this._endAbility();
+    }
+  }
+
+  _updateCounterDodge(def) {
+    const a = this._ability;
+    if (a.phase === 'dodge') {
+      this.invulnerableTimer = Math.max(this.invulnerableTimer, 2);
+      this._dodging = true;
+      this.vx *= FRICTION;
+      if (this._dodgeSuccess) {
+        a.phase = 'counter';
+        this._dodgeSuccess = false;
+        this._dodging = false;
+        this.invulnerableTimer = 0;
+        this.attackHasHit = false;
+        a.counterStart = this.actionTimer;
+        this.vx = this.facing * def.counterDashSpeed;
+      } else if (this.actionTimer > def.dodgeWindow) {
+        a.phase = 'recovery';
+        a.recoveryStart = this.actionTimer;
+        a.recoveryLen = def.whiffRecovery;
+        this._dodging = false;
+        this.invulnerableTimer = 0;
+      }
+    } else if (a.phase === 'counter') {
+      this.vx = this.facing * def.counterDashSpeed;
+      if (this.actionTimer - a.counterStart > def.counterActive || this.attackHasHit) {
+        a.phase = 'recovery';
+        a.recoveryStart = this.actionTimer;
+        a.recoveryLen = def.counterRecovery;
+        this.vx *= FRICTION;
+      }
+    } else if (a.phase === 'recovery') {
+      this.vx *= FRICTION;
+      if (this.actionTimer - a.recoveryStart > a.recoveryLen) this._endAbility();
+    }
+  }
+
+  _updateProjectileCharge(def) {
+    const a = this._ability;
+    const CHARGE_THRESHOLD = 10;
+
+    if (this.actionTimer <= def.startup) {
+      this.vx *= FRICTION;
+      return;
+    }
+
+    if (a.charging) {
+      this.vx *= FRICTION;
+      const held = InputManager.isDown(this._controls.special);
+      if (held && a.chargeFrames < def.maxChargeFrames) {
+        a.chargeFrames++;
+        return;
+      }
+      a.charging = false;
+      const usedCharged = a.chargeFrames >= CHARGE_THRESHOLD;
+      const shot = usedCharged ? def.charged : def.quick;
+      Game.spawnProjectile(this, shot, { color: usedCharged ? '#ffe066' : this.displayAccent });
+      a.recoveryTimer = def.recovery;
+      return;
+    }
+
+    this.vx *= FRICTION;
+    a.recoveryTimer--;
+    if (a.recoveryTimer <= 0) this._endAbility();
+  }
+
+  _updateInstantProjectile(def) {
+    const a = this._ability;
+    this.vx *= FRICTION;
+    if (!a.fired && this.actionTimer > def.startup) {
+      Game.spawnProjectile(this, def, {
+        parryKnockdown: def.parryKnockdown,
+        knockdownDuration: def.knockdownDuration,
+        color: this.displayAccent,
+      });
+      a.fired = true;
+      a.recoveryTimer = def.recovery;
+      return;
+    }
+    if (a.fired) {
+      a.recoveryTimer--;
+      if (a.recoveryTimer <= 0) this._endAbility();
+    }
+  }
+
+  _updateNuke(def) {
+    const a = this._ability;
+    this.vx *= FRICTION;
+    if (!a.fired && this.actionTimer > def.channel) {
+      a.fired = true;
+      a.firedFrame = this.actionTimer;
+      a.recoveryTimer = def.recovery;
+    } else if (a.fired) {
+      a.recoveryTimer--;
+      if (a.recoveryTimer <= 0) this._endAbility();
+    }
+  }
+
+  _updateReflectStance(def) {
+    this.vx = 0;
+    if (this.actionTimer === def.startup) {
+      this.reflectTimer = def.duration;
+      this.reflectMultiplier = def.reflectMultiplier || 1;
+    }
+    if (this.actionTimer > def.startup + def.duration + def.recoveryAfter) {
+      this._endAbility();
+    }
+  }
+
+  _updateBuffCast(def) {
+    if (this.actionTimer > def.castFrames) {
+      this.buffTimer = def.duration;
+      if (def.sizeMul) this.buffSizeMul = def.sizeMul;
+      if (def.atkMul) this.buffAtkMul = def.atkMul;
+      if (def.spdMul) this.buffSpdMul = def.spdMul;
+      if (def.atkSpeedMul) this.atkSpeedMul = def.atkSpeedMul;
+      this._endAbility();
+    } else {
+      this.vx *= FRICTION;
+    }
+  }
+
+  _applyPhysics() {
+    this.vy += GRAVITY * (this.character.gravityMul || 1);
+    this.x += this.vx;
+    this.y += this.vy;
+
+    if (this.state !== 'walk') {
+      this.vx *= FRICTION;
+    }
+
+    const onStage = this.x > STAGE_LEFT_EDGE && this.x < STAGE_RIGHT_EDGE;
+
+    if (onStage && this.y >= GROUND_Y) {
+      this.y = GROUND_Y;
+      this.vy = 0;
+      if (!this.grounded) {
+        this.grounded = true;
+        this.jumpsUsed = 0;
+        if (this.state === 'jump' || this.state === 'fall') this.state = 'idle';
+      }
+    } else if (!onStage && this.y >= GROUND_Y) {
+      this.grounded = false;
+    } else {
+      this.grounded = false;
+    }
+
+    // Keep fighters from flying fully off the visible canvas while airborne.
+    this.x = Math.max(-40, Math.min(CANVAS_WIDTH + 40, this.x));
+
+    this.walkCycle += Math.abs(this.vx) * 0.05;
+  }
+
+  _resolveFacing(opponent) {
+    if (this.facingLocked) return;
+    if (this.state === 'block') return;
+    this.facing = opponent.x >= this.x ? 1 : -1;
+  }
+
+  hasFallenOff() {
+    return this.y > RING_OUT_Y;
+  }
+
+  currentPose() {
+    switch (this.state) {
+      case 'walk': return 'walk';
+      case 'jump': return 'jump';
+      case 'fall': return 'jump';
+      case 'block': return 'block';
+      case 'attack': return 'attack';
+      case 'special': return 'special';
+      case 'ultimate': return 'special';
+      case 'hitstun': return 'hit';
+      case 'knockdown': return 'knockdown';
+      case 'ko': return 'ko';
+      case 'victory': return 'victory';
+      default: return 'idle';
+    }
+  }
+}
