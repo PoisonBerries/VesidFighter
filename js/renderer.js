@@ -439,15 +439,26 @@ const Renderer = (() => {
 
   // Drawn first, before the legs -- for anything that sits behind/under the
   // whole figure (Carlos's hover thrusters glowing beneath his feet).
-  function drawBackAccessory(ctx, id) {
+  function drawBackAccessory(ctx, id, floatY) {
     if (id === 'carlos') {
-      const pulse = 0.55 + Math.sin(performance.now() / 90) * 0.2;
+      // Glow fills the gap between his lifted feet and the actual ground
+      // line (y=0), so the hover reads as thruster-supported rather than
+      // an unexplained floating figure.
+      const pulse = 0.7 + Math.sin(performance.now() / 90) * 0.25;
+      const glowY = floatY * 0.25; // just under his feet, above the ground line
       ctx.save();
       ctx.globalAlpha = pulse;
-      ctx.fillStyle = '#ffd166';
+      ctx.fillStyle = '#ffb238';
       for (const fx of [-9, 9]) {
         ctx.beginPath();
-        ctx.ellipse(fx, 7, 9, 4.5, 0, 0, Math.PI * 2);
+        ctx.ellipse(fx, glowY, 11, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = Math.min(1, pulse * 0.8);
+      ctx.fillStyle = '#fff3d6';
+      for (const fx of [-9, 9]) {
+        ctx.beginPath();
+        ctx.ellipse(fx, glowY, 5, 3.2, 0, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.restore();
@@ -780,8 +791,11 @@ const Renderer = (() => {
     vp.elbowBend += (elbowBend - vp.elbowBend) * smoothRate;
     ({ stride, kneeForward, crouchAmount, lean, elbowBend } = vp);
 
-    // Carlos hovers -- never quite touches the ground while upright.
-    const floatY = (profile.floaty && pose !== 'knockdown' && pose !== 'ko') ? -8 : 0;
+    // Carlos hovers -- never quite touches the ground while upright. Lifts
+    // the *whole* body including his feet (not just the torso/head), so
+    // there's an actual visible gap between him and the platform instead of
+    // just a subtly taller-looking torso.
+    const floatY = (profile.floaty && pose !== 'knockdown' && pose !== 'ko') ? -12 : 0;
 
     const crouchScale = 1 - crouchAmount;
     const hipY = -H * 0.38 * crouchScale + floatY;
@@ -797,18 +811,19 @@ const Renderer = (() => {
     const leg = (hipX, hY, footX, kneeFwd, footY) =>
       drawLeg(ctx, hipX, hY, footX, kneeFwd, limbThickness, color, bootColor, footY);
 
-    drawBackAccessory(ctx, id);
+    drawBackAccessory(ctx, id, floatY);
 
-    // Legs are drawn in world space -- feet planted at y=0 -- so leaning the
-    // torso below doesn't lift them off the ground or distort their shape.
+    // Legs are drawn in world space -- feet planted at y=0 (or y=floatY for
+    // a hovering character) -- so leaning the torso below doesn't lift them
+    // further or distort their shape.
     if (id === 'artur' && pose === 'attack') {
       // Froggy front kick: support leg plants centered, kicking leg drives
       // up and out toward the opponent instead of staying on the ground.
       leg(-stride * 0.15, hipY, -stride * 0.55, kneeForward * 0.6);
       leg(stride * 0.2, hipY, stride * 3.6, 6, hipY * 0.65);
     } else {
-      leg(-stride * 0.3, hipY, -stride, kneeForward);
-      leg(stride * 0.3, hipY, stride, kneeForward);
+      leg(-stride * 0.3, hipY, -stride, kneeForward, floatY);
+      leg(stride * 0.3, hipY, stride, kneeForward, floatY);
     }
 
     ctx.save();
