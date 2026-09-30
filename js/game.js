@@ -226,7 +226,7 @@ const Game = (() => {
     }
 
     if (result === 'hit' && stats.poisonDamage) {
-      defender.applyPoison(stats);
+      defender.applyPoison(stats, box);
     }
 
     if (result === 'hit' || result === 'blocked') {

@@ -34,12 +34,18 @@ const CHARACTERS = {
     // Phase Step: while being hit (hitstun, or knocked down), press jump and
     // crouch TOGETHER to slip through the opponent and come out behind them.
     // Untouchable for the dash and a moment after; then a short cooldown.
-    phaseStep: { cooldown: 480, dashFrames: 9, invulnTail: 6, recovery: 6, behind: 85 },
+    phaseStep: { window: 75, cooldown: 480, dashFrames: 9, invulnTail: 6, recovery: 6, behind: 85 },
     maxHp: 90,
     attack: {
       damage: 6, offset: 24, width: 60, height: 82,
       startup: 5, active: 3, recovery: 8,
       knockback: 6, knockbackUp: 3, hitstun: 11,
+    },
+    // Airborne F: a standard front kick, a little lower and longer than his punch.
+    airAttack: {
+      damage: 7, offset: 22, width: 66, height: 48, high: false,
+      startup: 5, active: 5, recovery: 10,
+      knockback: 7, knockbackUp: 3, hitstun: 12,
     },
     special: {
       type: 'counterDodge',
@@ -123,7 +129,7 @@ const CHARACTERS = {
     // Instead of a double jump: hold jump in the air (once the rise has
     // mostly finished) to hang in place on the thrusters for a short time.
     // Refills on landing.
-    hover: { frames: 45, maxRiseSpeed: 3 },
+    hover: { frames: 68, maxRiseSpeed: 3 },
     // Attack while hovering: a brief wind-up, then a spinning claw dive
     // forward and down (a drill of claws, in the spirit of Meta Knight's
     // Drill Rush). Ends on a hit or when he touches down; he can't hover
@@ -192,6 +198,13 @@ const CHARACTERS = {
       startup: 9, active: 4, recovery: 16,
       knockback: 8, knockbackUp: 3, hitstun: 16,
     },
+    // W + F: both fists stretch straight up, tall enough to tag someone at the
+    // top of even the highest double jump.
+    upAttack: {
+      damage: 9, offset: -40, width: 80, height: 520, high: false,
+      startup: 9, active: 6, recovery: 20,
+      knockback: 4, knockbackUp: 11, hitstun: 20,
+    },
     special: {
       type: 'reflectStance',
       name: 'Rubber Guard',
@@ -244,8 +257,8 @@ const CHARACTERS = {
       // Hold to charge: a tap of under chargeThreshold frames is the quick
       // shot; holding fills the charge (and fires the big blast) by
       // maxChargeFrames.
-      maxChargeFrames: 26,
-      chargeThreshold: 6,
+      maxChargeFrames: 13,
+      chargeThreshold: 3,
       recovery: 14,
       quick: { speed: 22, width: 40, height: 22, damage: 9, knockback: 6, knockbackUp: 2, hitstun: 10 },
       charged: { speed: 14, width: 74, height: 52, damage: 26, knockback: 16, knockbackUp: 6, hitstun: 22 },

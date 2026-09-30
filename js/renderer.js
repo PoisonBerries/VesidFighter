@@ -359,7 +359,7 @@ const Renderer = (() => {
 
     const auraColor = getAuraColor(fighter);
     if (auraColor) drawAura(ctx, fighter, auraColor);
-    if (fighter.poisonTicksLeft > 0) {
+    if (fighter.inPoison) {
       Effects.spawnAuraPuff(fighter.x + (Math.random() * 2 - 1) * fighter.width * 0.25, fighter.y - fighter.height * 0.3, '#6bbf59');
     }
     if (fighter.character.id === 'owen' && fighter._ability && fighter._ability.charging) {
@@ -431,7 +431,7 @@ const Renderer = (() => {
     if (flashing) tint = { color: '#ffffff', alpha: 0.55 };
     else if (fighter.reflectTimer > 0) tint = { color: '#ff3c3c', alpha: 0.32 };
     else if (fighter.state === 'block') tint = { color: '#000000', alpha: 0.22 };
-    else if (fighter.poisonTicksLeft > 0) tint = { color: '#78c85a', alpha: 0.3 };
+    else if (fighter.inPoison) tint = { color: '#78c85a', alpha: 0.3 };
     else if (fighter.bloodFactor > 0.08) tint = { color: '#c8182b', alpha: 0.32 * fighter.bloodFactor }; // Blood Donor: flushing red
 
     drawPlaceholder(ctx, fighter, rig, tint);

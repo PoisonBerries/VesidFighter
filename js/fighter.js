@@ -27,6 +27,7 @@ class Fighter {
     this.grounded = true;
     this.jumpsUsed = 0;
     this.doubleJumpFlipTimer = 0;
+    this.doubleJumpFlipDir = 1; // +1 front flip, -1 backflip
 
     this.maxHp = character.maxHp;
     this.hp = character.maxHp;
@@ -52,6 +53,9 @@ class Fighter {
     this.poisonTickTimer = 0;
     this.poisonDamagePerTick = 0;
     this.poisonTickInterval = 20;
+    this.poisonLife = 0;      // frames the cloud still hangs around
+    this.poisonBox = null;    // where the cloud is (it stays put)
+    this.inPoison = false;    // standing in it right now
     this.invulnerableTimer = 0;
     this._dodging = false; // true only during a Keenan-style counter-dodge window
     this._dodgeSuccess = false;
@@ -68,8 +72,10 @@ class Fighter {
     this.hovering = false;
     this.rolling = false; // crouch-moving as a roll (characters with crouchRoll)
     this.sliding = false; // gliding along the floor on crouch momentum (characters with crouchSwim)
+    this.upAttackActive = false; // the current attack is the two-fisted upward punch (characters with upAttack)
     this.airAttackActive = false; // the current attack is the aerial one (characters with airAttack)
     this.phaseCooldown = 0; // frames until Phase Step (Keenan) is ready again
+    this.sinceHit = 999; // frames since last taking a hit (Phase Step window)
     this._comboHeld = false; // jump + crouch both down last frame (to catch the moment the pair is completed)
     this.phaseStepFrom = 0;
     this.phaseStepTo = 0;
@@ -102,7 +108,7 @@ class Fighter {
   // The attack currently in use: the ordinary one, or the aerial one if it
   // was started in the air (Sam's pike kick).
   get attackDef() {
-    return this.airAttackActive ? this.character.airAttack : this.character.attack;
+    return this.upAttackActive ? this.character.upAttack : this.airAttackActive ? this.character.airAttack : this.character.attack;
   }
 
   // Blood Donor: 0 at full health up to 1 at none -- how much of the bonus applies.
@@ -288,7 +294,8 @@ class Fighter {
     this.actionTimer = 0;
     this.attackHasHit = false;
     this.facingLocked = true;
-    this.airAttackActive = !this.grounded && !!this.character.airAttack;
+    this.upAttackActive = !!this.character.upAttack && !!this._controls && InputManager.isDown(this._controls.jump);
+    this.airAttackActive = !this.upAttackActive && !this.grounded && !!this.character.airAttack;
     if (this.grounded) this.vx = 0; // in the air, keep the momentum
   }
 
@@ -360,9 +367,13 @@ class Fighter {
     this.state = this.grounded ? 'idle' : 'fall';
     this.facingLocked = false;
     this.airAttackActive = false;
+    this.upAttackActive = false;
   }
 
-  applyPoison(def) {
+  applyPoison(def, cloud) {
+    // The poison is the cloud: it only hurts while you stand in it.
+    this.poisonBox = cloud ? { x: cloud.x, y: cloud.y, w: cloud.w, h: cloud.h } : null;
+    this.poisonLife = def.poisonTicks * def.poisonTickInterval;
     this.poisonTicksLeft = def.poisonTicks;
     this.poisonTickInterval = def.poisonTickInterval;
     this.poisonTickTimer = def.poisonTickInterval;
@@ -412,6 +423,7 @@ class Fighter {
     }
     const power = Math.min(1.3, Math.max(0.5, kb / 12));
 
+    this.sinceHit = 0;
     this.noteImpact('hit', hit.fromFacing, power);
     this.vx = hit.fromFacing * kb;
     this.vy = -kbUp;
@@ -459,6 +471,10 @@ class Fighter {
     this.atkSpeedMul = 1;
     this.poisonTicksLeft = 0;
     this.poisonTickTimer = 0;
+    this.poisonLife = 0;
+    this.poisonBox = null;
+    this.inPoison = false;
+    this.sinceHit = 999;
     this.invulnerableTimer = 0;
     this._dodging = false;
     this._dodgeSuccess = false;
@@ -472,6 +488,7 @@ class Fighter {
     this.rolling = false;
     this.sliding = false;
     this.airAttackActive = false;
+    this.upAttackActive = false;
     this.phaseCooldown = 0;
     this._comboHeld = false;
     this.blocking = false;
@@ -528,6 +545,7 @@ class Fighter {
     }
     if (this.hitFlashTimer > 0) this.hitFlashTimer--;
     if (this.phaseCooldown > 0) this.phaseCooldown--;
+    if (this.sinceHit < 999) this.sinceHit++;
     if (this.invulnerableTimer > 0) this.invulnerableTimer--;
     if (this.reflectTimer > 0) this.reflectTimer--;
     if (this.doubleJumpFlipTimer > 0) this.doubleJumpFlipTimer--;
@@ -542,14 +560,21 @@ class Fighter {
       }
     }
 
+    this.inPoison = false;
     if (this.poisonTicksLeft > 0) {
-      this.poisonTickTimer--;
-      if (this.poisonTickTimer <= 0) {
-        this.hp = Math.max(0, this.hp - this.poisonDamagePerTick);
-        this.poisonTicksLeft--;
-        this.poisonTickTimer = this.poisonTickInterval;
-        this.hitFlashTimer = Math.max(this.hitFlashTimer, 4);
-        this._maybeTransform();
+      const b = this.poisonBox, h = this.getHurtbox();
+      this.inPoison = !b || (h.x < b.x + b.w && h.x + h.w > b.x && h.y < b.y + b.h && h.y + h.h > b.y);
+      if (--this.poisonLife <= 0) {
+        this.poisonTicksLeft = 0;
+        this.inPoison = false;
+      } else if (this.inPoison) {
+        this.poisonTickTimer--;
+        if (this.poisonTickTimer <= 0) {
+          this.hp = Math.max(0, this.hp - this.poisonDamagePerTick);
+          this.poisonTickTimer = this.poisonTickInterval;
+          this.hitFlashTimer = Math.max(this.hitFlashTimer, 4);
+          this._maybeTransform();
+        }
       }
     }
   }
@@ -657,6 +682,9 @@ class Fighter {
       if (comboEdge) this._tryPhaseStep(opponent);
       return; // no other input while stunned or downed
     }
+    // Shortly after a hit you can still slip away, even once you're back on your feet.
+    const ps = this.character.phaseStep;
+    if (ps && comboEdge && this.sinceHit <= ps.window && this.state !== 'phasestep' && this._tryPhaseStep(opponent)) return;
     if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep' || this.state === 'hoverdive') {
       return; // committed to the action until it finishes
     }
@@ -742,6 +770,8 @@ class Fighter {
       this.state = 'jump';
       if (this.jumpsUsed === 2 && this.character.doubleJumpFlip) {
         this.doubleJumpFlipTimer = 24;
+        // Front flip when travelling the way he's facing, backflip when going backwards.
+        this.doubleJumpFlipDir = moveDir !== 0 && moveDir !== this.facing ? -1 : 1;
       }
     }
   }

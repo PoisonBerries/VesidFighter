@@ -396,7 +396,7 @@ const Animator = (() => {
         }
         if (fighter.doubleJumpFlipTimer > 0 && fighter.character.doubleJumpFlip) {
           const u = 1 - fighter.doubleJumpFlipTimer / 24;
-          T.spin = TAU * easeInOutSine(u);
+          T.spin = TAU * easeInOutSine(u) * (fighter.doubleJumpFlipDir || 1);
           T.ball = u > 0.06 && u < 0.94 ? 0.85 : 0;
           T.crouch = 0.22; T.armPose = 'tuckedDive'; T.arms = null;
           T.fA = F(-2, -20); T.fB = F(12, -24); T.rate = 45;
@@ -426,7 +426,7 @@ const Animator = (() => {
         const ext = attackExt(t, atk);
         const heavy = id === 'john' || id === 'robert';
         T.rate = 60;
-        if (fighter.airAttackActive) { // Sam's pike kick: knees up, then both legs driven straight out, folded at the hips
+        if (fighter.airAttackActive && id === 'sam') { // Sam's pike kick: knees up, then both legs driven straight out, folded at the hips
           const tuck = ext < 0 ? -ext / 0.45 : 0, drive = ext > 0 ? ext : 0;
           if (ext < 0) {
             T.fA = F(lerp(-6, 16, tuck), lerp(0, -34, tuck));
@@ -441,7 +441,16 @@ const Animator = (() => {
           T.crouch = 0.08;
           // (the torso is folded forward, so "toward the toes" is along the torso's own axis, past the head)
           T.arms = [P(lerp(10, 2, drive), lerp(18, -46, drive), 0, 1), P(lerp(16, 10, drive), lerp(24, -50, drive), 0, 1)];
-        } else if (id === 'artur') { // froggy front kick: chamber the knee, then drive the foot out
+        } else if (fighter.upAttackActive) { // Nathan: both fists shoot straight up, arms stretched way out
+          const wind = ext < 0 ? -ext / 0.45 : 0, drive = ext > 0 ? ext : 0;
+          const dm = typeof Renderer !== 'undefined' && Renderer.bodyDims ? Renderer.bodyDims(id, fighter.height, fighter.transformed) : null;
+          const armLen = dm ? (dm.arm.upper + dm.arm.fore) * 0.97 : fighter.height * 0.4;
+          const y = lerp(lerp(10, 26, wind), -(atk.height * 0.88), Math.pow(drive, 0.7));
+          T.arms = [P(-10 - 6 * drive, y, -4, 1), P(10 + 6 * drive, y, 4, 1)];
+          for (const a of T.arms) a.stretch = Math.max(1, Math.abs(y + 20) / armLen);
+          T.crouch = 0.05 + 0.12 * wind; T.lean = -4 * drive;
+          T.fA = F(-10, 0); T.fB = F(10, 0);
+        } else if (id === 'artur' || fighter.airAttackActive) { // front kick (Artur's froggy one; Keenan's in the air): chamber the knee, then drive the foot out
           const hipY = -fighter.height * 0.38;
           const chamber = ext < 0 ? -ext / 0.45 : 0;
           const drive = ext > 0 ? ext : 0;
@@ -579,7 +588,7 @@ const Animator = (() => {
     if (rollFinish) rollPose(T, an);
     if (!T.arms) T.arms = armsFor(T.armPose, { R, E: T.E, s: T.s });
     // (an air attack is hand-posed: the punch clip would fight it)
-    applyClip(T, fighter, an, now, rollFinish || (fighter.state === 'attack' && fighter.airAttackActive));
+    applyClip(T, fighter, an, now, rollFinish || (fighter.state === 'attack' && (fighter.airAttackActive || fighter.upAttackActive)));
     if (fighter.rolling || rollFinish) T.headTilt = 38; // chin tucked into the chest
     else if (fighter.state === 'block' && fighter.character.crouchSwim) T.headTilt = -22; // chin up, looking ahead as he swims
     // Long-armed characters (Nathan): every arm pose reaches proportionally further.
@@ -647,7 +656,10 @@ const Animator = (() => {
         }
         const [a0, a1] = clip.air || clip.window || [0, 1];
         let u;
-        if (two) u = a0 + (a1 - a0) * Math.min(1, (now - mo2.since) / 600); // the flip in ~0.6s
+        if (two) { // the flip in ~0.6s; played backwards it's the backflip
+          const pr = Math.min(1, (now - mo2.since) / 600);
+          u = a0 + (a1 - a0) * (fighter.doubleJumpFlipDir < 0 ? 1 - pr : pr);
+        }
         else {
           const v0 = fighter.character.jumpForce || 15;
           u = a0 + (a1 - a0) * clamp((fighter.vy + v0) / (2 * v0), 0, 1);

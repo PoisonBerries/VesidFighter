@@ -929,8 +929,21 @@ test('Phase Step: hit, then jump + crouch together slips Keenan through and behi
   // Not from a standing start, not for other characters, not during the cooldown.
   ({ f, foe } = setup());
   f.state = 'idle';
+  f.sinceHit = 999;
   keys(true, true); f.update(C, foe);
-  assert.notStrictEqual(f.state, 'phasestep', 'only while being hit');
+  assert.notStrictEqual(f.state, 'phasestep', 'only just after being hit');
+  keys(false, false);
+  // ...but for a good while after the hit, even back on his feet.
+  ({ f, foe } = setup());
+  f.state = 'idle'; f.stunFrames = 0;
+  f.sinceHit = sim.CHARACTERS.keenan.phaseStep.window - 1;
+  keys(true, true); f.update(C, foe);
+  assert.strictEqual(f.state, 'phasestep', 'still available shortly after the hit has ended');
+  ({ f, foe } = setup());
+  f.state = 'idle';
+  f.sinceHit = sim.CHARACTERS.keenan.phaseStep.window + 5;
+  keys(true, true); f.update(C, foe);
+  assert.notStrictEqual(f.state, 'phasestep', 'the window closes');
   keys(false, false);
   for (const c of sim.CHARACTER_LIST.filter((c) => !c.phaseStep)) {
     ({ f, foe } = setup(c.id));
@@ -1290,4 +1303,73 @@ test('Sam\'s pike kick connects for its own damage through the real game loop, a
   for (let i = 0; i < 40; i++) { sim.Game.update(sim.FIXED_STEP); dealt = hp0 - sim.Game.getSnapshot().f[1].hp; if (dealt > 0) break; }
   assert.ok(Math.abs(dealt - sam.airAttack.damage) < 0.01, `pike kick damage ${sam.airAttack.damage} (dealt ${dealt})`);
   assert.notStrictEqual(dealt, sam.attack.damage, 'not the ground punch\'s damage');
+});
+
+
+// ---- New moves: Keenan's air kick, Nathan's uppercut, cloud-only poison, flips, Carlos fuel, Owen charge ----
+test('Keenan kicks in the air; Nathan\'s W + F is a very tall two-fisted punch', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  const press = (down, held = []) => { for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], held.includes(a), a === down); };
+  let { f, foe } = startFighter(sim, 'keenan', 400);
+  f.grounded = false; f.y = sim.GROUND_Y - 100; f.state = 'jump';
+  press('attack'); f.update(C, foe); press(null);
+  assert.strictEqual(f.airAttackActive, true);
+  assert.strictEqual(f.attackDef, sim.CHARACTERS.keenan.airAttack);
+
+  ({ f, foe } = startFighter(sim, 'nathan', 400));
+  press('attack'); f.update(C, foe); press(null);
+  assert.strictEqual(f.upAttackActive, false, 'plain F is the normal punch');
+  ({ f, foe } = startFighter(sim, 'nathan', 400));
+  press('attack', ['jump']); f.update(C, foe); press(null);
+  assert.strictEqual(f.state, 'attack');
+  assert.strictEqual(f.upAttackActive, true);
+  f.actionTimer = f.attackDef.startup + 1;
+  const box = f.getHitbox();
+  // Reaches higher than anyone's best double jump (John: two 19-force jumps).
+  const best = 2 * (19 * 19) / (2 * 0.75);
+  assert.ok(sim.GROUND_Y - box.y > best, `reaches ${sim.GROUND_Y - box.y}px, double jump tops out near ${best}`);
+  assert.ok(box.x <= f.x && box.x + box.w >= f.x, 'centred over him');
+});
+
+test('poison only hurts while standing in the cloud', () => {
+  const sim = createSim();
+  const { f } = startFighter(sim, 'sam', 400);
+  const cloud = { x: 380, y: sim.GROUND_Y - 100, w: 100, h: 100 };
+  const def = { poisonDamage: 3, poisonTicks: 5, poisonTickInterval: 20 };
+  f.applyPoison(def, cloud);
+  const hp0 = f.hp;
+  for (let i = 0; i < 20; i++) f._updateStatusTimers();
+  assert.strictEqual(f.hp, hp0 - 3, 'a tick while inside');
+  f.x = 900; // walked out
+  for (let i = 0; i < 40; i++) f._updateStatusTimers();
+  assert.strictEqual(f.hp, hp0 - 3, 'no damage outside');
+  assert.strictEqual(f.inPoison, false);
+  f.x = 400; // and back in (the cloud is still there)
+  for (let i = 0; i < 20; i++) f._updateStatusTimers();
+  assert.ok(f.hp < hp0 - 3, 'hurts again when back inside');
+  for (let i = 0; i < 200; i++) f._updateStatusTimers();
+  assert.strictEqual(f.poisonTicksLeft, 0, 'the cloud eventually clears');
+});
+
+test('double-jump flips go with the direction of travel; Carlos has more fuel; Owen charges in half the time', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  for (const [key, dir] of [['right', 1], ['left', -1], [null, 1]]) {
+    const { f, foe } = startFighter(sim, 'ryan', 400); // facing right; find a double-jumper
+    const dj = sim.CHARACTER_LIST.find((c) => c.doubleJumpFlip).id;
+    const x = startFighter(sim, dj, 400);
+    x.f.facing = 1;
+    for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], false, a === 'jump');
+    x.f.update(C, x.foe);
+    for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], a === key, a === 'jump');
+    x.f.update(C, x.foe); // (second press needs a fresh edge)
+    for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], false, false);
+    for (let i = 0; i < 5; i++) x.f.update(C, x.foe);
+    for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], a === key, a === 'jump');
+    x.f.update(C, x.foe);
+    if (x.f.doubleJumpFlipTimer > 0) assert.strictEqual(x.f.doubleJumpFlipDir, dir, `${key}`);
+  }
+  assert.ok(sim.CHARACTERS.carlos.hover.frames > 45);
+  assert.ok(sim.CHARACTERS.owen.special.maxChargeFrames <= 13);
 });
