@@ -326,7 +326,11 @@ const Game = (() => {
   }
 
   function render(ctx) {
-    if (p1 && p2) playCountdownSounds();
+    if (p1 && p2) {
+      playCountdownSounds();
+      AbilityFX.update(p1);
+      AbilityFX.update(p2);
+    }
 
     // 3D view (renderer3d.js) draws the world; this canvas becomes a
     // transparent overlay for the HUD only.
@@ -344,8 +348,6 @@ const Game = (() => {
     ctx.save();
     ctx.translate(shakeOffset.x, shakeOffset.y);
 
-    AbilityFX.update(p1);
-    AbilityFX.update(p2);
     AbilityFX.drawBack(ctx, p1);
     AbilityFX.drawBack(ctx, p2);
     Renderer.drawFighter(ctx, p1);

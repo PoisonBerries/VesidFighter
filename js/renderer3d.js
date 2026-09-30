@@ -414,8 +414,32 @@ fxSheet.position.set(toX(CANVAS_WIDTH / 2), toY(fxCanvas.height / 2), 0.08);
 fxSheet.renderOrder = 3;
 scene.add(fxSheet);
 
+// A matching sheet just behind the cards for ability effects that sit
+// behind the fighters (AbilityFX.drawBack).
+const backFxCanvas = document.createElement('canvas');
+backFxCanvas.width = fxCanvas.width;
+backFxCanvas.height = fxCanvas.height;
+const backFxCtx = backFxCanvas.getContext('2d');
+const backFxTex = new THREE.CanvasTexture(backFxCanvas);
+backFxTex.colorSpace = THREE.SRGBColorSpace;
+const backFxSheet = new THREE.Mesh(
+  fxSheet.geometry,
+  new THREE.MeshBasicMaterial({ map: backFxTex, transparent: true, depthWrite: false }),
+);
+backFxSheet.position.set(fxSheet.position.x, fxSheet.position.y, -0.08);
+backFxSheet.renderOrder = 1;
+scene.add(backFxSheet);
+
 function updateFx(state) {
+  backFxCtx.clearRect(0, 0, backFxCanvas.width, backFxCanvas.height);
+  AbilityFX.drawBack(backFxCtx, state.p1);
+  AbilityFX.drawBack(backFxCtx, state.p2);
+  backFxTex.needsUpdate = true;
+
   fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
+  AbilityFX.drawFront(fxCtx, state.p1);
+  AbilityFX.drawFront(fxCtx, state.p2);
+  AbilityFX.drawTimed(fxCtx);
   Renderer.drawProjectiles(fxCtx, state.projectiles);
   Effects.draw(fxCtx);
   // P1/P2 markers live on this flat sheet rather than on the fighter cards,
@@ -485,7 +509,7 @@ function render(state) {
     fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
     fxTex.needsUpdate = true;
   }
-  fxSheet.visible = !!state;
+  fxSheet.visible = backFxSheet.visible = !!state;
 
   for (const isl of islands) {
     isl.position.y = isl.userData.baseY + Math.sin(now * 0.0005 + isl.userData.bob) * 0.25;
