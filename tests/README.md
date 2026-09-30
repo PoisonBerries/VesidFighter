@@ -20,6 +20,7 @@ Locally: `git diff --name-only <base> | node tools/needs-3d.js --stdin && npm ru
 | File | What it checks | Needs a browser |
 |------|----------------|-----------------|
 | `static.test.js` | Every script/asset/element id the code references actually exists; the server can load the sim files. Catches "I deleted a piece of the page and something else needed it". | no |
+| `lint.test.js` | ESLint's undefined-name check over every game file: fails if any code calls a function or uses a variable that doesn't exist (e.g. a helper deleted by mistake while something still calls it). The game's files share globals, so the valid names are read from what the files declare. | no |
 | `sim.test.js` | The simulation, built the same way `server/server.js` builds it: full matches for every character pairing with random inputs, determinism, snapshot round trips, the ledge rule, every move finishing. | no |
 | `tooling.test.js` | The rule that decides when the 3D test runs. | no |
 | `e2e.test.js` | The real page in headless Chrome: menus, starting a fight, both fighters actually drawn (pixel check), every character running its whole move set with rendering on, the online-guest snapshot path, mirror matches, sound and the playlist. | yes |
