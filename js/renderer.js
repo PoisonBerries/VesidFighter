@@ -1378,7 +1378,9 @@ const Renderer = (() => {
     const profile = d.profile;
     // (getInfo may be missing if the browser still has an older cached
     // characterHeads.js; never let that stop the fighter being drawn.)
-    const head = CharacterHeads.getInfo ? CharacterHeads.getInfo(id) : null;
+    // Transforming characters can swap to their own head (Robert).
+    const headId = CharacterHeads.variantFor ? CharacterHeads.variantFor(id, fighter.transformed) : id;
+    const head = CharacterHeads.getInfo ? CharacterHeads.getInfo(headId) : null;
 
     const colors = bodyColors(fighter, head, tint);
     const accent = colors.accent;
@@ -1458,7 +1460,7 @@ const Renderer = (() => {
         ctx.rotate((rig.headTilt * Math.PI) / 180);
         ctx.translate(-J.head[0].x, -J.head[0].y);
       }
-      near.draw('head', J.head[0], J.head[1], () => partHead(ctx, id, J.head[0], d, colors, head));
+      near.draw('head', J.head[0], J.head[1], () => partHead(ctx, headId, J.head[0], d, colors, head));
     });
     const drawFrontArm = () => lean(() => drawArm(ctx, shoulderFront, handOf(armFront, 1), d.arm, colors, profile, armFront.orb, accent, near));
     // The front arm normally crosses in front of the head (a jab at face
@@ -1697,7 +1699,7 @@ const Renderer = (() => {
       ctx.translate(chin.x, 0);
       // Photos looking toward camera-left get one extra mirror so the gaze
       // follows the body's facing (see HEAD_FLIP_FIX).
-      if (HEAD_FLIP_FIX.has(id)) ctx.scale(-1, 1);
+      if (HEAD_FLIP_FIX.has(id.replace('-transformed', ''))) ctx.scale(-1, 1);
       ctx.shadowColor = 'rgba(6,3,12,0.85)';
       ctx.shadowBlur = Math.max(2, headH * 0.05);
       ctx.drawImage(img, bx.x, bx.y, bx.w, bx.h, -dw / 2, chin.y - headH, dw, headH);

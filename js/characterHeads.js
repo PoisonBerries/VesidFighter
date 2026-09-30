@@ -3,6 +3,10 @@
 // background). A character with no image yet just gets a plain drawn head,
 // so adding these one at a time is always safe.
 //
+// A character that transforms (Robert) can also have
+// assets/heads/<characterId>-transformed.png, shown while transformed;
+// without it the normal head is kept. variantFor() picks which one to draw.
+//
 // Each photo is measured once when it loads: the box around its visible
 // pixels (so the chin can sit exactly on the neck however much empty space
 // the file has) and a skin tone sampled from the face (so the body's arms,
@@ -59,11 +63,15 @@ const CharacterHeads = (() => {
     }
   }
 
-  for (const char of CHARACTER_LIST) {
+  function load(key) {
     const img = new Image();
-    img.onload = () => analyze(char.id, img);
-    img.src = `assets/heads/${char.id}.png`;
-    images[char.id] = img;
+    img.onload = () => analyze(key, img);
+    img.src = `assets/heads/${key}.png`;
+    images[key] = img;
+  }
+  for (const char of CHARACTER_LIST) {
+    load(char.id);
+    if (char.transform) load(char.id + '-transformed'); // optional: a 404 just leaves it unset
   }
 
   function getImage(characterId) {
@@ -77,5 +85,11 @@ const CharacterHeads = (() => {
     return getImage(characterId) ? info[characterId] || null : null;
   }
 
-  return { getImage, getInfo };
+  // Which head to draw: the transformed one if this character has one loaded
+  // and is currently transformed, otherwise the normal one.
+  function variantFor(characterId, transformed) {
+    return transformed && getImage(characterId + '-transformed') ? characterId + '-transformed' : characterId;
+  }
+
+  return { getImage, getInfo, variantFor };
 })();

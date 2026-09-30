@@ -120,3 +120,17 @@ test('the online server can load the sim files it needs (no client-only globals 
     assert.doesNotThrow(() => vm.runInContext(read('js/' + f), ctx, { filename: f }), `${f} failed to load in the server sandbox`);
   }
 });
+
+test('transformed head images belong to characters that transform, and Robert has his', () => {
+  const src = read('js/characters.js');
+  const files = fs.readdirSync(path.join(ROOT, 'assets/heads')).filter((f) => f.endsWith('-transformed.png'));
+  assert.ok(files.includes('robert-transformed.png'), 'assets/heads/robert-transformed.png is missing');
+  for (const f of files) {
+    const id = f.replace('-transformed.png', '');
+    const start = src.indexOf(`id: '${id}'`);
+    assert.ok(start >= 0, `${f}: no character "${id}"`);
+    const next = src.indexOf("id: '", start + 6);
+    const block = src.slice(start, next < 0 ? undefined : next);
+    assert.ok(/transform:\s*\{/.test(block), `${f}: "${id}" has no transformation, so the image would never be used`);
+  }
+});

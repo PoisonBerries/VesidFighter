@@ -92,6 +92,21 @@ test('starting a local game from the menus puts both fighters on screen', async 
   await page.close();
 });
 
+test('a transforming character wears its transformed head (Robert), everyone else keeps theirs', async () => {
+  const { page, errors } = await openGame();
+  await page.waitForFunction(() => CharacterHeads.getImage('robert-transformed') && CharacterHeads.getImage('robert'), { timeout: 10000 });
+  const r = await page.evaluate(() => ({
+    normal: CharacterHeads.variantFor('robert', false),
+    transformed: CharacterHeads.variantFor('robert', true),
+    other: CharacterHeads.variantFor('sam', true),
+    info: !!CharacterHeads.getInfo('robert-transformed'),
+    differs: CharacterHeads.getImage('robert-transformed').src !== CharacterHeads.getImage('robert').src,
+  }));
+  assert.deepStrictEqual(r, { normal: 'robert', transformed: 'robert-transformed', other: 'sam', info: true, differs: true });
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+});
+
 test('quitting to the main menu stops the match: nothing keeps running behind the title screen', async () => {
   for (const mode of ['#btn-start', '#btn-cpu']) {
     const { page, errors } = await openGame();
