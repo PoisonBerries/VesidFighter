@@ -10,7 +10,7 @@ const vm = require('vm');
 const { ROOT } = require('./helpers');
 
 const FILES = ['constants.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js', 'rollback.js'];
-const ACTIONS = ['left', 'right', 'block', 'jump', 'attack', 'special', 'ultimate'];
+const ACTIONS = ['left', 'right', 'block', 'guard', 'jump', 'attack', 'special', 'ultimate'];
 const source = FILES.map((f) => fs.readFileSync(path.join(ROOT, 'js', f), 'utf8')).join('\n;\n');
 const PRELUDE = `
   const window = { addEventListener() {} };

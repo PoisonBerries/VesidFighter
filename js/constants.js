@@ -41,6 +41,7 @@ const CONTROLS = {
     right: 'KeyD',
     jump: 'KeyW',
     block: 'KeyS',
+    guard: 'KeyT',
     attack: 'KeyF',
     special: 'KeyG',
     ultimate: 'KeyH',
@@ -50,6 +51,7 @@ const CONTROLS = {
     right: 'ArrowRight',
     jump: 'ArrowUp',
     block: 'ArrowDown',
+    guard: 'KeyP',
     attack: 'KeyL',
     special: 'Semicolon',
     ultimate: 'Quote',
@@ -61,6 +63,7 @@ const CONTROLS = {
     right: 'KeyD',
     jump: 'KeyW',
     block: 'KeyS',
+    guard: 'KeyI',
     attack: 'KeyJ',
     special: 'KeyK',
     ultimate: 'KeyL',
@@ -115,6 +118,7 @@ const ULT_METER_MAX = 100;
 const ULT_GAIN_ON_LAND_NORMAL = 9;
 const ULT_GAIN_ON_LAND_SPECIAL = 15;
 const ULT_GAIN_ON_TAKEN = 6;
+const GUARD_ULT_DRAIN = 0.035;     // ult meter lost per frame while holding guard (about 47s from full)
 
 // Turns a KeyboardEvent.code into the short label shown on-screen (HUD key
 // badges, the character select panel). Shared by renderer.js and ui.js.

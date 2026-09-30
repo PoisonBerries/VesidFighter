@@ -19,7 +19,7 @@ const FIXED_STEP_MS = 1000 / 60;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const RELAYED = new Set(['ri', 'rh', 'rs', 'start', 'pick', 'select']);
 const SIM_FILES = ['constants.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js'];
-const HELD = ['left', 'right', 'block'];
+const HELD = ['left', 'right', 'block', 'guard'];
 const TAPS = ['jump', 'attack', 'special', 'ultimate'];
 
 const simSource = SIM_FILES

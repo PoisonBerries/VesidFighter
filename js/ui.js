@@ -391,11 +391,11 @@ const UI = (() => {
       const k = CONTROLS.solo;
       parts.push(Net.isLeader() ? 'You are Player 1. Press Fight! when you are both ready.'
         : 'You are Player 2. Waiting for the host to start...');
-      parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} block · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys move too)`);
+      parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} crouch · ${keyLabel(k.guard)} guard · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys move too)`);
     }
     if (cpuMode) {
       const k = CONTROLS.solo;
-      parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} block · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys move too)`);
+      parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} crouch · ${keyLabel(k.guard)} guard · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys move too)`);
     }
     if (selected.p1 === selected.p2) parts.push('Mirror match: Player 2 gets an alternate colour scheme.');
     document.getElementById('select-online-note').innerHTML = parts.join('<br>');

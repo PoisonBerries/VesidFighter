@@ -406,7 +406,11 @@ const Animator = (() => {
 
       case 'block': {
         T.crouch = 0.47; T.lean = 6; T.armPose = 'crossed';
-        if (fighter.character.crouchSwim) { // Sam: flat on the floor, swimming
+        if (fighter.guarding) { // a full guard: standing tall behind crossed forearms
+          T.crouch = 0.06; T.lean = -3; T.armPose = 'crossedGuard';
+          T.fA = F(-14 * stance, 0); T.fB = F(14 * stance, 0);
+          T.rate = 45;
+        } else if (fighter.character.crouchSwim) { // Sam: flat on the floor, swimming
           swimPose(T, fighter, an);
         } else if (fighter.rolling) { // crouch-move as a tucked ball rolling along the floor
           rollPose(T, an);
@@ -824,7 +828,7 @@ const Animator = (() => {
 
     // Sam's swim (his crouch): loops with the distance he covers -- backwards
     // when he backs up -- and treads slowly in place.
-    const swim = st === 'block' && fighter.character.crouchSwim && Mocap.clipFor(id, 'swim');
+    const swim = st === 'block' && !fighter.guarding && fighter.character.crouchSwim && Mocap.clipFor(id, 'swim');
     if (swim) return { clip: swim, u: ((an.swimU || 0) % 1 + 1) % 1, loop: true, swim: true };
 
     const clip = Mocap.clipFor(id, st);
@@ -1151,7 +1155,7 @@ const Animator = (() => {
     const down = st === 'knockdown' || st === 'ko';
     const airborne = !fighter.grounded;
     an.walkDist = (an.walkDist || 0) + Math.abs(fighter.vx) * f; // drives walk clips
-    if (fighter.character.crouchSwim && st === 'block' && typeof Mocap !== 'undefined') {
+    if (fighter.character.crouchSwim && st === 'block' && !fighter.guarding && typeof Mocap !== 'undefined') {
       const sc = Mocap.clipFor(fighter.character.id, 'swim');
       if (sc) { // swim clip: one loop per the clip's own travel; slow tread when still or gliding
         const fr = sc.frames, travel = Math.abs(fr[fr.length - 1].root[0] - fr[0].root[0]) * fighter.height;
@@ -1165,7 +1169,7 @@ const Animator = (() => {
     // A crouch-roll turns in step with the distance covered (one turn per
     // ball circumference); it folds into the body angle when the roll stops.
     // Sam's swimming stroke: advances with the distance he covers (and a lazy tread when still).
-    if (fighter.character.crouchSwim && st === 'block' && !fighter.sliding) {
+    if (fighter.character.crouchSwim && st === 'block' && !fighter.guarding && !fighter.sliding) {
       an.swimPhase = (an.swimPhase || 0) + (0.14 + Math.abs(fighter.vx) * 0.085) * f;
     }
     if (fighter.rolling) {
@@ -1221,7 +1225,7 @@ const Animator = (() => {
       if (fighter.hovering && !an.prevHovering) Sfx.hover(an.pan);
       if (fighter.rolling && !an.prevRolling) Sfx.roll(an.pan);
       if (fighter.sliding && !an.prevSliding) Sfx.slide(an.pan);
-      if (fighter.character.crouchSwim && st === 'block' && !fighter.sliding && Math.abs(fighter.vx) > 0.4) {
+      if (fighter.character.crouchSwim && st === 'block' && !fighter.guarding && !fighter.sliding && Math.abs(fighter.vx) > 0.4) {
         const beat = Math.floor((an.swimPhase || 0) / Math.PI);
         if (beat !== an.swimBeat) { an.swimBeat = beat; Sfx.swim(an.pan); }
       }

@@ -8,7 +8,7 @@ const vm = require('vm');
 const { ROOT } = require('./helpers');
 
 const SIM_FILES = ['constants.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js'];
-const HELD = ['left', 'right', 'block'];
+const HELD = ['left', 'right', 'block', 'guard'];
 const TAPS = ['jump', 'attack', 'special', 'ultimate'];
 const ACTIONS = HELD.concat(TAPS);
 
@@ -1541,4 +1541,64 @@ test('John: three unanswered hits carry the opponent over the shoulder and pumme
   assert.ok(held > 40, `held for a while (${held} frames)`);
   assert.ok(hp0 - p2().hp >= 3 * 4, 'pummelled several times');
   assert.strictEqual(p2().state, 'hitstun', 'then breaks loose');
+});
+
+// ---- Guard (I), stun-interrupted abilities, turning in the air ----
+test('guard is a full block that slowly drains the ultimate meter; crouching still only absorbs 85%', () => {
+  const sim = createSim();
+  const swing = (guard) => {
+    const C = startGame(sim, 'artur', 'keenan', 500, 560);
+    sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 560, ultCharge: 50 }] });
+    if (guard) setKey(sim, C.guard === undefined ? sim.VCONTROLS.p2.guard : sim.VCONTROLS.p2.guard, true, false);
+    else setKey(sim, sim.VCONTROLS.p2.block, true, false);
+    const hp0 = sim.Game.world().p2.hp;
+    punch(sim, 'p1');
+    step(sim, 30);
+    const p2 = sim.Game.world().p2;
+    const out = { lost: hp0 - p2.hp, ult: p2.ultCharge, crouching: p2.isCrouching, guarding: p2.guarding };
+    setKey(sim, sim.VCONTROLS.p2.guard, false, false); setKey(sim, sim.VCONTROLS.p2.block, false, false);
+    return out;
+  };
+  const g = swing(true), c = swing(false);
+  assert.strictEqual(g.lost, 0, 'guard lets nothing through');
+  assert.strictEqual(g.guarding, true);
+  assert.strictEqual(g.crouching, false, 'guard stands tall');
+  assert.ok(g.ult < 50 + 6 && g.ult > 40, `the meter drains slowly (${g.ult})`);
+  assert.ok(c.lost > 0 && c.crouching, 'a crouch still takes the chip damage');
+});
+
+test('a stun before a special/ultimate goes off fails it but keeps the charge', () => {
+  const sim = createSim();
+  // Ultimate interrupted during its wind-up: the meter stays full.
+  let { f } = startFighter(sim, 'owen', 400);
+  f.ultCharge = sim.ULT_METER_MAX;
+  f.startUltimate();
+  assert.strictEqual(f.state, 'ultimate');
+  assert.strictEqual(f.ultCharge, 0);
+  f.actionTimer = 2;
+  f.applyHit({ damage: 5, knockback: 4, knockbackUp: 1, hitstun: 12, fromFacing: -1 });
+  assert.strictEqual(f.ultCharge, sim.ULT_METER_MAX, 'kept the ultimate charge');
+  // Special interrupted in its start-up: no cooldown spent.
+  ({ f } = startFighter(sim, 'artur', 400));
+  f.startSpecial();
+  assert.ok(f.specialCooldownTimer > 0);
+  f.actionTimer = 2;
+  f.applyHit({ damage: 5, knockback: 4, knockbackUp: 1, hitstun: 12, fromFacing: -1 });
+  assert.strictEqual(f.specialCooldownTimer, 0, 'cooldown refunded');
+  // But once it has gone off, being hit afterwards doesn't give it back.
+  ({ f } = startFighter(sim, 'artur', 400));
+  f.startSpecial();
+  f.actionTimer = 15;
+  f.applyHit({ damage: 5, knockback: 4, knockbackUp: 1, hitstun: 12, fromFacing: -1 });
+  assert.ok(f.specialCooldownTimer > 0, 'a special that already fired stays spent');
+});
+
+test('fighters can turn around in the air (Carlos hovering)', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  const { f, foe } = startFighter(sim, 'carlos', 400);
+  f.grounded = false; f.y = sim.GROUND_Y - 120; f.state = 'jump'; f.facing = 1;
+  for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], a === 'left', false);
+  f.update(C, foe);
+  assert.strictEqual(f.facing, -1);
 });

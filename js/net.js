@@ -23,7 +23,7 @@
 const Net = (() => {
   const ID_PREFIX = 'vesidfighter-';
   const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const HELD = ['left', 'right', 'block'];
+  const HELD = ['left', 'right', 'block', 'guard'];
   const TAPS = ['jump', 'attack', 'special', 'ultimate'];
   const ACTIONS = HELD.concat(TAPS);
 

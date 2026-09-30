@@ -39,6 +39,7 @@ class Fighter {
     this.ultCharge = 0;
 
     this.blocking = false;
+    this.guarding = false; // holding guard (a full block, standing) rather than crouching
     this.facingLocked = false;
     this.paletteSwap = false; // mirror match: player 2 wears the alternate colours
 
@@ -170,7 +171,7 @@ class Fighter {
 
   // Holding block on the ground is a crouch, and it really lowers the body.
   get isCrouching() {
-    return this.state === 'block' && this.grounded;
+    return this.state === 'block' && this.grounded && !this.guarding;
   }
 
   getHurtbox() {
@@ -325,6 +326,7 @@ class Fighter {
   startSpecial() {
     const def = this.character.special;
     if (this.specialCooldownTimer > 0) return;
+    this._cooldownBefore = this.specialCooldownTimer;
     this.specialCooldownTimer = def.cooldown;
     this._beginAbility(def, false);
   }
@@ -344,6 +346,27 @@ class Fighter {
 
     this.ultCharge = 0;
     this._beginAbility(def, true);
+  }
+
+  // Stunned before a special or ultimate actually went off: it just fails,
+  // and you keep the charge (the ultimate meter stays full, the special's
+  // cooldown isn't spent).
+  _refundInterruptedAbility() {
+    if (this.state !== 'special' && this.state !== 'ultimate') return;
+    const isUlt = this.state === 'ultimate';
+    const def = isUlt ? this.character.ultimate : this.character.special;
+    const a = this._ability || {};
+    let fired;
+    if (def.type === 'projectileCharge') fired = a.charging === false;
+    else {
+      const at = def.startup !== undefined ? def.startup : def.channel !== undefined ? def.channel
+        : def.castFrames !== undefined ? def.castFrames : def.growFrames !== undefined ? def.growFrames
+        : def.riseFrames !== undefined ? def.riseFrames : def.hits && def.hits.length ? def.hits[0].start : 0;
+      fired = this.actionTimer > at;
+    }
+    if (fired) return;
+    if (isUlt) this.ultCharge = ULT_METER_MAX;
+    else this.specialCooldownTimer = this._cooldownBefore || 0;
   }
 
   _beginAbility(def, isUlt) {
@@ -427,13 +450,17 @@ class Fighter {
       this.noteImpact('blocked', hit.fromFacing, 0.35);
       // Most blocks absorb 85% of the damage; a move can override that
       // (Artur's kick goes low, under the guard).
-      this.hp = Math.max(0, this.hp - hit.damage * (hit.blockDamageMul === undefined ? 0.15 : hit.blockDamageMul));
-      this.vx = hit.fromFacing * hit.knockback * (hit.blockKnockbackMul === undefined ? 0.25 : hit.blockKnockbackMul);
+      // A guard is a full block: nothing gets through, not even a low kick.
+      const dmgMul = this.guarding ? 0 : hit.blockDamageMul === undefined ? 0.15 : hit.blockDamageMul;
+      const kbMul = this.guarding ? 0.15 : hit.blockKnockbackMul === undefined ? 0.25 : hit.blockKnockbackMul;
+      this.hp = Math.max(0, this.hp - hit.damage * dmgMul);
+      this.vx = hit.fromFacing * hit.knockback * kbMul;
       this.hitFlashTimer = 6;
       this._maybeTransform();
       return 'blocked';
     }
 
+    this._refundInterruptedAbility();
     let kb = hit.knockback * KNOCKBACK_MUL, kbUp = hit.knockbackUp * KNOCKBACK_MUL;
     this.hp = Math.max(0, this.hp - hit.damage);
     this.comboHits = 0;
@@ -522,6 +549,7 @@ class Fighter {
     this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false;
     this._comboHeld = false;
     this.blocking = false;
+    this.guarding = false;
     this.facingLocked = false;
     this.attackHasHit = false;
     this.actionTimer = 0;
@@ -677,6 +705,7 @@ class Fighter {
     this._dodging = false; // "phased" (see-through), not a dodge window
     this.reflectTimer = 0;
     this.blocking = false;
+    this.guarding = false;
     this.launched = false;
     this.stunFrames = 0;
     this.hitFlashTimer = 0;
@@ -703,6 +732,7 @@ class Fighter {
       left: InputManager.isDown(controls.left),
       right: InputManager.isDown(controls.right),
       block: InputManager.isDown(controls.block),
+      guard: InputManager.isDown(controls.guard),
     };
     // Held direction relative to facing, read even mid-attack: it aims the
     // hot potato (game.js) -- toward for a long hit, away for a short lob.
@@ -738,6 +768,18 @@ class Fighter {
       // attack/special above) so releasing the key immediately frees the
       // player up to move/attack again. Still allows a slow crouch-walk
       // rather than fully rooting the player in place.
+      // Guard: a full, standing block. Holding it slowly bleeds the ultimate meter.
+      if (held.guard && this.grounded) {
+        this.blockFrames = this.blocking && this.guarding ? this.blockFrames + 1 : 1;
+        this.blocking = true;
+        this.guarding = true;
+        this.sliding = false;
+        this.state = 'block';
+        this.ultCharge = Math.max(0, this.ultCharge - GUARD_ULT_DRAIN);
+        this.vx *= FRICTION;
+        return;
+      }
+      this.guarding = false;
       if (held.block && this.grounded) {
         const swim = this.character.crouchSwim;
         // Crouching while already moving (Sam): slide on with that momentum.
@@ -766,6 +808,7 @@ class Fighter {
       }
     }
     this.blocking = false;
+    this.guarding = false;
     this.blockFrames = 0;
     this.sliding = false; // letting go of crouch ends any slide at once
 
@@ -799,8 +842,11 @@ class Fighter {
     if (held.left && !held.right) moveDir = -1;
     else if (held.right && !held.left) moveDir = 1;
 
+    const facingBefore = this.facing;
     if (moveDir !== 0) {
-      if (!this.facingLocked && this.grounded) this.facing = moveDir; // turn when you switch direction (not mid-air)
+      // Turn when you switch direction -- in the air too (Carlos hovering), except
+      // mid-flip, which keeps the direction it started in.
+      if (!this.facingLocked && this.doubleJumpFlipTimer <= 0) this.facing = moveDir;
       this.vx = moveDir * this.moveSpeedEff;
       if (this.grounded) this.state = 'walk';
     } else if (this.grounded) {
@@ -823,7 +869,8 @@ class Fighter {
       if (this.jumpsUsed === 2 && this.character.doubleJumpFlip) {
         this.doubleJumpFlipTimer = 24;
         // Front flip when travelling the way he's facing, backflip when going backwards.
-        this.doubleJumpFlipDir = moveDir !== 0 && moveDir !== this.facing ? -1 : 1;
+        this.doubleJumpFlipDir = moveDir !== 0 && moveDir !== facingBefore ? -1 : 1;
+        if (this.doubleJumpFlipDir < 0) this.facing = facingBefore; // a backflip keeps facing the same way
       }
     }
   }
@@ -894,6 +941,7 @@ class Fighter {
     this.vx = 0;
     this.blocking = false;
     this._ability = { slammed: false, released: false };
+    opp._refundInterruptedAbility();
     opp.state = 'grabbed';
     opp.vx = 0; opp.vy = 0;
     opp.blocking = false; opp.stunFrames = 0; opp.launched = false; opp.facingLocked = false;

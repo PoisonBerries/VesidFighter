@@ -26,7 +26,7 @@ const Rollback = (() => {
   const SYNC_EVERY = 60;   // frames between desync checks
 
   // Input bits. Jump and special are also *held* (hover, charged shot).
-  const BIT = { left: 1, right: 2, block: 4, jumpHeld: 8, specialHeld: 16, jump: 32, attack: 64, special: 128, ultimate: 256 };
+  const BIT = { left: 1, right: 2, block: 4, jumpHeld: 8, specialHeld: 16, jump: 32, attack: 64, special: 128, ultimate: 256, guard: 512 };
   const PRESS_BITS = BIT.jump | BIT.attack | BIT.special | BIT.ultimate;
 
   // Same virtual key names net.js hands the fighters (Net.controlsFor).
@@ -58,6 +58,7 @@ const Rollback = (() => {
     set('left', !!(b & BIT.left), false);
     set('right', !!(b & BIT.right), false);
     set('block', !!(b & BIT.block), false);
+    set('guard', !!(b & BIT.guard), false);
     set('jump', !!(b & BIT.jumpHeld), !!(b & BIT.jump));
     set('attack', false, !!(b & BIT.attack));
     set('special', !!(b & BIT.specialHeld), !!(b & BIT.special));
@@ -261,6 +262,7 @@ const Rollback = (() => {
     if (any('left', 'isDown')) b |= BIT.left;
     if (any('right', 'isDown')) b |= BIT.right;
     if (any('block', 'isDown')) b |= BIT.block;
+    if (any('guard', 'isDown')) b |= BIT.guard;
     if (any('jump', 'isDown')) b |= BIT.jumpHeld;
     if (any('special', 'isDown')) b |= BIT.specialHeld;
     if (any('jump', 'isPressed')) b |= BIT.jump;
