@@ -363,7 +363,7 @@ const Renderer = (() => {
       Effects.spawnAuraPuff(fighter.x + (Math.random() * 2 - 1) * fighter.width * 0.25, fighter.y - fighter.height * 0.3, '#6bbf59');
     }
     if (fighter.character.id === 'owen' && fighter._ability && fighter._ability.charging) {
-      const chargeColor = fighter._ability.chargeFrames >= 10 ? '#ffe066' : '#e0aaff';
+      const chargeColor = fighter._ability.chargeFrames >= (fighter.character.special.chargeThreshold || 10) ? '#ffe066' : '#e0aaff';
       Effects.spawnAuraPuff(fighter.x + fighter.facing * fighter.width * 0.4, fighter.y - fighter.height * 0.55, chargeColor);
     }
 

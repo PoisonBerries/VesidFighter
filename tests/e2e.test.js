@@ -144,6 +144,43 @@ test('character select: the layout never shifts as fighters are hovered, everyth
   await page.close();
 });
 
+test('character select: a big full-body fighter is drawn on each side and follows the hovered fighter', async () => {
+  const { page, errors } = await openGame();
+  await page.setViewport({ width: 1600, height: 900 });
+  await page.click('#btn-start');
+  await page.waitForSelector('#screen-select:not(.hidden)');
+  await new Promise((r) => setTimeout(r, 700)); // the slide-in finishes
+  const coverage = (id) => page.evaluate((id) => {
+    const c = document.getElementById(id);
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 200) n++;
+    return { n, share: n / (c.width * c.height), url: c.toDataURL() };
+  }, id);
+  for (const id of ['select-art-p1', 'select-art-p2']) {
+    const c = await coverage(id);
+    assert.ok(c.share > 0.05, `${id}: the fighter should fill a real part of the panel (${(c.share * 100).toFixed(1)}%)`);
+  }
+  // Each side's art sits on its own side of the screen, big and full-height.
+  const boxes = await page.evaluate(() => ['select-art-p1', 'select-art-p2'].map((id) => { const b = document.getElementById(id).getBoundingClientRect(); return { left: Math.round(b.left), right: Math.round(b.right), h: Math.round(b.height) }; }));
+  assert.ok(boxes[0].left <= 1 && boxes[1].right >= 1599, 'left art at the left edge, right art at the right edge');
+  assert.ok(boxes[0].h >= 890, 'full height');
+  // Hovering another fighter swaps the art.
+  const before = (await coverage('select-art-p1')).url;
+  const icons = await page.$$('#p1-cards .roster-icon');
+  await icons[6].hover(); // Ryan
+  await new Promise((r) => setTimeout(r, 700));
+  const hovered = await coverage('select-art-p1');
+  assert.notStrictEqual(hovered.url, before, 'the left fighter should change with the hovered fighter');
+  assert.ok(hovered.share > 0.05);
+  // It goes away with the screen.
+  await page.click('#btn-select-back');
+  await page.waitForSelector('#screen-title:not(.hidden)');
+  assert.strictEqual(await page.evaluate(() => document.getElementById('select-art-p1').offsetParent), null, 'hidden when the screen is');
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+});
+
 test('quitting to the main menu stops the match: nothing keeps running behind the title screen', async () => {
   for (const mode of ['#btn-start', '#btn-cpu']) {
     const { page, errors } = await openGame();

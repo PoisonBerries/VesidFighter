@@ -942,7 +942,7 @@ class Fighter {
 
   _updateProjectileCharge(def) {
     const a = this._ability;
-    const CHARGE_THRESHOLD = 10;
+    const CHARGE_THRESHOLD = def.chargeThreshold || 10; // frames of hold before it counts as a charged shot
 
     if (this.actionTimer <= def.startup) {
       this._decelerate();

@@ -235,7 +235,11 @@ const CHARACTERS = {
       description: 'Tap for a quick plasma shot, or hold to charge a devastating blast.',
       cooldown: 2.8,
       startup: 4,
-      maxChargeFrames: 40,
+      // Hold to charge: a tap of under chargeThreshold frames is the quick
+      // shot; holding fills the charge (and fires the big blast) by
+      // maxChargeFrames.
+      maxChargeFrames: 26,
+      chargeThreshold: 6,
       recovery: 14,
       quick: { speed: 22, width: 40, height: 22, damage: 9, knockback: 6, knockbackUp: 2, hitstun: 10 },
       charged: { speed: 14, width: 74, height: 52, damage: 26, knockback: 16, knockbackUp: 6, hitstun: 22 },

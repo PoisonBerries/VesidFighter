@@ -772,7 +772,7 @@ const AbilityFX = (() => {
     if (f.actionTimer <= def.startup) return;
     if (a.charging) {
       const cf = a.chargeFrames || 0;
-      const ready = cf >= 10;
+      const ready = cf >= (def.chargeThreshold || 10);
       const color = ready ? '#ffe066' : '#c58bff';
       const r = 5 + (cf / def.maxChargeFrames) * 20 + Math.sin(now / 50) * 1.2;
       ctx.save();
@@ -1378,7 +1378,7 @@ const AbilityFX = (() => {
         }
         case 'projectileCharge':
           if (m.charging && !a.charging && st === m.st) {
-            add({ kind: 'flash', dur: 200, x: f.x + f.facing * H * 0.36, y: f.y - H * 0.63, r: 46, color: (a.chargeFrames || 0) >= 10 ? '#ffe066' : '#c58bff', a: Math.random() * TAU });
+            add({ kind: 'flash', dur: 200, x: f.x + f.facing * H * 0.36, y: f.y - H * 0.63, r: 46, color: (a.chargeFrames || 0) >= (def.chargeThreshold || 10) ? '#ffe066' : '#c58bff', a: Math.random() * TAU });
           }
           break;
         case 'soundwaveProjectile':

@@ -73,7 +73,91 @@ const UI = (() => {
     return `rgba(${r},${g},${b},${alpha})`;
   }
 
+  // Big full-body fighters behind the select screen, like a fighting game's
+  // versus screen. Each is the real fighter, drawn by the game's own renderer
+  // in its ready stance (so it breathes and moves), on a canvas at the edge of
+  // the screen: P1 on the left facing right, P2 on the right facing left. It
+  // follows whatever the preview shows -- hovering, picking, the Random
+  // shuffle -- and slides in from the edge when it changes.
+  const SelectArt = (() => {
+    const slots = {
+      p1: { canvas: document.getElementById('select-art-p1'), id: null, swap: false, fighter: null, since: 0 },
+      p2: { canvas: document.getElementById('select-art-p2'), id: null, swap: false, fighter: null, since: 0 },
+    };
+    const FIGHTER_MAX_H = 210; // game units: the tallest fighter (John) fills ~72% of the height
+    let running = false, last = 0;
+
+    function set(slot, charId) {
+      const s = slots[slot];
+      if (!s.canvas) return;
+      const swap = slot === 'p2' && charId === selected.p1; // mirror match: the alternate colours
+      if (s.id === charId && s.swap === swap) return;
+      s.id = charId;
+      s.swap = swap;
+      s.fighter = new Fighter(slot, CHARACTERS[charId], 0, 1);
+      s.fighter.paletteSwap = swap;
+      s.since = performance.now();
+    }
+
+    function draw(slot, now) {
+      const s = slots[slot];
+      if (!s.fighter || !s.canvas) return;
+      const cv = s.canvas, dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const cw = cv.clientWidth, ch = cv.clientHeight;
+      if (!cw || !ch) return;
+      if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(ch * dpr)) {
+        cv.width = Math.round(cw * dpr);
+        cv.height = Math.round(ch * dpr);
+      }
+      const g = cv.getContext('2d');
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, cv.width, cv.height);
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const f = s.fighter;
+      const enter = Math.min(1, (now - s.since) / 280);
+      const ease = 1 - Math.pow(1 - enter, 3);
+      const dir = slot === 'p1' ? 1 : -1;
+      const k = (0.72 * ch) / FIGHTER_MAX_H;
+      const floorY = ch * 0.94;
+      const cx = cw * (slot === 'p1' ? 0.4 : 0.6); // toward the outer edge, clear of the roster
+      // A glow in the fighter's colour, and a soft shadow on the floor.
+      const glow = g.createRadialGradient(cx, ch * 0.55, 0, cx, ch * 0.55, ch * 0.6);
+      glow.addColorStop(0, hexToRgba(f.displayColor, 0.34 * ease));
+      glow.addColorStop(1, hexToRgba(f.displayColor, 0));
+      g.fillStyle = glow;
+      g.fillRect(0, 0, cw, ch);
+      g.fillStyle = `rgba(0,0,0,${0.35 * ease})`;
+      g.beginPath();
+      g.ellipse(cx, floorY + 4, f.width * k * 0.5, 9, 0, 0, Math.PI * 2);
+      g.fill();
+      g.translate(cx - dir * (1 - ease) * 70, floorY); // slides in from the outer edge
+      g.scale(dir * k, k);
+      g.translate(-f.x, -f.y);
+      g.globalAlpha = 0.85 * ease;
+      Renderer.drawFighter(g, f, { card: true });
+    }
+
+    function loop(now) {
+      if (screens.select.classList.contains('hidden')) { running = false; return; }
+      requestAnimationFrame(loop);
+      if (now - last < 22) return; // ~45fps is plenty for a backdrop
+      last = now;
+      const t = performance.now();
+      draw('p1', t);
+      draw('p2', t);
+    }
+
+    function start() {
+      if (running) return;
+      running = true;
+      requestAnimationFrame(loop);
+    }
+
+    return { set, start };
+  })();
+
   function renderPreview(slot, charId) {
+    SelectArt.set(slot, charId);
     const char = CHARACTERS[charId];
     // null on the opponent's panel (online, or the CPU's side)
     const controls = cpuMode ? (slot === 'p1' ? CONTROLS.p1 : null) : Net.controlLabelsFor(slot);
@@ -240,6 +324,7 @@ const UI = (() => {
     buildCharCards('p2-cards', 'p2');
     refreshSelect();
     show('select');
+    SelectArt.start();
   }
 
   // Re-render both previews plus the side labels and the note under them

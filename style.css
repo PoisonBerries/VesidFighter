@@ -203,6 +203,28 @@ button:active {
   margin-top: 0;
 }
 
+/* ---- Big full-body fighters behind the select screen ---- */
+.select-art {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: min(34vw, 520px);
+  height: 100vh;
+  pointer-events: none;
+  z-index: 0;
+  -webkit-mask-image: linear-gradient(to top, transparent 0, #000 10%);
+  mask-image: linear-gradient(to top, transparent 0, #000 10%);
+}
+.select-art-left { left: 0; }
+.select-art-right { right: 0; }
+/* The menu itself sits above the art. */
+#screen-select > *:not(.select-art) { position: relative; z-index: 1; }
+/* The art canvases come first in the markup, so the heading is no longer :first-child and lost the
+   `.screen > :first-child { margin-top: auto }` centring (it got the browser's default ~29px margin
+   instead, which pushed the Fight button off short screens). Give it the same auto margin. */
+#screen-select > h2 { margin-top: auto; }
+@media (max-width: 900px) { .select-art { display: none; } }
+
 /* ---- Fighter preview: the big "who's selected" panel ---- */
 .fighter-preview {
   --fp-color: #3d2a55;

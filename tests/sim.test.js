@@ -1030,3 +1030,35 @@ test('Carlos: attack while hovering is a forward, downward claw dive; every othe
     sim.InputManager.setVirtual(C.attack, false, false);
   }
 });
+
+// ---- Owen's Plasma Bolt charges quickly ----
+test('Owen\'s Plasma Bolt: a tap is the quick shot, and holding reaches the full charged blast quickly', () => {
+  const sim = createSim();
+  const sp = sim.CHARACTERS.owen.special;
+  assert.ok(sp.maxChargeFrames <= 30, `full charge should be quick (${sp.maxChargeFrames} frames)`);
+  assert.ok(sp.chargeThreshold < sp.maxChargeFrames);
+
+  // frames from pressing special to the shot appearing, and which kind it is
+  const fire = (holdFrames) => {
+    sim.Game.startMatch('owen', 'sam', () => {}, { ball: 'off' });
+    for (let i = 0; i < 200; i++) sim.Game.update(sim.FIXED_STEP);
+    sim.Game.applySnapshot({ f: [{ x: 300, specialCooldownTimer: 0 }, { x: 1000 }] });
+    sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, true, true);
+    for (let i = 1; i <= 120; i++) {
+      sim.Game.update(sim.FIXED_STEP);
+      sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, i < holdFrames, false);
+      const shot = sim.Game.getSnapshot().pr[0];
+      if (shot) { sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false); return { frames: i, kind: shot.kind }; }
+    }
+    sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false);
+    return null;
+  };
+  const tap = fire(2);
+  assert.strictEqual(tap && tap.kind, 'plasmaQuick', 'a tap fires the quick shot');
+  const held = fire(999);
+  assert.strictEqual(held && held.kind, 'plasmaCharged', 'holding fires the charged blast');
+  assert.ok(held.frames <= sp.startup + sp.maxChargeFrames + 3, `a full charge should be out within ${sp.startup + sp.maxChargeFrames + 3} frames (took ${held.frames})`);
+  // Releasing just past the threshold already counts as charged.
+  const mid = fire(sp.startup + sp.chargeThreshold + 3);
+  assert.strictEqual(mid && mid.kind, 'plasmaCharged', 'a short hold past the threshold is a charged shot');
+});
