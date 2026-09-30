@@ -1,5 +1,4 @@
-// All drawing: background/stage, fighters (custom sprite or procedural
-// placeholder), and in-fight HUD (health bars, timer, round pips).
+// All drawing: background/stage, fighters (procedural body), and in-fight HUD (health bars, timer, round pips).
 
 const Renderer = (() => {
   // ---- Stage ----------------------------------------------------------
@@ -333,10 +332,6 @@ const Renderer = (() => {
   }
 
   function drawFighter(ctx, fighter) {
-    const pose = fighter.currentPose();
-    const customImg = SpriteManager.getImage(fighter.slot, pose)
-      || SpriteManager.getImage(fighter.slot, 'idle');
-
     const rig = Animator.update(fighter, getBodyProfile(fighter.character.id));
 
     const auraColor = getAuraColor(fighter);
@@ -392,14 +387,7 @@ const Renderer = (() => {
     else if (fighter.state === 'block') tint = { color: '#000000', alpha: 0.22 };
     else if (fighter.poisonTicksLeft > 0) tint = { color: '#78c85a', alpha: 0.3 };
 
-    if (customImg) {
-      // Uploaded sprites can't bend, so they get the same squash/stretch
-      // the procedural body uses for crouching and landing.
-      ctx.scale(1 + rig.crouch * 0.15, 1 - rig.crouch * 0.5);
-      drawCustomSprite(ctx, customImg, fighter);
-    } else {
-      drawPlaceholder(ctx, fighter, rig, tint);
-    }
+    drawPlaceholder(ctx, fighter, rig, tint);
 
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -458,13 +446,6 @@ const Renderer = (() => {
 
       ctx.restore();
     }
-  }
-
-  function drawCustomSprite(ctx, img, fighter) {
-    const aspect = img.width / img.height;
-    const targetHeight = fighter.height * 1.08;
-    const targetWidth = targetHeight * aspect;
-    ctx.drawImage(img, -targetWidth / 2, -targetHeight, targetWidth, targetHeight);
   }
 
   function drawShieldIcon(ctx, x, y) {
@@ -620,7 +601,7 @@ const Renderer = (() => {
 
   // ---- Per-character build: differentiates silhouette/stance beyond just
   // sizeScale, so e.g. Carlos reads as a hovering claw-fighter and Robert
-  // reads as stocky even before any custom sprite exists.
+  // reads as stocky at a glance.
   const DEFAULT_BODY_PROFILE = { limbWidth: 1, headScale: 1, stanceMul: 1, idleCrouch: 0, floaty: false, clawHands: false, dancer: false, reachBoost: 0, staggerMul: 1 };
   const BODY_PROFILES = {
     keenan: { limbWidth: 0.82, headScale: 1.05, stanceMul: 0.9, staggerMul: 1.25 },
@@ -694,7 +675,7 @@ const Renderer = (() => {
 
   // ---- Per-character costume accents, layered onto the base filled body so
   // the roster reads as distinct characters (not just recolored stick
-  // figures) even before anyone has a real body sprite uploaded.
+  // figures).
 
   // Drawn first, before the legs -- for anything that sits behind/under the
   // whole figure (Carlos's hover thrusters glowing beneath his feet).
@@ -854,7 +835,7 @@ const Renderer = (() => {
     }
   }
 
-  // ---- Procedural placeholder figure (used until real sprites are uploaded) ----
+  // ---- Procedural fighter body ----
   // All motion comes from the rig Animator.update() built for this frame;
   // this only turns those numbers into shapes.
   function drawPlaceholder(ctx, fighter, rig, tint) {

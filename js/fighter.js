@@ -13,7 +13,7 @@
 
 class Fighter {
   constructor(slot, character, startX, facing) {
-    this.slot = slot; // 'p1' | 'p2' -- used to look up custom sprites
+    this.slot = slot; // 'p1' | 'p2'
     this.character = character;
     this.x = startX;
     this.y = GROUND_Y;

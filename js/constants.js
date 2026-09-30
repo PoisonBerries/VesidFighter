@@ -26,8 +26,6 @@ const ROUNDS_TO_WIN = 2; // best of 3
 
 const FIXED_STEP = 1 / 60; // seconds, physics runs at a fixed 60hz timestep
 
-const POSES = ['idle', 'walk', 'jump', 'attack', 'block', 'hit', 'special', 'knockdown', 'ko', 'victory'];
-
 const CONTROLS = {
   p1: {
     left: 'KeyA',

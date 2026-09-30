@@ -1,4 +1,4 @@
-// DOM screen management: title, character select, sprite customization,
+// DOM screen management: title, character select,
 // pause menu, and match-end. The canvas only ever draws the arena/HUD; every
 // menu is a plain HTML overlay toggled via a `hidden` class.
 
@@ -6,7 +6,6 @@ const UI = (() => {
   const screens = {
     title: document.getElementById('screen-title'),
     select: document.getElementById('screen-select'),
-    customize: document.getElementById('screen-customize'),
     online: document.getElementById('screen-online'),
     matchend: document.getElementById('screen-matchend'),
     pause: document.getElementById('pause-menu'),
@@ -141,7 +140,6 @@ const UI = (() => {
     document.getElementById('p1-cards').classList.toggle('locked', online && local !== 'p1');
     document.getElementById('p2-cards').classList.toggle('locked', online && local !== 'p2');
     document.getElementById('btn-fight').disabled = online && !Net.isLeader();
-    document.getElementById('btn-select-customize').style.display = online ? 'none' : '';
     document.getElementById('select-online-note').textContent = !online ? ''
       : (Net.isLeader() ? 'Online: you are Player 1. Press Fight! when you are both ready.'
         : 'Online: you are Player 2. Waiting for the host to start...');
@@ -150,65 +148,6 @@ const UI = (() => {
     renderPreview('p1', selected.p1);
     renderPreview('p2', selected.p2);
     show('select');
-  }
-
-  // ---- Sprite customization ----
-  function buildPoseGrid(slot) {
-    const grid = document.getElementById('pose-grid-' + slot);
-    grid.innerHTML = '';
-    for (const pose of POSES) {
-      const wrap = document.createElement('div');
-      wrap.className = 'pose-slot';
-
-      const label = document.createElement('div');
-      label.className = 'pose-label';
-      label.textContent = pose;
-
-      const thumb = document.createElement('div');
-      thumb.className = 'pose-thumb';
-      renderThumb(thumb, slot, pose);
-
-      const fileInput = document.createElement('input');
-      fileInput.type = 'file';
-      fileInput.accept = 'image/*';
-      fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        SpriteManager.setSpriteFromFile(slot, pose, file, () => {
-          renderThumb(thumb, slot, pose);
-        });
-      });
-
-      const clearBtn = document.createElement('button');
-      clearBtn.className = 'clear-btn';
-      clearBtn.textContent = 'Clear';
-      clearBtn.addEventListener('click', () => {
-        SpriteManager.clearSprite(slot, pose);
-        fileInput.value = '';
-        renderThumb(thumb, slot, pose);
-      });
-
-      wrap.appendChild(label);
-      wrap.appendChild(thumb);
-      wrap.appendChild(fileInput);
-      wrap.appendChild(clearBtn);
-      grid.appendChild(wrap);
-    }
-  }
-
-  function renderThumb(thumb, slot, pose) {
-    const dataUrl = SpriteManager.getThumbnail(slot, pose);
-    if (dataUrl) {
-      thumb.innerHTML = `<img src="${dataUrl}" alt="${pose}">`;
-    } else {
-      thumb.innerHTML = `<span class="placeholder-dot">no image</span>`;
-    }
-  }
-
-  function openCustomize() {
-    buildPoseGrid('p1');
-    buildPoseGrid('p2');
-    show('customize');
   }
 
   // ---- Match flow ----
@@ -251,11 +190,8 @@ const UI = (() => {
 
   // ---- Wire up buttons ----
   document.getElementById('btn-start').addEventListener('click', openSelect);
-  document.getElementById('btn-customize').addEventListener('click', openCustomize);
-  document.getElementById('btn-customize-back').addEventListener('click', () => show('title'));
 
   document.getElementById('btn-select-back').addEventListener('click', () => show('title'));
-  document.getElementById('btn-select-customize').addEventListener('click', openCustomize);
   document.getElementById('btn-fight').addEventListener('click', startFight);
 
   document.getElementById('btn-rematch').addEventListener('click', startFight);
@@ -356,14 +292,6 @@ const UI = (() => {
     isPaused = false;
     window.VF_setPaused(false);
     show('title');
-  });
-
-  document.querySelectorAll('.reset-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const slot = btn.getAttribute('data-slot');
-      SpriteManager.clearSlot(slot);
-      buildPoseGrid(slot);
-    });
   });
 
   show('title');

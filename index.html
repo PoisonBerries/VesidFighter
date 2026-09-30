@@ -16,7 +16,6 @@
       <div class="menu-buttons">
         <button id="btn-start" class="btn-primary">Local Game</button>
         <button id="btn-online" class="btn-primary">Play Online</button>
-        <button id="btn-customize">Customize Sprites</button>
       </div>
       <div class="controls-legend">
         <div class="controls-col">
@@ -77,37 +76,9 @@
       </div>
       <div class="row-buttons">
         <button id="btn-select-back">Back</button>
-        <button id="btn-select-customize">Customize Sprites</button>
         <button id="btn-fight" class="btn-primary">Fight!</button>
       </div>
       <p id="select-online-note" class="online-status"></p>
-    </div>
-
-    <div id="screen-customize" class="screen hidden">
-      <h2>Customize Sprites</h2>
-      <p class="hint">Upload a cutout photo for each pose (PNGs with transparent backgrounds work best). Any pose you skip falls back to a placeholder stick figure, so the game is fully playable either way.</p>
-      <div class="customize-columns">
-        <div class="customize-column">
-          <h3>Player 1</h3>
-          <div class="pose-grid" id="pose-grid-p1"></div>
-          <button class="reset-btn" data-slot="p1">Reset Player 1</button>
-        </div>
-        <div class="customize-column">
-          <h3>Player 2</h3>
-          <div class="pose-grid" id="pose-grid-p2"></div>
-          <button class="reset-btn" data-slot="p2">Reset Player 2</button>
-        </div>
-      </div>
-      <button id="btn-customize-back" class="btn-primary">Done</button>
-    </div>
-
-    <div id="screen-matchend" class="screen hidden">
-      <h2 id="matchend-title">Player wins!</h2>
-      <div class="menu-buttons">
-        <button id="btn-rematch" class="btn-primary">Rematch</button>
-        <button id="btn-change-chars">Change Characters</button>
-        <button id="btn-main-menu">Main Menu</button>
-      </div>
     </div>
 
     <div id="pause-menu" class="screen hidden">
@@ -138,7 +109,6 @@
   <script src="js/input.js"></script>
   <script src="js/characters.js"></script>
   <script src="js/characterHeads.js"></script>
-  <script src="js/spriteManager.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/effects.js"></script>
   <script src="js/fighter.js"></script>
