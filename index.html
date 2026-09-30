@@ -120,12 +120,26 @@
     </div>
   </div>
 
+  <div id="audio-ctl">
+    <button id="btn-audio" title="Sound settings (M = mute)">&#128266;</button>
+    <div id="audio-panel" hidden>
+      <label>Music <input id="vol-music" type="range" min="0" max="100"></label>
+      <label>Effects <input id="vol-sfx" type="range" min="0" max="100"></label>
+      <div class="audio-row">
+        <button id="btn-mute">Mute (M)</button>
+        <button id="btn-skip-track">Next track</button>
+      </div>
+      <div id="now-playing"></div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script src="js/constants.js"></script>
   <script src="js/input.js"></script>
   <script src="js/characters.js"></script>
   <script src="js/characterHeads.js"></script>
   <script src="js/spriteManager.js"></script>
+  <script src="js/audio.js"></script>
   <script src="js/effects.js"></script>
   <script src="js/fighter.js"></script>
   <script src="js/animator.js"></script>

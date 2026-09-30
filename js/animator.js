@@ -470,7 +470,7 @@ const Animator = (() => {
       rot: 0, rotVel: 0, prevSpin: 0, toppling: false,
       hop: 0, hopV: 0,
       landT: 0, landImpact: 0, getup: 0,
-      prevAirborne: false, prevVy: 0, prevState: 'idle',
+      prevAirborne: false, prevVy: 0, prevState: 'idle', prevT: 0, prevJumps: 0, pan: 0,
       dustTimer: 0,
     };
   }
@@ -525,7 +525,10 @@ const Animator = (() => {
       an.rot += an.rotVel * f;
       if (an.rot <= T.rot) {
         an.rot = T.rot;
-        if (Math.abs(an.rotVel) > 0.05) { an.rotVel = -an.rotVel * 0.24; an.hopV = Math.max(an.hopV, 2.6); }
+        if (Math.abs(an.rotVel) > 0.05) {
+          an.rotVel = -an.rotVel * 0.24; an.hopV = Math.max(an.hopV, 2.6);
+          if (typeof Sfx !== 'undefined') Sfx.thud(an.pan);
+        }
         else { an.rotVel = 0; an.toppling = false; }
       }
       return;
@@ -541,6 +544,9 @@ const Animator = (() => {
       an.rot += an.rotVel * h;
     }
   }
+
+  // Knocked out of the arena and still going down.
+  function T0_TUMBLE(fighter, st) { return st === 'ko' && fighter.y > GROUND_Y + 6; }
 
   function spawnLandingDust(fighter, count, power) {
     if (typeof Effects !== 'undefined' && Effects.spawnDust) Effects.spawnDust(fighter.x, GROUND_Y, count, power);
@@ -564,13 +570,34 @@ const Animator = (() => {
       if (down || Math.abs(an.rot) > 0.8) {
         an.hopV = Math.max(an.hopV, clamp(an.prevVy * 0.35, 2.5, 8));
         spawnLandingDust(fighter, 7, 2.6);
+        if (typeof Sfx !== 'undefined') Sfx.thud(an.pan);
       } else if (impact > 0.15) {
         an.landT = 1; an.landImpact = impact;
         spawnLandingDust(fighter, Math.round(2 + impact * 5), 1.6 + impact * 1.4);
+        if (typeof Sfx !== 'undefined') Sfx.land(impact, an.pan);
       }
     }
     an.prevAirborne = airborne;
     if (airborne) an.prevVy = fighter.vy;
+
+    // Sound cues from state transitions (render-side, so host, guest and
+    // local play all hear the same thing).
+    an.pan = (fighter.x - CANVAS_WIDTH / 2) / (CANVAS_WIDTH / 2);
+    if (typeof Sfx !== 'undefined') {
+      const restarted = st === an.prevState && fighter.actionTimer < an.prevT - 0.5;
+      if (st !== an.prevState || (restarted && (st === 'attack' || st === 'special' || st === 'ultimate'))) {
+        if (st === 'attack') Sfx.swing(an.pan);
+        else if (st === 'special' || st === 'ultimate') {
+          const def = st === 'ultimate' ? fighter.character.ultimate : fighter.character.special;
+          Sfx.ability(def.type, st === 'ultimate', an.pan);
+        } else if (st === 'ko') Sfx.ko(an.pan);
+        else if (st === 'victory') Sfx.victory();
+      }
+      if (fighter.jumpsUsed > an.prevJumps) Sfx.jump(fighter.jumpsUsed, an.pan);
+      if (T0_TUMBLE(fighter, st) && !an.falling) { an.falling = true; Sfx.fall(an.pan); }
+    }
+    an.prevJumps = fighter.jumpsUsed;
+    an.prevT = fighter.actionTimer;
 
     if (an.prevState === 'knockdown' && !down && st !== 'hitstun' && Math.abs(an.rot) > 0.8) an.getup = 1;
     an.prevState = st;

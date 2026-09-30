@@ -250,7 +250,7 @@ const Game = (() => {
       parryKnockdown: !!opts.parryKnockdown,
       knockdownDuration: opts.knockdownDuration || 0,
     });
-    Effects.spawnHitSpark(spawnX, spawnY, opts.color || '#bfefff');
+    Effects.spawnHitSpark(spawnX, spawnY, opts.color || '#bfefff', 'muzzle');
   }
 
   function updateProjectiles() {
@@ -308,9 +308,25 @@ const Game = (() => {
     }
   }
 
+  // Countdown beeps and the FIGHT! cue, keyed off what's on screen so they
+  // play the same for the host, the guest and local play.
+  let lastBeat = null, lastMatchState = null;
+  function playCountdownSounds() {
+    if (typeof Sfx === 'undefined') return;
+    if (matchState === 'countdown') {
+      const n = Math.ceil(stateTimer);
+      if (n > 0 && n !== lastBeat) Sfx.tick();
+      lastBeat = n;
+    } else if (matchState === 'fight' && lastMatchState === 'countdown') {
+      Sfx.go();
+    }
+    lastMatchState = matchState;
+  }
+
   function render(ctx) {
     Renderer.drawStage(ctx);
     if (!p1 || !p2) return;
+    playCountdownSounds();
 
     const shakeOffset = Effects.getShakeOffset();
     ctx.save();

@@ -9,8 +9,9 @@ const Effects = (() => {
   let recording = false;
   let events = [];
 
-  function spawnHitSpark(x, y, color) {
-    if (recording) events.push(['h', Math.round(x), Math.round(y), color]);
+  function spawnHitSpark(x, y, color, kind) {
+    if (recording) events.push(['h', Math.round(x), Math.round(y), color, kind]);
+    if (typeof Sfx !== 'undefined') Sfx.impact(color, kind); // absent on the sim server
     for (let i = 0; i < 10; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 2 + Math.random() * 5;
@@ -120,7 +121,7 @@ const Effects = (() => {
 
   function replayEvents(list) {
     for (const e of list || []) {
-      if (e[0] === 'h') spawnHitSpark(e[1], e[2], e[3]);
+      if (e[0] === 'h') spawnHitSpark(e[1], e[2], e[3], e[4]);
       else if (e[0] === 's') shake(e[1], e[2]);
       else if (e[0] === 'r') reset();
     }
