@@ -87,14 +87,17 @@ const UI = (() => {
     const FIGHTER_MAX_H = 210; // game units: the tallest fighter (John) fills ~72% of the height
     let running = false, last = 0;
 
-    function set(slot, charId) {
+    function set(slot, charId, transformed) {
       const s = slots[slot];
       if (!s.canvas) return;
+      transformed = !!transformed && !!CHARACTERS[charId].transform;
       const swap = slot === 'p2' && charId === selected.p1; // mirror match: the alternate colours
-      if (s.id === charId && s.swap === swap) return;
+      if (s.id === charId && s.swap === swap && s.transformed === transformed) return;
       s.id = charId;
       s.swap = swap;
+      s.transformed = transformed;
       s.fighter = new Fighter(slot, CHARACTERS[charId], 0, 1);
+      s.fighter.transformed = transformed;
       s.fighter.paletteSwap = swap;
       s.since = performance.now();
     }
@@ -156,33 +159,41 @@ const UI = (() => {
     return { set, start };
   })();
 
+  // Characters that transform (Robert) can show either form in the overview.
+  const showForm = { p1: false, p2: false };
+
   function renderPreview(slot, charId) {
-    SelectArt.set(slot, charId);
     const char = CHARACTERS[charId];
+    const tf = char.transform || null;
+    const transformed = !!tf && showForm[slot];
+    SelectArt.set(slot, charId, transformed);
     // null on the opponent's panel (online, or the CPU's side)
     const controls = cpuMode ? (slot === 'p1' ? CONTROLS.solo : null) : Net.controlLabelsFor(slot);
     const container = document.getElementById('preview-' + slot);
     // Mirror match: player 2 gets the alternate colours, as in the fight.
-    const color = (slot === 'p2' && charId === selected.p1) ? swapPalette(char.color) : char.color;
+    const baseColor = transformed && char.transformColor ? char.transformColor : char.color;
+    const color = (slot === 'p2' && charId === selected.p1) ? swapPalette(baseColor) : baseColor;
 
     container.style.setProperty('--fp-color', color);
     container.style.setProperty('--fp-glow', hexToRgba(color, 0.45));
 
-    const speedPct = statPct(char.moveSpeed, STAT_RANGES.speed);
-    const atkSpeedPct = statPct(atkSpeedScore(char), STAT_RANGES.atkSpeed);
-    const powerPct = statPct(char.attack.damage, STAT_RANGES.power);
-    const hpPct = statPct(char.maxHp, STAT_RANGES.hp);
-    const sizePct = statPct(char.sizeScale, STAT_RANGES.size);
+    const pct = (v, range) => Math.max(8, Math.min(100, statPct(v, range)));
+    const speedPct = pct(char.moveSpeed * (transformed ? tf.spdMul : 1), STAT_RANGES.speed);
+    const atkSpeedPct = pct(atkSpeedScore(char), STAT_RANGES.atkSpeed);
+    const powerPct = pct(char.attack.damage * (transformed ? tf.dmgMul : 1), STAT_RANGES.power);
+    const hpPct = pct(char.maxHp + (transformed ? tf.bonusHp : 0), STAT_RANGES.hp);
+    const sizePct = pct(char.sizeScale * (transformed ? tf.sizeMul : 1), STAT_RANGES.size);
 
     container.innerHTML = `
       <div class="preview-head">
       <div class="preview-id">
       <div class="preview-avatar-wrap">
         <div class="avatar-fallback" style="background:${color}"></div>
-        <img class="avatar-img" src="assets/heads/${char.id}.png" alt="" onerror="this.style.display='none'">
+        <img class="avatar-img" src="assets/heads/${char.id}${transformed ? '-transformed' : ''}.png" alt="" onerror="this.onerror=null;this.src='assets/heads/${char.id}.png'">
       </div>
       <div class="preview-name">${char.name}</div>
       <div class="preview-title">${char.title}</div>
+      ${tf ? `<div class="form-toggle" role="group" aria-label="Form"><button type="button" data-form="base" class="${transformed ? '' : 'on'}">Base</button><button type="button" data-form="transformed" class="${transformed ? 'on' : ''}">Transformed</button></div>` : ''}
       </div>
       <div class="stat-bars">
         <div class="stat-row"><span class="stat-label">Speed</span><div class="stat-bar"><div class="stat-fill" style="width:${speedPct}%"></div></div></div>
@@ -226,6 +237,12 @@ const UI = (() => {
         <div>
           <div class="ability-name">Phase Step</div>
           <div class="ability-desc">While being hit, press jump and crouch together to slip through your opponent and come out behind them. ${Math.round(char.phaseStep.cooldown / 60)}s cooldown.</div>
+        </div>
+      </div>` : ''}
+      ${tf ? `<div class="ability-row">
+        <div>
+          <div class="ability-name">Passive: Transformation</div>
+          <div class="ability-desc">At half health he transforms: +${tf.bonusHp} max health (his health keeps the same percentage), ${Math.round((tf.dmgMul - 1) * 100)}% more damage and ${Math.round((tf.sizeMul - 1) * 100)}% bigger, but ${Math.round((1 - tf.spdMul) * 100)}% slower.</div>
         </div>
       </div>` : ''}
       ${char.chargeJump ? `<div class="ability-row">
@@ -289,6 +306,12 @@ const UI = (() => {
       </div>` : ''}
       </div>
     `;
+    container.querySelectorAll('.form-toggle button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        showForm[slot] = btn.dataset.form === 'transformed';
+        renderPreview(slot, charId);
+      });
+    });
   }
 
   // The Random tile: shuffles the preview through the roster for a moment,
