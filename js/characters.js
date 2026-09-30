@@ -31,6 +31,10 @@ const CHARACTERS = {
     moveSpeed: 5.6,
     jumpForce: 15,
     maxJumps: 1,
+    // Phase Step: while being hit (hitstun, or knocked down), press jump and
+    // crouch TOGETHER to slip through the opponent and come out behind them.
+    // Untouchable for the dash and a moment after; then a short cooldown.
+    phaseStep: { cooldown: 480, dashFrames: 9, invulnTail: 6, recovery: 6, behind: 85 },
     maxHp: 90,
     attack: {
       damage: 6, offset: 24, width: 60, height: 82,

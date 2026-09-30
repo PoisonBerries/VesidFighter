@@ -522,6 +522,62 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // Afterimages and rings for Keenan's Phase Step.
+  function drawGhost(ctx, e, t) {
+    drawSilhouette(ctx, e.x, e.y, e.H, e.dir, '#bfe6ff', 0.42 * (1 - t));
+  }
+
+  function drawPhaseRing(ctx, e, t) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `rgba(190,235,255,${(1 - t) * 0.9})`;
+    ctx.lineWidth = 4 * (1 - t) + 1;
+    ctx.beginPath();
+    ctx.ellipse(e.x, e.y - e.H * 0.5, 16 + 46 * easeOutCubic(t), e.H * 0.62, 0, 0, TAU);
+    ctx.stroke();
+    for (let k = -2; k <= 2; k++) {
+      ctx.strokeStyle = `rgba(255,255,255,${(1 - t) * 0.7})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(e.x + k * 9, e.y);
+      ctx.lineTo(e.x + k * 9, e.y - e.H * (0.4 + 0.5 * (1 - Math.abs(k) / 3)) * easeOutCubic(Math.min(1, t * 2.5)));
+      ctx.stroke();
+    }
+    glow(ctx, e.x, e.y - e.H * 0.5, e.H * 0.6, '#9fd8ff', 0.35 * (1 - t));
+    ctx.restore();
+  }
+
+  // A small pill above a fighter who can Phase Step right now (in hitstun
+  // and ready), so the escape is discoverable in the moment it matters.
+  function drawPhaseHint(ctx, f) {
+    const now = performance.now();
+    const cx = f.x, y = Math.max(150, f.y - f.height - 96);
+    const pulse = 0.5 + 0.5 * Math.sin(now / 110);
+    ctx.save();
+    ctx.font = 'bold 15px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const label = '\u2191 + \u2193', w = 62, h = 24;
+    ctx.globalCompositeOperation = 'lighter';
+    glow(ctx, cx, y, 46, '#9fd8ff', 0.25 + 0.3 * pulse);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(20,30,60,0.85)';
+    ctx.strokeStyle = `rgba(190,235,255,${0.6 + 0.4 * pulse})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - w / 2 + 12, y - h / 2);
+    ctx.arcTo(cx + w / 2, y - h / 2, cx + w / 2, y + h / 2, 12);
+    ctx.arcTo(cx + w / 2, y + h / 2, cx - w / 2, y + h / 2, 12);
+    ctx.arcTo(cx - w / 2, y + h / 2, cx - w / 2, y - h / 2, 12);
+    ctx.arcTo(cx - w / 2, y - h / 2, cx + w / 2, y - h / 2, 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, cx, y + 1);
+    ctx.restore();
+  }
+
   function drawTimed(ctx) {
     if (!timed.length) return;
     const now = performance.now();
@@ -538,6 +594,8 @@ const AbilityFX = (() => {
         case 'soundRing': drawSoundRing(ctx, e, t); break;
         case 'flash': drawFlash(ctx, e, t); break;
         case 'counter': drawCounter(ctx, e, t); break;
+        case 'ghost': drawGhost(ctx, e, t); break;
+        case 'phasering': drawPhaseRing(ctx, e, t); break;
         default: break;
       }
     }
@@ -1076,6 +1134,7 @@ const AbilityFX = (() => {
   }
 
   function drawFront(ctx, f) {
+    if (f.character.phaseStep && (f.state === 'hitstun' || f.state === 'knockdown') && f.phaseCooldown <= 0 && f.y <= GROUND_Y + 1 && f.hp > 0) drawPhaseHint(ctx, f);
     if (f.hovering) drawHoverJets(ctx, f);
     if (f.character.hover) drawHoverMeter(ctx, f);
     if (f.reflectTimer > 0) drawReflectDome(ctx, f);
@@ -1271,6 +1330,18 @@ const AbilityFX = (() => {
           }
           break;
         default: break;
+      }
+    }
+
+    // Keenan's Phase Step: rings where he goes in and comes out, and an
+    // afterimage every frame of the dash.
+    if (st === 'phasestep') {
+      if (m.st !== 'phasestep') add({ kind: 'phasering', dur: 380, x: f.x, y: f.y, H });
+      add({ kind: 'ghost', dur: 300, x: f.x, y: f.y, H, dir: f.facing });
+    } else if (m.st === 'phasestep') {
+      add({ kind: 'phasering', dur: 380, x: f.x, y: f.y, H });
+      for (let i = 0; i < 10; i++) {
+        Effects.spawn({ x: f.x + rnd(-1, 1) * f.width * 0.5, y: f.y - rnd(0, H), vx: rnd(-1, 1), vy: rnd(-2, -0.5), size: rnd(1.5, 3), color: '#cfeaff', life: 26, noGravity: true, shrink: true });
       }
     }
 

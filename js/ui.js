@@ -125,6 +125,13 @@ const UI = (() => {
           <div class="ability-desc">Hold jump in the air to hang in place on the thrusters for a moment. Refills on landing.</div>
         </div>
       </div>` : ''}
+      ${char.phaseStep ? `<div class="ability-row">
+        ${controls ? `<span class="key-badge">${keyLabel(controls.jump)}+${keyLabel(controls.block)}</span>` : ''}
+        <div>
+          <div class="ability-name">Phase Step</div>
+          <div class="ability-desc">While being hit, press jump and crouch together to slip through your opponent and come out behind them. ${Math.round(char.phaseStep.cooldown / 60)}s cooldown.</div>
+        </div>
+      </div>` : ''}
       ${char.crouchRoll ? `<div class="ability-row">
         ${controls ? `<span class="key-badge">${keyLabel(controls.block)}+${keyLabel(controls.left)}/${keyLabel(controls.right)}</span>` : ''}
         <div>

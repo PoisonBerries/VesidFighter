@@ -67,6 +67,10 @@ class Fighter {
     this.impactKind = null;
     this.hovering = false;
     this.rolling = false; // crouch-moving as a roll (characters with crouchRoll)
+    this.phaseCooldown = 0; // frames until Phase Step (Keenan) is ready again
+    this._comboHeld = false; // jump + crouch both down last frame (to catch the moment the pair is completed)
+    this.phaseStepFrom = 0;
+    this.phaseStepTo = 0;
 
     // Timed buffs (Ryan/Nathan ultimates).
     this.buffTimer = 0;
@@ -428,6 +432,8 @@ class Fighter {
     this.hoverLeft = this.character.hover ? this.character.hover.frames : 0;
     this.hovering = false;
     this.rolling = false;
+    this.phaseCooldown = 0;
+    this._comboHeld = false;
     this.blocking = false;
     this.facingLocked = false;
     this.attackHasHit = false;
@@ -480,6 +486,7 @@ class Fighter {
       this.specialCooldownTimer = Math.max(0, this.specialCooldownTimer - FIXED_STEP);
     }
     if (this.hitFlashTimer > 0) this.hitFlashTimer--;
+    if (this.phaseCooldown > 0) this.phaseCooldown--;
     if (this.invulnerableTimer > 0) this.invulnerableTimer--;
     if (this.reflectTimer > 0) this.reflectTimer--;
     if (this.doubleJumpFlipTimer > 0) this.doubleJumpFlipTimer--;
@@ -506,6 +513,43 @@ class Fighter {
     }
   }
 
+  // Keenan's escape: from hitstun/knockdown, dash through the opponent and
+  // end up behind them, untouchable for the dash. Returns whether it fired.
+  _tryPhaseStep(opp) {
+    const ps = this.character.phaseStep;
+    if (!ps || !opp || this.phaseCooldown > 0 || this.y > GROUND_Y + 1) return false;
+    const dir = opp.x >= this.x ? 1 : -1; // through them, out the far side
+    this.state = 'phasestep';
+    this.actionTimer = 0;
+    this.phaseStepFrom = this.x;
+    this.phaseStepTo = Math.max(STAGE_LEFT_EDGE + 40, Math.min(STAGE_RIGHT_EDGE - 40, opp.x + dir * ps.behind));
+    this.facing = dir;
+    this.facingLocked = true;
+    this.invulnerableTimer = ps.dashFrames + ps.invulnTail;
+    this._dodging = false; // "phased" (see-through), not a dodge window
+    this.reflectTimer = 0;
+    this.blocking = false;
+    this.launched = false;
+    this.stunFrames = 0;
+    this.hitFlashTimer = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.phaseCooldown = ps.cooldown;
+    return true;
+  }
+
+  _updatePhaseStep() {
+    const ps = this.character.phaseStep;
+    const u = Math.min(1, this.actionTimer / ps.dashFrames);
+    this.x = this.phaseStepFrom + (this.phaseStepTo - this.phaseStepFrom) * (1 - Math.pow(1 - u, 3));
+    this.vx = 0;
+    if (u < 1) this.vy = -GRAVITY * (this.character.gravityMul || 1); // hold height through the dash
+    if (this.actionTimer >= ps.dashFrames + ps.recovery) {
+      this.state = this.grounded ? 'idle' : 'fall';
+      this.facingLocked = false;
+    }
+  }
+
   _handleInput(controls, opponent) {
     const held = {
       left: InputManager.isDown(controls.left),
@@ -515,6 +559,11 @@ class Fighter {
     // Held direction relative to facing, read even mid-attack: it aims the
     // hot potato (game.js) -- toward for a long hit, away for a short lob.
     this.aim = held.left === held.right ? 0 : (held.right ? 1 : -1) * this.facing;
+    // Jump + crouch pressed together (either order, as long as both are down
+    // and the pair was only just completed) -- Keenan's Phase Step escape.
+    const comboDown = InputManager.isDown(controls.jump) && held.block;
+    const comboEdge = comboDown && !this._comboHeld;
+    this._comboHeld = comboDown;
     const pressed = {
       jump: InputManager.isPressed(controls.jump),
       attack: InputManager.isPressed(controls.attack),
@@ -523,9 +572,10 @@ class Fighter {
     };
 
     if (this.state === 'hitstun' || this.state === 'knockdown') {
-      return; // no input while stunned or downed
+      if (comboEdge) this._tryPhaseStep(opponent);
+      return; // no other input while stunned or downed
     }
-    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate') {
+    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep') {
       return; // committed to the action until it finishes
     }
 
@@ -652,6 +702,7 @@ class Fighter {
       if (this.actionTimer > total) this._endAbility();
     }
 
+    if (this.state === 'phasestep') this._updatePhaseStep();
     if (this.state === 'special') this._updateAbilityState(this.character.special);
     if (this.state === 'ultimate') this._updateAbilityState(this.character.ultimate);
 
@@ -985,6 +1036,7 @@ class Fighter {
       case 'attack': return 'attack';
       case 'special': return 'special';
       case 'ultimate': return 'special';
+      case 'phasestep': return 'special';
       case 'hitstun': return 'hit';
       case 'knockdown': return 'knockdown';
       case 'ko': return 'ko';

@@ -873,3 +873,94 @@ test('Nathan\'s punch reaches nearly twice as far as a normal jab', () => {
   T.grounded = true;
   assert.ok(overlaps(box, T.getHurtbox()), 'a target 190 units away should be in range');
 });
+
+// ---- Keenan's Phase Step ----
+test('Phase Step: hit, then jump + crouch together slips Keenan through and behind the opponent', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  const hit = { damage: 6, knockback: 6, knockbackUp: 3, hitstun: 40, fromFacing: -1 };
+  const keys = (jump, block) => { sim.InputManager.setVirtual(C.jump, jump, false); sim.InputManager.setVirtual(C.block, block, false); };
+  const setup = (id = 'keenan') => {
+    const { f, foe } = startFighter(sim, id, 500);
+    foe.x = 560; // the opponent is just in front of us
+    keys(false, false);
+    for (let i = 0; i < 4; i++) f.update(C, foe);
+    f.applyHit(hit);
+    f.update(C, foe);
+    assert.strictEqual(f.state, 'hitstun');
+    return { f, foe };
+  };
+
+  // Both pressed together.
+  let { f, foe } = setup();
+  keys(true, true);
+  f.update(C, foe);
+  assert.strictEqual(f.state, 'phasestep');
+  assert.ok(f.phaseCooldown > 0);
+  // Untouchable for the dash.
+  const hp = f.hp;
+  assert.strictEqual(f.applyHit(hit), 'phased');
+  assert.strictEqual(f.hp, hp);
+  keys(false, false);
+  for (let i = 0; i < 40; i++) f.update(C, foe);
+  assert.ok(f.x > foe.x + 40, `should end up behind the opponent (Keenan ${f.x.toFixed(0)}, opponent ${foe.x})`);
+  assert.ok(['idle', 'fall', 'jump'].includes(f.state), `control should come back (state ${f.state})`);
+  assert.ok(f.facing === -1, 'and he turns to face them again');
+
+  // Either order counts, as long as the pair is completed.
+  for (const first of ['jump', 'block']) {
+    ({ f, foe } = setup());
+    keys(first === 'jump', first === 'block');
+    f.update(C, foe);
+    assert.notStrictEqual(f.state, 'phasestep', 'one key alone does nothing');
+    keys(true, true);
+    f.update(C, foe);
+    assert.strictEqual(f.state, 'phasestep', `${first} first, then the other`);
+  }
+
+  // Not from a standing start, not for other characters, not during the cooldown.
+  ({ f, foe } = setup());
+  f.state = 'idle';
+  keys(true, true); f.update(C, foe);
+  assert.notStrictEqual(f.state, 'phasestep', 'only while being hit');
+  keys(false, false);
+  for (const c of sim.CHARACTER_LIST.filter((c) => !c.phaseStep)) {
+    ({ f, foe } = setup(c.id));
+    keys(true, true); f.update(C, foe);
+    assert.notStrictEqual(f.state, 'phasestep', `${c.id} has no Phase Step`);
+    keys(false, false);
+  }
+  ({ f, foe } = setup());
+  keys(true, true); f.update(C, foe); keys(false, false);
+  for (let i = 0; i < 30; i++) f.update(C, foe);
+  f.applyHit(hit); f.update(C, foe);
+  keys(true, true); f.update(C, foe); keys(false, false);
+  assert.notStrictEqual(f.state, 'phasestep', 'on cooldown');
+  f.phaseCooldown = 0; f.state = 'hitstun'; f.actionTimer = 0; f.stunFrames = 40;
+  keys(false, false); f.update(C, foe);
+  keys(true, true); f.update(C, foe);
+  assert.strictEqual(f.state, 'phasestep', 'ready again after the cooldown');
+});
+
+test('Phase Step never carries Keenan off the stage, and is not available below the platform', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  const { f, foe } = startFighter(sim, 'keenan', sim.STAGE_RIGHT_EDGE - 60);
+  foe.x = sim.STAGE_RIGHT_EDGE - 30; // the opponent is at the very edge
+  for (let i = 0; i < 4; i++) f.update(C, foe);
+  f.applyHit({ damage: 6, knockback: 4, knockbackUp: 2, hitstun: 40, fromFacing: -1 });
+  f.update(C, foe);
+  sim.InputManager.setVirtual(C.jump, true, false); sim.InputManager.setVirtual(C.block, true, false);
+  f.update(C, foe);
+  sim.InputManager.setVirtual(C.jump, false, false); sim.InputManager.setVirtual(C.block, false, false);
+  for (let i = 0; i < 30; i++) f.update(C, foe);
+  assert.ok(f.x <= sim.STAGE_RIGHT_EDGE, `stayed on the stage (x ${f.x})`);
+
+  const g = startFighter(sim, 'keenan', 300);
+  g.f.y = sim.GROUND_Y + 200; // already below the platform
+  g.f.state = 'hitstun'; g.f.actionTimer = 0; g.f.stunFrames = 60;
+  sim.InputManager.setVirtual(C.jump, true, false); sim.InputManager.setVirtual(C.block, true, false);
+  g.f.update(C, g.foe);
+  assert.notStrictEqual(g.f.state, 'phasestep', 'no Phase Step once knocked below the platform');
+  sim.InputManager.setVirtual(C.jump, false, false); sim.InputManager.setVirtual(C.block, false, false);
+});

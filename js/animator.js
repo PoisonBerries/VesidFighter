@@ -440,6 +440,16 @@ const Animator = (() => {
         break;
       }
 
+      case 'phasestep': { // Keenan slipping through the opponent: a low, fast, leaning dash
+        const ps = fighter.character.phaseStep;
+        const u = clamp(t / ps.dashFrames, 0, 1);
+        T.lean = lerp(30, 6, u); T.crouch = lerp(0.3, 0.12, u);
+        T.armPose = 'forward'; T.E = 4;
+        T.fA = F(-26, 0); T.fB = F(22, 0);
+        T.rate = 70;
+        break;
+      }
+
       case 'hitstun': {
         const stagger = profile.staggerMul * (fighter.transformed ? 0.6 : 1);
         const p = clamp(t / Math.max(10, fighter.stunFrames || 10), 0, 1);
@@ -1016,7 +1026,8 @@ const Animator = (() => {
         else if (st === 'special' || st === 'ultimate') {
           const def = st === 'ultimate' ? fighter.character.ultimate : fighter.character.special;
           Sfx.ability(def.type, st === 'ultimate', an.pan, def);
-        } else if (st === 'ko') Sfx.ko(an.pan);
+        } else if (st === 'phasestep') Sfx.phasestep(an.pan);
+        else if (st === 'ko') Sfx.ko(an.pan);
         else if (st === 'victory') Sfx.victory();
       }
       if (fighter.jumpsUsed > an.prevJumps) Sfx.jump(fighter.jumpsUsed, an.pan);
