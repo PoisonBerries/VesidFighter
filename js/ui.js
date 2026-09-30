@@ -228,6 +228,26 @@ const UI = (() => {
           <div class="ability-desc">While being hit, press jump and crouch together to slip through your opponent and come out behind them. ${Math.round(char.phaseStep.cooldown / 60)}s cooldown.</div>
         </div>
       </div>` : ''}
+      ${char.chargeJump ? `<div class="ability-row">
+        ${controls ? `<span class="key-badge">${keyLabel(controls.jump)}</span>` : ''}
+        <div>
+          <div class="ability-name">Charged Jump</div>
+          <div class="ability-desc">Hold jump to charge &mdash; the longer, the higher. Fully charged, he rockets up, throws his arms out and spins down in a plasma whirlwind.</div>
+        </div>
+      </div>` : ''}
+      ${char.grabSlam ? `<div class="ability-row">
+        <div>
+          <div class="ability-name">Grab &amp; Slam</div>
+          <div class="ability-desc">Land ${char.grabSlam.hits} hits in a row without being blocked or hit back and he lifts the opponent and slams them down, stunning them for a second.</div>
+        </div>
+      </div>` : ''}
+      ${char.comboSong ? `<div class="ability-row">
+        ${controls ? `<span class="key-badge">${keyLabel(controls.block)}+${keyLabel(controls.attack)}</span>` : ''}
+        <div>
+          <div class="ability-name">Combo Tune &amp; Shockwave</div>
+          <div class="ability-desc">Every hit plays a note &mdash; string hits together and it becomes a song. In the air: attack is a backflip kick; down + attack sends out a musical shockwave that stuns.</div>
+        </div>
+      </div>` : ''}
       ${char.bloodDonor ? `<div class="ability-row">
         <div>
           <div class="ability-name">Passive: Blood Donor</div>

@@ -426,7 +426,23 @@ const Animator = (() => {
         const ext = attackExt(t, atk);
         const heavy = id === 'john' || id === 'robert';
         T.rate = 60;
-        if (fighter.airAttackActive && id === 'sam') { // Sam's pike kick: knees up, then both legs driven straight out, folded at the hips
+        if (fighter.downAttackActive) { // Ryan: arms flung wide, belting out the shockwave
+          const pulse = clamp((t - atk.startup) / Math.max(1, atk.active), 0, 1);
+          T.arms = [P(-40 - 8 * pulse, -26 + 10 * (1 - pulse), 0, 1), P(40 + 8 * pulse, -26 + 10 * (1 - pulse), 0, 1)];
+          T.crouch = 0.1 + 0.08 * (1 - pulse); T.lean = 0;
+          T.fA = F(-12, -14); T.fB = F(12, -14);
+          T.rate = 50;
+        } else if (fighter.airAttackActive && atk.flip) { // Ryan: a backflip with the kick swinging through
+          const total = atk.startup + atk.active + atk.recovery;
+          const u = clamp(t / total, 0, 1);
+          const kick = Math.sin(clamp((t - atk.startup) / Math.max(1, atk.active), 0, 1) * Math.PI);
+          T.spin = -TAU * easeInOutSine(u);
+          T.ball = u < 0.22 ? 0.75 * (1 - u / 0.22) : 0;
+          T.crouch = 0.14 * (1 - kick); T.armPose = 'tuckedDive'; T.arms = null;
+          T.fA = F(-6, -16); T.fB = F(lerp(8, 52, kick), lerp(-14, -26, kick));
+          T.footPoint = kick;
+          T.rate = 55;
+        } else if (fighter.airAttackActive && id === 'sam') { // Sam's pike kick: knees up, then both legs driven straight out, folded at the hips
           const tuck = ext < 0 ? -ext / 0.45 : 0, drive = ext > 0 ? ext : 0;
           if (ext < 0) {
             T.fA = F(lerp(-6, 16, tuck), lerp(0, -34, tuck));
@@ -518,6 +534,55 @@ const Animator = (() => {
         break;
       }
 
+      case 'jumpcharge': { // Owen: sinking into the crouch, fists clenched at his sides
+        const cj = fighter.character.chargeJump;
+        const f = clamp(fighter.jumpCharge / cj.maxFrames, 0, 1);
+        T.crouch = 0.12 + 0.3 * f; T.lean = 8 * f; T.armPose = 'slamDown';
+        T.fA = F(-16, 0); T.fB = F(16, 0);
+        T.rate = 40;
+        break;
+      }
+
+      case 'whirlwind': { // Owen: arms straight out, spinning about his own axis on the way down
+        const ab = fighter._ability || {};
+        if (ab.landing) {
+          T.crouch = 0.3; T.lean = 10; T.armPose = 'slamDown';
+          T.fA = F(-18, 0); T.fB = F(16, 0);
+          T.rate = 40;
+        } else {
+          T.crouch = -0.02; T.lean = 0;
+          T.arms = [P(-50, -14, 0, 1), P(50, -14, 0, 1)];
+          T.fA = F(-8, -12); T.fB = F(10, -18);
+          T.rate = 60;
+        }
+        break;
+      }
+
+      case 'grabslam': { // Robert: heave the opponent overhead, then drive them into the floor
+        const gs = fighter.character.grabSlam;
+        const lift = clamp(t / gs.lift, 0, 1);
+        if (t <= gs.lift + gs.hold) {
+          T.arms = [P(lerp(-18, -16, lift), lerp(10, -40, lift), -4, 1), P(lerp(18, 16, lift), lerp(10, -40, lift), 4, 1)];
+          T.crouch = lerp(0.2, -0.02, lift); T.lean = lerp(14, -10, lift);
+        } else {
+          const r = clamp((t - gs.lift - gs.hold) / 8, 0, 1);
+          T.arms = [P(lerp(-16, 10, r), lerp(-40, 34, r), 0, 1), P(lerp(16, 26, r), lerp(-40, 34, r), 0, 1)];
+          T.crouch = 0.12 + 0.26 * r; T.lean = lerp(-10, 26, r);
+        }
+        T.fA = F(-18, 0); T.fB = F(16, 0);
+        T.rate = 50;
+        break;
+      }
+
+      case 'grabbed': { // the one being carried: upside down, kicking
+        const wig = Math.sin(now / 55);
+        T.spin = Math.PI * 0.92;
+        T.armPose = 'flail'; T.crouch = 0.04;
+        T.fA = F(-10 + 5 * wig, -12); T.fB = F(10 - 5 * wig, -16);
+        T.rate = 50;
+        break;
+      }
+
       case 'hitstun': {
         const stagger = profile.staggerMul * (fighter.transformed ? 0.6 : 1);
         const p = clamp(t / Math.max(10, fighter.stunFrames || 10), 0, 1);
@@ -588,7 +653,7 @@ const Animator = (() => {
     if (rollFinish) rollPose(T, an);
     if (!T.arms) T.arms = armsFor(T.armPose, { R, E: T.E, s: T.s });
     // (an air attack is hand-posed: the punch clip would fight it)
-    applyClip(T, fighter, an, now, rollFinish || (fighter.state === 'attack' && (fighter.airAttackActive || fighter.upAttackActive)));
+    applyClip(T, fighter, an, now, rollFinish || (fighter.state === 'attack' && (fighter.airAttackActive || fighter.upAttackActive || fighter.downAttackActive)));
     if (fighter.rolling || rollFinish) T.headTilt = 38; // chin tucked into the chest
     else if (fighter.state === 'block' && fighter.character.crouchSwim) T.headTilt = -22; // chin up, looking ahead as he swims
     // Long-armed characters (Nathan): every arm pose reaches proportionally further.
@@ -1056,7 +1121,7 @@ const Animator = (() => {
     const airborne = !fighter.grounded;
     an.walkDist = (an.walkDist || 0) + Math.abs(fighter.vx) * f; // drives walk clips
     // Spinning about its own long axis (the claw dive): seen from the side, the body's width swells and shrinks.
-    an.axial = st === 'hoverdive' && fighter._ability && fighter._ability.diving ? (an.axial || 0) + 0.75 * f : 0;
+    an.axial = (st === 'hoverdive' && fighter._ability && fighter._ability.diving) || (st === 'whirlwind' && fighter._ability && !fighter._ability.landing) ? (an.axial || 0) + 0.75 * f : 0;
     // A crouch-roll turns in step with the distance covered (one turn per
     // ball circumference); it folds into the body angle when the roll stops.
     // Sam's swimming stroke: advances with the distance he covers (and a lazy tread when still).
@@ -1107,7 +1172,8 @@ const Animator = (() => {
           const def = st === 'ultimate' ? fighter.character.ultimate : fighter.character.special;
           Sfx.ability(def.type, st === 'ultimate', an.pan, def);
         } else if (st === 'phasestep') Sfx.phasestep(an.pan);
-        else if (st === 'hoverdive') Sfx.drill(an.pan);
+        else if (st === 'hoverdive' || st === 'whirlwind') Sfx.drill(an.pan);
+        else if (st === 'grabslam') Sfx.swing(an.pan);
         else if (st === 'ko') Sfx.ko(an.pan);
         else if (st === 'victory') Sfx.victory();
       }

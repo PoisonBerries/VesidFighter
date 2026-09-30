@@ -484,6 +484,34 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // An expanding ring (round, or flattened onto the floor); with `notes`, music notes ride it outward.
+  function drawShockRing(ctx, e, t) {
+    const r = e.r * easeOutCubic(t);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 2; i++) {
+      const tt = clamp(t - i * 0.12, 0, 1);
+      if (tt <= 0) continue;
+      ctx.strokeStyle = i ? `rgba(255,255,255,${(1 - tt) * 0.8})` : e.color.replace('A', String((1 - tt) * 0.9));
+      ctx.lineWidth = 7 * (1 - tt) + 1;
+      ctx.beginPath();
+      ctx.ellipse(e.x, e.y, r * (1 - i * 0.22), r * (e.flat ? 0.16 : 1) * (1 - i * 0.22), 0, 0, TAU);
+      ctx.stroke();
+    }
+    if (e.notes) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.font = 'bold 26px serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(255,236,150,${1 - t})`;
+      for (let k = 0; k < e.notes; k++) {
+        const a = (k / e.notes) * TAU + e.a;
+        ctx.fillText(k % 2 ? '\u266B' : '\u266A', e.x + Math.cos(a) * r, e.y + Math.sin(a) * r * (e.flat ? 0.16 : 1) - 4);
+      }
+    }
+    ctx.restore();
+  }
+
   function drawFlash(ctx, e, t) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -577,6 +605,7 @@ const AbilityFX = (() => {
         case 'swoosh': drawSwoosh(ctx, e, t); break;
         case 'nuke': drawNuke(ctx, e, t); break;
         case 'soundRing': drawSoundRing(ctx, e, t); break;
+        case 'shockring': drawShockRing(ctx, e, t); break;
         case 'flash': drawFlash(ctx, e, t); break;
         case 'counter': drawCounter(ctx, e, t); break;
         case 'ghost': drawGhost(ctx, e, t); break;
@@ -1241,7 +1270,54 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // Owen: the charge gathering in at his feet, the plasma jump's streaming trail, the whirlwind's spinning arcs.
+  function drawOwenJump(ctx, f) {
+    const now = performance.now(), H = f.height;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (f.state === 'jumpcharge') {
+      const cj = f.character.chargeJump, p = Math.min(1, f.jumpCharge / cj.maxFrames), full = p >= 1;
+      const col = full ? '#ffe066' : '#c58bff';
+      for (let i = 0; i < 3; i++) {
+        const ph = ((now / 420) + i / 3) % 1;
+        ctx.strokeStyle = col; ctx.globalAlpha = (1 - ph) * (0.25 + 0.6 * p);
+        ctx.lineWidth = 2 + 3 * p;
+        ctx.beginPath();
+        ctx.ellipse(f.x, f.y - 2, (1 - ph) * (40 + 30 * p) + 6, (1 - ph) * 9 + 2, 0, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      glow(ctx, f.x, f.y - H * 0.1, 26 + 34 * p + (full ? Math.sin(now / 40) * 6 : 0), col, 0.25 + 0.5 * p);
+    }
+    if (f.plasmaJumping && !f.grounded) {
+      for (let i = 0; i < 7; i++) {
+        const k = i / 7;
+        glow(ctx, f.x + Math.sin(now / 60 + i) * 6, f.y + k * 120 + 10, 26 * (1 - k * 0.6), k < 0.5 ? '#e0aaff' : '#9d4edd', 0.75 * (1 - k));
+      }
+    }
+    if (f.state === 'whirlwind' && f._ability) {
+      const w = f.character.whirlwind, cy = f.y - H * 0.5;
+      if (!f._ability.landing) {
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 4; i++) {
+          const a0 = now / 70 + i * (TAU / 4), rx = w.width * 0.5 * (0.7 + 0.3 * Math.sin(now / 90 + i));
+          ctx.strokeStyle = i % 2 ? '#e0aaff' : '#ffffff'; ctx.globalAlpha = 0.85;
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          ctx.ellipse(f.x, cy + (i - 1.5) * H * 0.17, rx, 10, 0, a0, a0 + 2.2);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        glow(ctx, f.x, cy, w.width * 0.55, '#9d4edd', 0.35);
+      } else if (f._ability.timer > w.landing.recovery) {
+        glow(ctx, f.x, f.y - 20, w.landing.width * 0.5, '#e0aaff', 0.6);
+      }
+    }
+    ctx.restore();
+  }
+
   function drawFront(ctx, f) {
+    if (f.character.chargeJump) drawOwenJump(ctx, f);
     if (f.character.bloodDonor && f.bloodFactor > 0.12) drawBloodAura(ctx, f);
     if (f.sliding && f.state === 'block') drawSlideFX(ctx, f);
     if (f.state === 'hoverdive' && f._ability && f._ability.diving && f.character.hoverDive) drawClawDrill(ctx, f);
@@ -1343,6 +1419,15 @@ const AbilityFX = (() => {
         add({ kind: 'swoosh', dur: 200, x: f.x, y: f.y - H * (f.airAttackActive ? 0.36 : 0.6), dir: f.facing, r: atk.offset + atk.width * 0.8 });
       }
     }
+
+    if (st === 'attack' && f.downAttackActive && crossed(prevT, t, f.attackDef.startup)) {
+      add({ kind: 'shockring', dur: 560, x: f.x, y: f.y - H * 0.5, r: f.attackDef.width * 0.55, color: 'rgba(255,150,225,A)', notes: 7, a: Math.random() * TAU });
+    }
+    if (st === 'whirlwind' && a.landing && !m.landed) {
+      m.landed = true;
+      add({ kind: 'shockring', dur: 480, x: f.x, y: f.y - 4, r: f.character.whirlwind.landing.width * 0.55, color: 'rgba(200,140,255,A)', flat: true });
+    }
+    if (st !== 'whirlwind') m.landed = false;
 
     if (def) {
       const isUlt = st === 'ultimate';

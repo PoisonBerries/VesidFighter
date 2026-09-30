@@ -72,6 +72,11 @@ class Fighter {
     this.hovering = false;
     this.rolling = false; // crouch-moving as a roll (characters with crouchRoll)
     this.sliding = false; // gliding along the floor on crouch momentum (characters with crouchSwim)
+    this.downAttackActive = false; // the current attack is the midair down+attack shockwave (characters with downAttack)
+    this.comboHits = 0;    // hits landed in a row without being hit or blocked
+    this.comboTimer = 0;   // frames left to keep the string going
+    this.jumpCharge = 0;   // frames a charged jump has been held (characters with chargeJump)
+    this.plasmaJumping = false; // on a fully charged jump, heading for the whirlwind
     this.upAttackActive = false; // the current attack is the two-fisted upward punch (characters with upAttack)
     this.airAttackActive = false; // the current attack is the aerial one (characters with airAttack)
     this.phaseCooldown = 0; // frames until Phase Step (Keenan) is ready again
@@ -108,6 +113,11 @@ class Fighter {
   // The attack currently in use: the ordinary one, or the aerial one if it
   // was started in the air (Sam's pike kick).
   get attackDef() {
+    if (this.state === 'whirlwind') {
+      const w = this.character.whirlwind;
+      return this._ability && this._ability.landing ? w.landing : w;
+    }
+    if (this.downAttackActive) return this.character.downAttack;
     return this.upAttackActive ? this.character.upAttack : this.airAttackActive ? this.character.airAttack : this.character.attack;
   }
 
@@ -211,6 +221,16 @@ class Fighter {
     }
     if (this.state === 'special') return this._abilityHitbox(this.character.special);
     if (this.state === 'ultimate') return this._abilityHitbox(this.character.ultimate);
+    if (this.state === 'whirlwind') {
+      const a = this._ability, w = this.character.whirlwind;
+      if (this.attackHasHit) return null;
+      if (a.landing) {
+        if (a.timer <= w.landing.recovery) return null;
+        return { x: this.x - w.landing.width / 2, y: this.y - w.landing.height, w: w.landing.width, h: w.landing.height };
+      }
+      // A spinning ring of plasma around his whole body.
+      return { x: this.x - w.width / 2, y: this.y - this.height * 0.5 - w.height / 2, w: w.width, h: w.height };
+    }
     if (this.state === 'hoverdive') {
       const d = this.character.hoverDive;
       // Claws out all round the body while diving; once it has connected it's over.
@@ -295,7 +315,8 @@ class Fighter {
     this.attackHasHit = false;
     this.facingLocked = true;
     this.upAttackActive = !!this.character.upAttack && !!this._controls && InputManager.isDown(this._controls.jump);
-    this.airAttackActive = !this.upAttackActive && !this.grounded && !!this.character.airAttack;
+    this.downAttackActive = !!this.character.downAttack && !this.grounded && !!this._controls && InputManager.isDown(this._controls.block);
+    this.airAttackActive = !this.upAttackActive && !this.downAttackActive && !this.grounded && !!this.character.airAttack;
     if (this.grounded) this.vx = 0; // in the air, keep the momentum
   }
 
@@ -368,6 +389,7 @@ class Fighter {
     this.facingLocked = false;
     this.airAttackActive = false;
     this.upAttackActive = false;
+    this.downAttackActive = false;
   }
 
   applyPoison(def, cloud) {
@@ -390,6 +412,7 @@ class Fighter {
   // hit: { damage, knockback, knockbackUp, hitstun, fromFacing, knockdown, knockdownDuration }
   // Returns 'dodged' | 'phased' | 'reflected' | 'blocked' | 'hit'.
   applyHit(hit) {
+    if (this.state === 'grabbed') return 'phased'; // in Robert's grip: nothing else can touch them
     if (this.invulnerableTimer > 0) {
       if (this._dodging) this._dodgeSuccess = true;
       return this._dodging ? 'dodged' : 'phased';
@@ -409,8 +432,11 @@ class Fighter {
       return 'blocked';
     }
 
-    let kb = hit.knockback, kbUp = hit.knockbackUp;
+    let kb = hit.knockback * KNOCKBACK_MUL, kbUp = hit.knockbackUp * KNOCKBACK_MUL;
     this.hp = Math.max(0, this.hp - hit.damage);
+    this.comboHits = 0;
+    this.plasmaJumping = false;
+    this.jumpCharge = 0;
     if (this.balanceMode) {
       // The shakier you are (after this hit), the further it sends you --
       // gently at first, steeply near the end -- and past a point you fly
@@ -489,7 +515,9 @@ class Fighter {
     this.sliding = false;
     this.airAttackActive = false;
     this.upAttackActive = false;
+    this.downAttackActive = false;
     this.phaseCooldown = 0;
+    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false;
     this._comboHeld = false;
     this.blocking = false;
     this.facingLocked = false;
@@ -528,12 +556,21 @@ class Fighter {
     this._controls = controls;
     this._updateStatusTimers();
 
+    // Picked up by Robert: carried around by him (he positions us), no input, no physics.
+    if (this.state === 'grabbed') {
+      this.vx = 0; this.vy = 0;
+      if (opponent.state !== 'grabslam') this.state = 'fall';
+      return;
+    }
+
     this.rolling = false; // set again below while a crouch-roll is in progress
     if (this.state !== 'block') this.sliding = false; // a slide only lasts while crouched
+    if (this.state === 'grabslam') this._updateGrabSlam(opponent);
     if (this.state !== 'ko' && this.state !== 'victory') {
       this._handleInput(controls, opponent);
     }
     this._updateActionState();
+    this._updatePlasmaJump();
     this._updateHover();
     this._applyPhysics();
     this._resolveFacing(opponent);
@@ -546,6 +583,7 @@ class Fighter {
     if (this.hitFlashTimer > 0) this.hitFlashTimer--;
     if (this.phaseCooldown > 0) this.phaseCooldown--;
     if (this.sinceHit < 999) this.sinceHit++;
+    if (this.comboTimer > 0 && --this.comboTimer === 0) this.comboHits = 0;
     if (this.invulnerableTimer > 0) this.invulnerableTimer--;
     if (this.reflectTimer > 0) this.reflectTimer--;
     if (this.doubleJumpFlipTimer > 0) this.doubleJumpFlipTimer--;
@@ -678,6 +716,7 @@ class Fighter {
       ultimate: InputManager.isPressed(controls.ultimate),
     };
 
+    if (this.state === 'jumpcharge') { this._updateJumpCharge(); return; }
     if (this.state === 'hitstun' || this.state === 'knockdown') {
       if (comboEdge) this._tryPhaseStep(opponent);
       return; // no other input while stunned or downed
@@ -685,7 +724,7 @@ class Fighter {
     // Shortly after a hit you can still slip away, even once you're back on your feet.
     const ps = this.character.phaseStep;
     if (ps && comboEdge && this.sinceHit <= ps.window && this.state !== 'phasestep' && this._tryPhaseStep(opponent)) return;
-    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep' || this.state === 'hoverdive') {
+    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep' || this.state === 'hoverdive' || this.state === 'whirlwind' || this.state === 'grabslam') {
       return; // committed to the action until it finishes
     }
 
@@ -763,6 +802,14 @@ class Fighter {
       this.state = 'idle';
     }
 
+    if (pressed.jump && this.character.chargeJump && this.grounded && this.jumpsUsed < this.character.maxJumps) {
+      // Owen: jump is charged -- the longer it's held the higher he goes.
+      this.state = 'jumpcharge';
+      this.actionTimer = 0;
+      this.jumpCharge = 0;
+      this.vx = 0;
+      return;
+    }
     if (pressed.jump && this.jumpsUsed < this.character.maxJumps) {
       this.vy = -this.character.jumpForce;
       this.jumpsUsed++;
@@ -774,6 +821,109 @@ class Fighter {
         this.doubleJumpFlipDir = moveDir !== 0 && moveDir !== this.facing ? -1 : 1;
       }
     }
+  }
+
+  // Charged jump (Owen): hold jump to crouch and build power, release to go.
+  // A full charge is a plasma jump that ends in a spinning whirlwind dive.
+  _updateJumpCharge() {
+    const cj = this.character.chargeJump;
+    this._decelerate();
+    this.blocking = false;
+    const held = this._controls && InputManager.isDown(this._controls.jump);
+    this.jumpCharge++;
+    if (held && this.jumpCharge < cj.maxFrames + cj.holdFrames) return;
+    const full = this.jumpCharge >= cj.maxFrames;
+    const frac = Math.min(1, this.jumpCharge / cj.maxFrames);
+    const force = full ? cj.plasmaForce : this.character.jumpForce + (cj.maxForce - this.character.jumpForce) * frac;
+    this.vy = -force;
+    this.grounded = false;
+    this.jumpsUsed++;
+    this.state = 'jump';
+    this.plasmaJumping = full;
+  }
+
+  // At the top of a plasma jump: arms out, spin down in a whirlwind.
+  _updatePlasmaJump() {
+    if (!this.plasmaJumping) return;
+    if (this.grounded) { this.plasmaJumping = false; return; }
+    if ((this.state !== 'jump' && this.state !== 'fall') || this.vy < this.character.whirlwind.startAt) return;
+    this.plasmaJumping = false;
+    this.state = 'whirlwind';
+    this.actionTimer = 0;
+    this.attackHasHit = false;
+    this.facingLocked = true;
+    this.hovering = false;
+    this.vx = 0;
+    this._ability = { landing: false, timer: 0 };
+  }
+
+  _updateWhirlwind() {
+    const w = this.character.whirlwind, a = this._ability;
+    if (!a.landing) {
+      const steer = (this._controls && InputManager.isDown(this._controls.right) ? 1 : 0) - (this._controls && InputManager.isDown(this._controls.left) ? 1 : 0);
+      this.vx = steer * w.steer;
+      this.vy = w.fallSpeed;
+      if (this.actionTimer % w.hitEvery === 0) this.attackHasHit = false; // the whirl keeps hitting
+      if (this.grounded) {
+        a.landing = true;
+        a.timer = w.landing.active + w.landing.recovery;
+        this.attackHasHit = false;
+        this.vx = 0;
+        if (typeof Effects !== 'undefined') Effects.shake(10, 14);
+      }
+      return;
+    }
+    this._decelerate();
+    if (--a.timer <= 0) { this.state = 'idle'; this.facingLocked = false; }
+  }
+
+  // Robert's third unanswered hit: pick the opponent up and slam them down.
+  startGrabSlam(opp) {
+    const gs = this.character.grabSlam;
+    this.state = 'grabslam';
+    this.actionTimer = 0;
+    this.attackHasHit = true;
+    this.facingLocked = true;
+    this.comboHits = 0;
+    this.vx = 0;
+    this.blocking = false;
+    this._ability = { slammed: false };
+    opp.state = 'grabbed';
+    opp.vx = 0; opp.vy = 0;
+    opp.blocking = false; opp.stunFrames = 0; opp.launched = false; opp.facingLocked = false;
+    opp.actionTimer = 0;
+  }
+
+  _updateGrabSlam(opp) {
+    const gs = this.character.grabSlam, a = this._ability, t = this.actionTimer;
+    this.vx = 0;
+    if (!a.slammed) {
+      if (t <= gs.lift + gs.hold && opp.state === 'grabbed') {
+        const u = Math.min(1, t / gs.lift), e = u * u * (3 - 2 * u);
+        opp.x = this.x + this.facing * (30 - 18 * e);
+        opp.y = this.y - this.height * 1.3 * e;
+      } else {
+        a.slammed = true;
+        if (opp.state === 'grabbed') {
+          opp.x = Math.max(STAGE_LEFT_EDGE + 20, Math.min(STAGE_RIGHT_EDGE - 20, this.x + this.facing * 62));
+          opp.y = GROUND_Y;
+          opp.grounded = true;
+          opp.state = 'knockdown';
+          opp.knockdownTimer = gs.stun;
+          opp.actionTimer = 0;
+          opp.hp = Math.max(0, opp.hp - gs.damage * this.damageMultiplier * Game.fightDamageMul());
+          opp.hitFlashTimer = 14;
+          opp.noteImpact('hit', this.facing, 1.4);
+          opp._maybeTransform();
+          if (typeof Effects !== 'undefined') {
+            Effects.shake(16, 20);
+            Effects.spawnHitSpark(opp.x, opp.y - 18, '#ffe066');
+          }
+        }
+      }
+      return;
+    }
+    if (t > gs.lift + gs.hold + gs.recovery) { this.state = 'idle'; this.facingLocked = false; }
   }
 
   // Hold-jump hover (characters with a `hover` block, e.g. Carlos). While
@@ -831,6 +981,7 @@ class Fighter {
 
     if (this.state === 'phasestep') this._updatePhaseStep();
     if (this.state === 'hoverdive') this._updateHoverDive();
+    if (this.state === 'whirlwind') this._updateWhirlwind();
     if (this.state === 'special') this._updateAbilityState(this.character.special);
     if (this.state === 'ultimate') this._updateAbilityState(this.character.ultimate);
 
@@ -1166,7 +1317,9 @@ class Fighter {
       case 'special': return 'special';
       case 'ultimate': return 'special';
       case 'phasestep': return 'special';
-      case 'hoverdive': return 'special';
+      case 'hoverdive': case 'whirlwind': case 'grabslam': return 'special';
+      case 'jumpcharge': return 'block';
+      case 'grabbed': return 'hit';
       case 'hitstun': return 'hit';
       case 'knockdown': return 'knockdown';
       case 'ko': return 'ko';

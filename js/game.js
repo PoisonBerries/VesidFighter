@@ -196,7 +196,7 @@ const Game = (() => {
 
     const isUlt = attacker.state === 'ultimate';
     const isSpecial = attacker.state === 'special';
-    let stats = attacker.state === 'attack' ? attacker.attackDef
+    let stats = attacker.state === 'attack' || attacker.state === 'whirlwind' ? attacker.attackDef
       : attacker.state === 'hoverdive' ? attacker.character.hoverDive
       : (isUlt ? attacker.character.ultimate : attacker.character.special);
 
@@ -225,6 +225,20 @@ const Game = (() => {
       return;
     }
 
+    // Unanswered combo: hits in a row that aren't blocked or hit back.
+    let comboNote = null;
+    if (result === 'hit') {
+      attacker.comboHits++;
+      attacker.comboTimer = 100;
+      if (attacker.character.comboSong) comboNote = attacker.comboHits - 1;
+    } else if (result === 'blocked') {
+      attacker.comboHits = 0;
+    }
+    const gs = attacker.character.grabSlam;
+    if (result === 'hit' && gs && attacker.comboHits >= gs.hits && attacker.state === 'attack' && attacker.grounded && defender.y >= GROUND_Y - 1 && defender.hp > 0) {
+      attacker.startGrabSlam(defender);
+    }
+
     if (result === 'hit' && stats.poisonDamage) {
       defender.applyPoison(stats, box);
     }
@@ -233,7 +247,7 @@ const Game = (() => {
       grantUltCharge(attacker, defender, isSpecial || isUlt);
     }
 
-    spawnImpactEffect(attacker, defender, box, hurt, result, isSpecial || isUlt);
+    spawnImpactEffect(attacker, defender, box, hurt, result, isSpecial || isUlt, comboNote);
   }
 
   // In rally mode the ball is the main weapon; hitting each other does less.
@@ -251,13 +265,13 @@ const Game = (() => {
     Effects.shake(8, 10);
   }
 
-  function spawnImpactEffect(attacker, defender, box, hurt, result, big) {
+  function spawnImpactEffect(attacker, defender, box, hurt, result, big, comboNote) {
     const impactX = (box.x + box.w / 2 + hurt.x + hurt.w / 2) / 2;
     const impactY = hurt.y + hurt.h * 0.4;
     let color = '#ffe066';
     if (result === 'blocked') color = '#9fd8ff';
     else if (result === 'dodged' || result === 'phased') color = '#ffffff';
-    Effects.spawnHitSpark(impactX, impactY, color);
+    Effects.spawnHitSpark(impactX, impactY, color, comboNote !== null && comboNote !== undefined ? 'note:' + comboNote : undefined);
     Effects.shake(big ? 10 : 5, big ? 16 : 8);
   }
 
@@ -911,5 +925,5 @@ const Game = (() => {
     launch: (grounded, aim, strong, heat) => ballLaunch(grounded, aim, strong, ballMode, heat),
   };
 
-  return { startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, saveState, loadState, world, stop, ballDanger, ballColor, ballPhysics };
+  return { fightDamageMul, startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, saveState, loadState, world, stop, ballDanger, ballColor, ballPhysics };
 })();

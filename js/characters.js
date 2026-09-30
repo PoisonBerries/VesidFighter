@@ -242,6 +242,17 @@ const CHARACTERS = {
     // attacks, specials and ultimate play out faster (like Encore, but only
     // while he's acting).
     bloodDonor: { damage: 0.5, attackSpeed: 0.35, speed: 0.25 },
+    // Charged jump: hold jump to crouch and build power (release to go, higher
+    // the longer it was held). Held to the max it's a plasma jump: he rockets
+    // up, then throws his arms out and spins straight down in a whirlwind.
+    chargeJump: { maxFrames: 38, holdFrames: 50, maxForce: 21, plasmaForce: 27 },
+    whirlwind: {
+      startAt: -1, fallSpeed: 17, steer: 3, hitEvery: 7,
+      width: 150, height: 120,
+      damage: 5, knockback: 4, knockbackUp: 0, hitstun: 12,
+      // the crash at the bottom
+      landing: { damage: 16, width: 230, height: 110, active: 4, recovery: 16, knockback: 15, knockbackUp: 8, hitstun: 26 },
+    },
     maxHp: 90,
     attack: {
       damage: 8, offset: 26, width: 66, height: 88,
@@ -295,6 +306,9 @@ const CHARACTERS = {
       spdMul: 0.75,
       dmgMul: 1.65,
     },
+    // Three hits in a row that aren't blocked or answered: he picks the
+    // opponent up and slams them down, leaving them stunned on the floor.
+    grabSlam: { hits: 3, window: 100, lift: 16, hold: 6, recovery: 22, damage: 16, stun: 62 },
     attack: {
       damage: 10, offset: 26, width: 74, height: 94,
       startup: 7, active: 4, recovery: 14,
@@ -338,6 +352,21 @@ const CHARACTERS = {
       damage: 7, offset: 24, width: 64, height: 84,
       startup: 6, active: 3, recovery: 10,
       knockback: 7, knockbackUp: 3, hitstun: 12,
+    },
+    // Hits play notes; a string of them is a tune (see game.js / audio.js).
+    comboSong: true,
+    // Airborne F: a backflip kick, the foot coming round as he rotates.
+    airAttack: {
+      damage: 8, offset: 12, width: 78, height: 76, high: false, flip: true,
+      startup: 7, active: 8, recovery: 10,
+      knockback: 7, knockbackUp: 5, hitstun: 14,
+    },
+    // Midair down + F: a musical shockwave that rings out all round him and
+    // stuns (little damage, no real knockback, a long daze).
+    downAttack: {
+      damage: 4, offset: -105, width: 210, height: 150, high: false,
+      startup: 6, active: 6, recovery: 16,
+      knockback: 1, knockbackUp: 0, hitstun: 50,
     },
     special: {
       type: 'soundwaveProjectile',

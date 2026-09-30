@@ -58,7 +58,7 @@ function assertFinite(obj, where) {
   }
 }
 
-const STATES = new Set(['idle', 'walk', 'jump', 'fall', 'block', 'attack', 'special', 'ultimate', 'hitstun', 'knockdown', 'ko', 'victory']);
+const STATES = new Set(['idle', 'walk', 'jump', 'fall', 'block', 'attack', 'special', 'ultimate', 'hitstun', 'knockdown', 'ko', 'victory', 'phasestep', 'hoverdive', 'jumpcharge', 'whirlwind', 'grabslam', 'grabbed']);
 
 test('every character can fight every other character for a whole match without errors', () => {
   const sim = createSim();
@@ -747,11 +747,11 @@ function pushAt(sim, frac, opts) {
 
 test('balance mode: the less balance you have, the further hits send you', () => {
   const sim = createSim();
-  const [full, three, half, quarter] = [1, 0.75, 0.5, 0.25].map((f) => pushAt(sim, f));
+  const [full, three, half, quarter] = [1, 0.75, 0.5, 0.05].map((f) => pushAt(sim, f));
   assert.ok(full.pushed < 80 && !full.out, `a fresh fighter barely moves (${full.pushed})`);
   assert.ok(three.pushed > full.pushed * 2 && half.pushed > three.pushed, 'grows as balance drops');
   assert.ok(!half.out, 'half balance: not yet knocked off from mid-stage');
-  assert.ok(quarter.out, 'a quarter left: a punch from mid-stage knocks you off');
+  assert.ok(quarter.out || quarter.pushed > half.pushed * 1.3, `nearly out of balance: sent much further (${quarter.pushed} vs ${half.pushed})`);
 });
 
 test('balance mode: no KOs -- an empty bar keeps fighting, only falling off loses', () => {
@@ -1372,4 +1372,132 @@ test('double-jump flips go with the direction of travel; Carlos has more fuel; O
   }
   assert.ok(sim.CHARACTERS.carlos.hover.frames > 45);
   assert.ok(sim.CHARACTERS.owen.special.maxChargeFrames <= 13);
+});
+
+// ---- Owen's charged jump, Robert's grab & slam, Ryan's new moves ----
+function startGame(sim, a, b, x1, x2) {
+  sim.Game.startMatch(a, b, () => {}, { ball: 'off' });
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: x1 }, { x: x2 }] });
+  return sim.VCONTROLS.p1;
+}
+const setKey = (sim, code, down, edge) => sim.InputManager.setVirtual(code, down, !!edge);
+
+test('the round is 90 seconds', () => {
+  const sim = createSim();
+  sim.Game.startMatch('ryan', 'keenan', () => {}, { ball: 'off' });
+  assert.strictEqual(sim.Game.getSnapshot().rt, 90);
+});
+
+test('Owen: jump is charged -- longer hold, higher jump; full charge is a plasma jump ending in a whirlwind', () => {
+  const sim = createSim();
+  const apex = (holdFrames) => {
+    const C = startGame(sim, 'owen', 'keenan', 300, 900);
+    setKey(sim, C.jump, true, true); step(sim, 1); setKey(sim, C.jump, true, false);
+    if (holdFrames > 1) step(sim, holdFrames - 1);
+    assert.strictEqual(sim.Game.world().p1.state, 'jumpcharge', 'charging while held');
+    setKey(sim, C.jump, false, false);
+    let top = 0;
+    for (let i = 0; i < 60; i++) {
+      step(sim, 1);
+      const p = sim.Game.world().p1;
+      top = Math.max(top, sim.GROUND_Y - p.y);
+      if (p.state === 'whirlwind') break;
+    }
+    return top;
+  };
+  const tap = apex(2), half = apex(18), max = apex(40);
+  assert.ok(half > tap * 1.3, `held longer goes higher (${tap} -> ${half})`);
+  assert.ok(max > half * 1.3, `full charge is the highest (${half} -> ${max})`);
+  assert.ok(tap > 100, 'a tap is still a proper jump');
+
+  // Full charge: whirlwind at the top, spinning down, hitting and crashing.
+  const C = startGame(sim, 'owen', 'keenan', 300, 300);
+  sim.Game.applySnapshot({ f: [{ x: 300 }, { x: 330 }] });
+  setKey(sim, C.jump, true, true); step(sim, 1); setKey(sim, C.jump, true, false);
+  step(sim, 45); setKey(sim, C.jump, false, false);
+  const hp0 = sim.Game.world().p2.hp;
+  let sawWhirl = false, hit = false;
+  for (let i = 0; i < 160; i++) {
+    step(sim, 1);
+    const o = sim.Game.world().p1;
+    if (o.state === 'whirlwind') sawWhirl = true;
+    if (sim.Game.world().p2.hp < hp0) hit = true;
+  }
+  assert.ok(sawWhirl, 'went into the whirlwind');
+  assert.ok(hit, 'the whirlwind hurt someone underneath');
+  assert.ok(['idle', 'walk'].includes(sim.Game.world().p1.state), 'and ended back on the floor');
+});
+
+test('Robert: three unanswered hits become a grab and slam that stuns for about a second', () => {
+  const sim = createSim();
+  const C = startGame(sim, 'robert', 'john', 500, 560);
+  const p2 = () => sim.Game.world().p2;
+  let slammed = false;
+  for (let hit = 1; hit <= 3; hit++) {
+    sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 560, state: 'idle', stunFrames: 0 }] });
+    punch(sim, 'p1');
+    for (let i = 0; i < 12; i++) step(sim, 1);
+    if (hit < 3) {
+      assert.notStrictEqual(sim.Game.world().p1.state, 'grabslam', `not after hit ${hit}`);
+      step(sim, 20);
+    }
+  }
+  assert.strictEqual(sim.Game.world().p1.state, 'grabslam', 'the third hit grabs');
+  assert.strictEqual(p2().state, 'grabbed');
+  const hp0 = p2().hp;
+  let sawDown = false;
+  for (let i = 0; i < 40; i++) { step(sim, 1); if (p2().state === 'knockdown') { sawDown = true; break; } }
+  assert.ok(sawDown, 'then slammed down');
+  assert.ok(p2().hp < hp0, 'the slam hurts');
+  assert.ok(p2().knockdownTimer >= 55, 'and leaves them down for around a second');
+  step(sim, 120);
+  assert.notStrictEqual(p2().state, 'knockdown', 'they get back up');
+  void C;
+});
+
+test('Robert: a block or being hit back breaks the string', () => {
+  const sim = createSim();
+  startGame(sim, 'robert', 'john', 500, 560);
+  const r = sim.Game.world().p1;
+  r.comboHits = 2;
+  r.applyHit({ damage: 1, knockback: 1, knockbackUp: 0, hitstun: 5, fromFacing: -1 });
+  assert.strictEqual(r.comboHits, 0);
+});
+
+test('Ryan: air F is a backflip kick, air down + F is a stunning shockwave, hits play a rising tune', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  const press = (down, held = []) => { for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], held.includes(a), a === down); };
+  let { f, foe } = startFighter(sim, 'ryan', 400);
+  f.grounded = false; f.y = sim.GROUND_Y - 100; f.state = 'jump';
+  press('attack'); f.update(C, foe); press(null);
+  assert.strictEqual(f.airAttackActive, true);
+  assert.ok(f.attackDef.flip, 'the flip kick');
+  ({ f, foe } = startFighter(sim, 'ryan', 400));
+  f.grounded = false; f.y = sim.GROUND_Y - 100; f.state = 'jump';
+  press('attack', ['block']); f.update(C, foe); press(null);
+  assert.strictEqual(f.downAttackActive, true);
+  assert.strictEqual(f.airAttackActive, false);
+  f.actionTimer = f.attackDef.startup + 1;
+  const box = f.getHitbox();
+  assert.ok(box.x < f.x && box.x + box.w > f.x, 'rings out on both sides of him');
+  // Grounded, down + F is just the ordinary attack (down is a crouch there).
+  ({ f, foe } = startFighter(sim, 'ryan', 400));
+  press('attack', ['block']); f.update(C, foe); press(null);
+  assert.strictEqual(f.downAttackActive, false);
+
+  // The tune: consecutive hits climb the melody, tagged on the hit-spark events.
+  const sim2 = createSim();
+  startGame(sim2, 'ryan', 'carlos', 500, 560);
+  sim2.Effects.setRecording(true);
+  const notes = [];
+  for (let n = 0; n < 3; n++) {
+    sim2.Game.applySnapshot({ f: [{ x: 500 }, { x: 560, state: 'idle', stunFrames: 0 }] });
+    punch(sim2, 'p1');
+    step(sim2, 14);
+    for (const e of sim2.Effects.drainEvents()) if (e[0] === 'h' && String(e[4]).startsWith('note:')) notes.push(e[4]);
+    step(sim2, 10);
+  }
+  assert.deepStrictEqual(notes, ['note:0', 'note:1', 'note:2']);
 });

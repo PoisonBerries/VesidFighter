@@ -117,6 +117,16 @@ const Sfx = (() => {
       tone({ f0: 230, f1: 48, dur: 0.14 + 0.12 * s, vol: 0.55 * s + 0.15, pan });
       tone({ type: 'square', f0: 950, f1: 180, dur: 0.035, vol: 0.12, pan });
     },
+    // Ryan's combo tune (Ode to Joy): each hit in an unbroken string plays the next note.
+    note(i, pan) {
+      const MELODY = [64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 64, 62, 62, 64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 62, 60, 60];
+      const m = MELODY[i % MELODY.length] + (Math.floor(i / MELODY.length) % 2) * 12;
+      const f = 440 * Math.pow(2, (m - 69) / 12);
+      tone({ type: 'triangle', f0: f, dur: 0.42, vol: 0.5, attack: 0.008, pan });
+      tone({ type: 'sine', f0: f * 2, dur: 0.3, vol: 0.18, attack: 0.008, pan });
+      tone({ type: 'square', f0: f * 0.5, dur: 0.18, vol: 0.07, pan });
+      noise({ filter: 'lowpass', f0: 2400, f1: 300, q: 0.5, dur: 0.08, vol: 0.22, pan }); // a soft thump under it
+    },
     block(pan) {
       tone({ type: 'triangle', f0: 1500, f1: 880, dur: 0.11, vol: 0.25, pan });
       tone({ type: 'square', f0: 640, f1: 600, dur: 0.06, vol: 0.09, pan });
@@ -285,6 +295,7 @@ const Sfx = (() => {
   function impact(color, kind) {
     if (kind === 'muzzle' || !ensure()) return;
     if (kind && kind.startsWith('ball')) { if (gate('bonk', 40)) SOUNDS.bonk(0, Number(kind.split(':')[1]) || 0); return; }
+    if (kind && kind.startsWith('note:')) { if (gate('note', 40)) SOUNDS.note(Number(kind.split(':')[1]) || 0, 0); return; }
     if (kind === 'boom') { if (gate('boom', 200)) SOUNDS.boom(0); return; }
     const c = (color || '').toLowerCase();
     if (c === '#9fd8ff') { if (gate('block', 40)) SOUNDS.block(0); }

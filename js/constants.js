@@ -30,7 +30,7 @@ const HIGH_ATTACK_BOTTOM = 0.6;
 const FIGHTER_WIDTH = 96;
 const FIGHTER_HEIGHT = 160;
 
-const ROUND_TIME = 60; // seconds per round
+const ROUND_TIME = 90; // seconds per round
 const ROUNDS_TO_WIN = 2; // best of 3
 
 const FIXED_STEP = 1 / 60; // seconds, physics runs at a fixed 60hz timestep
@@ -172,6 +172,7 @@ const RALLY_RESPAWN = 90;        // after the ball falls off the stage (it shoul
 // it is, the bigger a mess you are -- hits knock you further, and you slide
 // instead of stopping. Time up: whoever has more balance left.
 const BALANCE_ENABLED = true;
-const BALANCE_KNOCKBACK_SCALE = 2;   // knockback x(1 + 2 * shaky^2): x3 with no balance left
+const KNOCKBACK_MUL = 0.85;          // every hit's base knockback, toned down across the board
+const BALANCE_KNOCKBACK_SCALE = 1.2; // knockback x(1 + 1.2 * shaky^2): x2.2 with no balance left
 const BALANCE_FLY_AT = 0.25;         // from 25% balance lost, hits send you flying (no skid)
 const BALANCE_SLIP = 0.12;           // ground friction eases from FRICTION toward FRICTION + this
