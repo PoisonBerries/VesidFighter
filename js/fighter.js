@@ -114,20 +114,27 @@ class Fighter {
     return this.invulnerableTimer > 0 && !this._dodging;
   }
 
+  // Holding block on the ground is a crouch, and it really lowers the body.
+  get isCrouching() {
+    return this.state === 'block' && this.grounded;
+  }
+
   getHurtbox() {
+    const h = this.isCrouching ? this.height * CROUCH_HEIGHT : this.height;
     return {
       x: this.x - this.width / 2,
-      y: this.y - this.height,
+      y: this.y - h,
       w: this.width,
-      h: this.height,
+      h,
     };
   }
 
-  _forwardBox(offset, w, h) {
+  // `bottom`: how far above the floor the box starts (0 = reaches the ground).
+  _forwardBox(offset, w, h, bottom = 0) {
     const centerX = this.x + this.facing * offset;
     return {
       x: centerX - (this.facing === 1 ? 0 : w),
-      y: this.y - h,
+      y: this.y - bottom - h,
       w,
       h,
     };
@@ -146,7 +153,11 @@ class Fighter {
     if (this.state === 'attack' && !this.attackHasHit) {
       const a = this.character.attack;
       if (this.actionTimer > a.startup && this.actionTimer <= a.startup + a.active) {
-        return this._forwardBox(a.offset, a.width, a.height);
+        // Punches are high attacks (start at chest height, so a crouch can
+        // duck them); a def with `high: false`, like Artur's kick, reaches
+        // the floor and can't be ducked.
+        const bottom = a.high === false ? 0 : this.height * HIGH_ATTACK_BOTTOM;
+        return this._forwardBox(a.offset, a.width, a.height, bottom);
       }
       return null;
     }
@@ -329,8 +340,10 @@ class Fighter {
     }
     if (this.blocking) {
       this.noteImpact('blocked', hit.fromFacing, 0.35);
-      this.hp = Math.max(0, this.hp - hit.damage * 0.15);
-      this.vx = hit.fromFacing * hit.knockback * 0.25;
+      // Most blocks absorb 85% of the damage; a move can override that
+      // (Artur's kick goes low, under the guard).
+      this.hp = Math.max(0, this.hp - hit.damage * (hit.blockDamageMul === undefined ? 0.15 : hit.blockDamageMul));
+      this.vx = hit.fromFacing * hit.knockback * (hit.blockKnockbackMul === undefined ? 0.25 : hit.blockKnockbackMul);
       this.hitFlashTimer = 6;
       this._maybeTransform();
       return 'blocked';

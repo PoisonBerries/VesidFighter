@@ -347,10 +347,10 @@ const Animator = (() => {
       }
 
       case 'block': {
-        T.crouch = 0.24; T.lean = 6; T.armPose = 'crossed';
+        T.crouch = 0.47; T.lean = 6; T.armPose = 'crossed';
         if (Math.abs(fighter.vx) > 0.4) {
           walkPose(T, fighter, profile, 10 * stance, 4, 45);
-          T.crouch = 0.24 + 0.03 * Math.abs(Math.sin(fighter.walkCycle));
+          T.crouch = 0.47 + 0.03 * Math.abs(Math.sin(fighter.walkCycle));
           T.s = 0; T.armPose = 'crossed';
         } else {
           T.fA = F(-15 * stance, 0); T.fB = F(15 * stance, 0);

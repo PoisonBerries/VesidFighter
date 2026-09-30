@@ -19,7 +19,7 @@ const PRELUDE = `
   for (const slot of ['p1', 'p2']) { VCONTROLS[slot] = {}; for (const a of ${JSON.stringify(ACTIONS)}) VCONTROLS[slot][a] = 'V_' + slot + '_' + a; }
   const Net = { controlsFor: (slot) => VCONTROLS[slot] };
 `;
-const EXPORTS = '\n({ Game, InputManager, Effects, Fighter, CHARACTERS, CHARACTER_LIST, VCONTROLS, GROUND_Y, STAGE_LEFT_EDGE, STAGE_RIGHT_EDGE, FIXED_STEP, ULT_METER_MAX });';
+const EXPORTS = '\n({ Game, InputManager, Effects, Fighter, CHARACTERS, CHARACTER_LIST, VCONTROLS, GROUND_Y, STAGE_LEFT_EDGE, STAGE_RIGHT_EDGE, FIXED_STEP, ULT_METER_MAX, CROUCH_HEIGHT, HIGH_ATTACK_BOTTOM });';
 const script = new vm.Script(PRELUDE + source + EXPORTS, { filename: 'sim.js' });
 
 function createSim() {
@@ -400,4 +400,103 @@ test('nothing lingers between rounds: buffs, poison, shields, stun and transform
     assert.strictEqual(p.transformed, false, `${c.id}: transformation carried over`);
     assert.strictEqual(p.hp, c.maxHp, `${c.id}: should start at full base HP`);
   }
+});
+
+
+// ---- Crouching ----
+const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+// The box a fighter's basic attack has during its active frames, and whether
+// it touches `targetId` (standing or crouching) standing right in front.
+function punchHits(sim, attackerId, targetId, crouching) {
+  const A = new sim.Fighter('p1', sim.CHARACTERS[attackerId], 500, 1);
+  const atk = sim.CHARACTERS[attackerId].attack;
+  A.state = 'attack';
+  A.actionTimer = atk.startup + 1;
+  const box = A.getHitbox();
+  assert.ok(box, `${attackerId} should have an active hitbox`);
+  const T = new sim.Fighter('p2', sim.CHARACTERS[targetId], box.x + box.w / 2, -1);
+  T.grounded = true;
+  T.state = crouching ? 'block' : 'idle';
+  return overlaps(box, T.getHurtbox());
+}
+
+test('crouching (holding block on the ground) shrinks the hurtbox in proportion to height', () => {
+  const sim = createSim();
+  for (const c of sim.CHARACTER_LIST) {
+    const f = new sim.Fighter('p1', c, 500, 1);
+    f.grounded = true;
+    f.state = 'idle';
+    assert.strictEqual(f.getHurtbox().h, f.height);
+    f.state = 'block';
+    const h = f.getHurtbox();
+    assert.ok(Math.abs(h.h - f.height * sim.CROUCH_HEIGHT) < 1e-9, `${c.id}: crouched hurtbox ${h.h}`);
+    assert.strictEqual(h.y + h.h, f.y, 'the crouched box still stands on the floor');
+    f.grounded = false; // in the air the block key doesn't crouch you
+    assert.strictEqual(f.getHurtbox().h, f.height);
+  }
+  const small = new sim.Fighter('p1', sim.CHARACTERS.keenan, 500, 1), big = new sim.Fighter('p1', sim.CHARACTERS.john, 500, 1);
+  for (const f of [small, big]) { f.grounded = true; f.state = 'block'; }
+  assert.ok(small.getHurtbox().h < big.getHurtbox().h * 0.7, 'a small fighter crouches much lower than a big one');
+});
+
+test('punches are high attacks: you duck a punch from anyone about your height or taller; nobody ducks a standing hit', () => {
+  const sim = createSim();
+  const ids = sim.CHARACTER_LIST.map((c) => c.id);
+  let ducks = 0, hits = 0;
+  for (const a of ids) {
+    for (const t of ids) {
+      assert.ok(punchHits(sim, a, t, false), `${a}'s punch must hit a standing ${t}`);
+      const Ha = new sim.Fighter('p1', sim.CHARACTERS[a], 0, 1).height, Ht = new sim.Fighter('p2', sim.CHARACTERS[t], 0, 1).height;
+      const expectDuck = a !== 'artur' && Ht * sim.CROUCH_HEIGHT <= Ha * sim.HIGH_ATTACK_BOTTOM;
+      const hit = punchHits(sim, a, t, true);
+      assert.strictEqual(hit, !expectDuck, `${a} punching a crouching ${t}: expected ${expectDuck ? 'a duck' : 'a hit'}`);
+      if (hit) hits++; else ducks++;
+    }
+  }
+  assert.ok(ducks > 10 && hits > 10, `both outcomes should occur across the roster (ducks ${ducks}, hits ${hits})`);
+  // The headline cases.
+  assert.strictEqual(punchHits(sim, 'john', 'keenan', true), false, 'small Keenan ducks big John\'s punch');
+  assert.strictEqual(punchHits(sim, 'keenan', 'john', true), true, 'big John cannot duck small Keenan\'s punch');
+  assert.strictEqual(punchHits(sim, 'ryan', 'sam', true), false, 'Sam ducks Ryan');
+});
+
+test('Artur\'s kick is a low attack: nobody ducks it', () => {
+  const sim = createSim();
+  for (const t of sim.CHARACTER_LIST.map((c) => c.id)) {
+    assert.ok(punchHits(sim, 'artur', t, true), `Artur's kick should hit a crouching ${t}`);
+  }
+});
+
+// Runs a real fight frame by frame: the target holds block (crouched), the
+// attacker throws one basic attack. Returns the HP the target lost.
+function crouchBlockedDamage(sim, attackerId, targetId, targetBlocks) {
+  sim.Game.startMatch(attackerId, targetId, () => {});
+  for (let i = 0; i < 200; i++) sim.Game.update(sim.FIXED_STEP);
+  sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 560 }] });
+  const before = sim.Game.getSnapshot().f[1].hp;
+  sim.InputManager.setVirtual(sim.VCONTROLS.p2.block, !!targetBlocks, false);
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.attack, false, true);
+  sim.Game.update(sim.FIXED_STEP);
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.attack, false, false);
+  for (let i = 0; i < 40; i++) sim.Game.update(sim.FIXED_STEP);
+  sim.InputManager.setVirtual(sim.VCONTROLS.p2.block, false, false);
+  return before - sim.Game.getSnapshot().f[1].hp;
+}
+
+test('through the real game loop: a crouch ducks a high punch, but Artur\'s kick cuts through a crouch-block', () => {
+  const sim = createSim();
+  // Ryan (160 tall) punching a crouched Keenan (136): ducked, no damage at all.
+  assert.strictEqual(crouchBlockedDamage(sim, 'ryan', 'keenan', true), 0);
+  // The same punch on a standing Keenan lands.
+  assert.ok(crouchBlockedDamage(sim, 'ryan', 'keenan', false) > 5);
+  // Artur's kick vs a crouch-blocking Keenan: 45% absorbed, not 85%.
+  const kick = sim.CHARACTERS.artur.attack;
+  const lost = crouchBlockedDamage(sim, 'artur', 'keenan', true);
+  assert.ok(Math.abs(lost - kick.damage * kick.blockDamageMul) < 0.01, `expected ~${kick.damage * kick.blockDamageMul} damage through the guard, got ${lost}`);
+  assert.ok(lost > kick.damage * 0.15 * 2.5, 'much more than a normal block lets through');
+  // A blocked high punch that does connect (same-height target, crouch too high to duck) still only chips 15%.
+  const hit = sim.CHARACTERS.carlos.attack;
+  const chip = crouchBlockedDamage(sim, 'carlos', 'john', true);
+  assert.ok(Math.abs(chip - hit.damage * 0.15) < 0.01, `a normal block should let 15% through, got ${chip} of ${hit.damage}`);
 });

@@ -198,6 +198,7 @@ const Game = (() => {
 
     const result = defender.applyHit({
       damage: dmg, knockback: kb, knockbackUp: kbUp, hitstun: hs,
+      blockDamageMul: stats.blockDamageMul, blockKnockbackMul: stats.blockKnockbackMul,
       fromFacing: attacker.facing, knockdown, knockdownDuration,
     });
 

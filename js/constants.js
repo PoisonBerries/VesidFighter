@@ -18,6 +18,15 @@ const STAGE_RIGHT_EDGE = 1120;
 // (ring-out) and the round ends immediately, Tough-Love-Arena style.
 const RING_OUT_Y = 840;
 
+// Crouching (holding block on the ground) shrinks the hurtbox to this
+// fraction of the fighter's height, so smaller fighters crouch lower in
+// absolute terms. A "high" attack (see characters.js) has its hitbox start
+// this fraction of the ATTACKER's height above the floor; it misses any
+// crouching fighter whose crouched top is below that line. With the numbers
+// below, you can duck a punch from anyone about your own height or taller.
+const CROUCH_HEIGHT = 0.56;
+const HIGH_ATTACK_BOTTOM = 0.6;
+
 const FIGHTER_WIDTH = 96;
 const FIGHTER_HEIGHT = 160;
 

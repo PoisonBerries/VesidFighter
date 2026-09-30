@@ -10,6 +10,8 @@
 //                 is faster -- 16-19 fast, 24-27 normal, 29-32 slow, 38 slowest
 //   maxHp:        90-92 low, 108-115 medium, 124-140 high
 //   attack dmg:   6-7 low, 8-11 normal, 14-16 high
+//   attack.high:  punches are high by default (duckable by crouching); high: false = low attack
+//   blockDamageMul / blockKnockbackMul: how much of a blocked hit still gets through (default 0.15 / 0.25)
 //
 // Attack speed and damage are meant to trade off against each other, and
 // baseline stats generally trade off against how strong a character's
@@ -73,6 +75,10 @@ const CHARACTERS = {
       damage: 9, offset: 26, width: 70, height: 90,
       startup: 7, active: 4, recovery: 13,
       knockback: 8, knockbackUp: 3, hitstun: 15,
+      // Froggy front kick: a LOW attack. It reaches the floor so crouching
+      // doesn't duck it, and it mostly goes under a crouched guard (a block
+      // absorbs 45% of it instead of the usual 85%).
+      high: false, blockDamageMul: 0.55, blockKnockbackMul: 0.6,
     },
     special: {
       type: 'poisonBurst',
