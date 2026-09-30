@@ -430,7 +430,8 @@ test('crouching (holding block on the ground) shrinks the hurtbox in proportion 
     assert.strictEqual(f.getHurtbox().h, f.height);
     f.state = 'block';
     const h = f.getHurtbox();
-    assert.ok(Math.abs(h.h - f.height * sim.CROUCH_HEIGHT) < 1e-9, `${c.id}: crouched hurtbox ${h.h}`);
+    const frac = c.crouchSwim ? c.crouchSwim.height : sim.CROUCH_HEIGHT; // swimmers lie flat
+    assert.ok(Math.abs(h.h - f.height * frac) < 1e-9, `${c.id}: crouched hurtbox ${h.h}`);
     assert.strictEqual(h.y + h.h, f.y, 'the crouched box still stands on the floor');
     f.grounded = false; // in the air the block key doesn't crouch you
     assert.strictEqual(f.getHurtbox().h, f.height);
@@ -448,7 +449,8 @@ test('punches are high attacks: you duck a punch from anyone about your height o
     for (const t of ids) {
       assert.ok(punchHits(sim, a, t, false), `${a}'s punch must hit a standing ${t}`);
       const Ha = new sim.Fighter('p1', sim.CHARACTERS[a], 0, 1).height, Ht = new sim.Fighter('p2', sim.CHARACTERS[t], 0, 1).height;
-      const expectDuck = a !== 'artur' && Ht * sim.CROUCH_HEIGHT <= Ha * sim.HIGH_ATTACK_BOTTOM;
+      const crouchFrac = sim.CHARACTERS[t].crouchSwim ? sim.CHARACTERS[t].crouchSwim.height : sim.CROUCH_HEIGHT;
+      const expectDuck = a !== 'artur' && Ht * crouchFrac <= Ha * sim.HIGH_ATTACK_BOTTOM;
       const hit = punchHits(sim, a, t, true);
       assert.strictEqual(hit, !expectDuck, `${a} punching a crouching ${t}: expected ${expectDuck ? 'a duck' : 'a hit'}`);
       if (hit) hits++; else ducks++;
@@ -809,7 +811,8 @@ test('Artur rolls when he moves while crouched: faster than anyone\'s crouch-wal
   for (const c of sim.CHARACTER_LIST.filter((c) => c.id !== 'artur')) {
     const r = holdBlockMove(c.id, 20);
     assert.strictEqual(r.f.rolling, false, `${c.id} should not roll`);
-    assert.ok(Math.abs(r.dist / 20 - c.moveSpeed * 0.35) < 0.05, `${c.id}: crouch-walk speed should be unchanged`);
+    const mul = c.crouchSwim ? c.crouchSwim.speedMul : 0.35; // Sam swims instead
+    assert.ok(Math.abs(r.dist / 20 - c.moveSpeed * mul) < 0.05, `${c.id}: crouch-walk speed should be unchanged`);
   }
   // Standing still while crouched, or letting go, is not rolling.
   const { f, foe } = startFighter(sim, 'artur', 400);
@@ -1061,4 +1064,70 @@ test('Owen\'s Plasma Bolt: a tap is the quick shot, and holding reaches the full
   // Releasing just past the threshold already counts as charged.
   const mid = fire(sp.startup + sp.chargeThreshold + 3);
   assert.strictEqual(mid && mid.kind, 'plasmaCharged', 'a short hold past the threshold is a charged shot');
+});
+
+// ---- Sam: lies flat and swims; crouching on the move is a slide ----
+test('Sam crouches flat: a very low, long hurtbox that ducks every punch; only lows (Artur\'s kick) and specials reach it', () => {
+  const sim = createSim();
+  const sam = sim.CHARACTERS.sam;
+  const f = new sim.Fighter('p1', sam, 500, 1);
+  f.grounded = true; f.state = 'block';
+  const h = f.getHurtbox();
+  assert.ok(Math.abs(h.h - f.height * sam.crouchSwim.height) < 1e-9);
+  assert.ok(Math.abs(h.w - f.width * sam.crouchSwim.widthMul) < 1e-9, 'flat means long: wider than standing');
+  assert.ok(h.h < f.height * sim.CROUCH_HEIGHT * 0.6, 'much lower than an ordinary crouch');
+  // Every character's basic punch goes over him; Artur's low kick doesn't.
+  for (const a of sim.CHARACTER_LIST.map((c) => c.id)) {
+    assert.strictEqual(punchHits(sim, a, 'sam', false), true, `${a} hits a standing Sam`);
+    assert.strictEqual(punchHits(sim, a, 'sam', true), a === 'artur', `${a} vs a flat Sam`);
+  }
+});
+
+test('Sam swims (a quicker crouch-crawl) and crouching while moving is a slide that keeps the momentum', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  const keys = (list) => { for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], list.includes(a), false); };
+  const run = (id, before, after, frames) => {
+    const { f, foe } = startFighter(sim, id, 300);
+    keys(before.keys);
+    for (let i = 0; i < before.frames; i++) f.update(C, foe);
+    const x0 = f.x, speed0 = Math.abs(f.vx);
+    keys(after);
+    const trace = [];
+    for (let i = 0; i < frames; i++) { f.update(C, foe); trace.push({ vx: f.vx, sliding: f.sliding, state: f.state }); }
+    keys([]);
+    return { f, dist: f.x - x0, speed0, trace };
+  };
+  const swimSpeed = sim.CHARACTERS.sam.moveSpeed * sim.CHARACTERS.sam.crouchSwim.speedMul;
+
+  // Swimming from a standstill: quicker than the ordinary crouch-walk, no slide.
+  const swim = run('sam', { keys: [], frames: 5 }, ['block', 'right'], 30);
+  assert.ok(Math.abs(swim.dist / 30 - swimSpeed) < 0.05, `swim speed ${(swim.dist / 30).toFixed(2)} vs ${swimSpeed.toFixed(2)}`);
+  assert.ok(swimSpeed > sim.CHARACTERS.sam.moveSpeed * 0.35, 'quicker than a crouch-walk');
+  assert.ok(swim.trace.every((t) => !t.sliding), 'no slide from a standstill');
+
+  // Running, then crouching: slide on with the momentum.
+  const slide = run('sam', { keys: ['right'], frames: 12 }, ['block', 'right'], 60);
+  assert.ok(slide.trace[0].sliding, 'crouching at speed starts a slide');
+  assert.ok(Math.abs(slide.trace[0].vx) > slide.speed0 * 0.9, `momentum kept (running at ${slide.speed0.toFixed(2)}, first slide frame ${slide.trace[0].vx.toFixed(2)})`);
+  // It carries on, well past what an ordinary crouching stop would.
+  const glide = run('sam', { keys: ['right'], frames: 12 }, ['block'], 60);      // just crouch: no direction held
+  const keenan = run('keenan', { keys: ['right'], frames: 12 }, ['block'], 60);  // same, for a character who just stops
+  assert.ok(glide.dist > keenan.dist * 4, `the slide should go far (${glide.dist.toFixed(0)} vs ${keenan.dist.toFixed(0)})`);
+  assert.ok(slide.dist > keenan.dist * 2.5, `the slide should go much further (${slide.dist.toFixed(0)} vs ${keenan.dist.toFixed(0)})`);
+  assert.ok(keenan.trace.every((t) => !t.sliding), 'other characters never slide');
+  // No steering during the glide: holding the other way doesn't turn it around.
+  const noSteer = run('sam', { keys: ['right'], frames: 12 }, ['block', 'left'], 12);
+  assert.ok(noSteer.trace.every((t) => t.vx >= 0), 'still gliding forward while holding the opposite direction');
+  // It fades out and becomes a swim.
+  const fade = run('sam', { keys: ['right'], frames: 12 }, ['block'], 150);
+  assert.strictEqual(fade.trace[fade.trace.length - 1].sliding, false, 'the slide ends once the speed is gone');
+  // Letting go of crouch ends it immediately.
+  const { f, foe } = startFighter(sim, 'sam', 300);
+  keys(['right']); for (let i = 0; i < 12; i++) f.update(C, foe);
+  keys(['block', 'right']); f.update(C, foe);
+  assert.strictEqual(f.sliding, true);
+  keys(['right']); f.update(C, foe);
+  assert.strictEqual(f.sliding, false, 'standing up ends the slide');
+  keys([]);
 });

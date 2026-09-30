@@ -346,6 +346,24 @@ const Animator = (() => {
     T.rate = 50;
   }
 
+  // Sam's crouch: flat on his belly, head forward, front-crawling along the
+  // floor (arms reaching and pulling in turn, flutter kicks). The strokes
+  // slow to a lazy tread when he's not going anywhere, and stop for a
+  // streamlined glide while he slides on momentum.
+  function swimPose(T, fighter, an) {
+    const moving = Math.abs(fighter.vx) > 0.4, gliding = fighter.sliding;
+    const ph = an.swimPhase || 0;
+    const k = moving || gliding ? 1 : 0.35;
+    const s = gliding ? 0 : Math.sin(ph) * k;
+    T.rot = 1.5; T.rotW = 18; T.rotZ = 0.9; // level with the floor, head forward
+    T.crouch = 0.02; T.lean = gliding ? -4 : 0;
+    // The body is horizontal, so "up the body" is forward: arms reach out along it.
+    T.arms = [P(-4, -50 + 16 * s, -4, 1), P(6, -50 - 16 * s, 4, 1)];
+    const kick = gliding ? 0 : Math.sin(ph * 1.9) * 10 * k;
+    T.fA = F(-6 + kick, 0); T.fB = F(6 - kick, 0);
+    T.rate = 45;
+  }
+
   function computeTargets(fighter, profile, an, now) {
     const T = baseTargets(fighter, profile, now);
     const id = fighter.character.id;
@@ -388,7 +406,9 @@ const Animator = (() => {
 
       case 'block': {
         T.crouch = 0.47; T.lean = 6; T.armPose = 'crossed';
-        if (fighter.rolling) { // crouch-move as a tucked ball rolling along the floor
+        if (fighter.character.crouchSwim) { // Sam: flat on the floor, swimming
+          swimPose(T, fighter, an);
+        } else if (fighter.rolling) { // crouch-move as a tucked ball rolling along the floor
           rollPose(T, an);
         } else if (Math.abs(fighter.vx) > 0.4) {
           walkPose(T, fighter, profile, 10 * stance, 4, 45);
@@ -545,6 +565,7 @@ const Animator = (() => {
     if (!T.arms) T.arms = armsFor(T.armPose, { R, E: T.E, s: T.s });
     applyClip(T, fighter, an, now, rollFinish);
     if (fighter.rolling || rollFinish) T.headTilt = 38; // chin tucked into the chest
+    else if (fighter.state === 'block' && fighter.character.crouchSwim) T.headTilt = -22; // chin up, looking ahead as he swims
     // Long-armed characters (Nathan): every arm pose reaches proportionally further.
     if (profile.armScale !== 1 && !T.clip) {
       T.arms = T.arms.map((a) => ({
@@ -878,7 +899,7 @@ const Animator = (() => {
       rot: 0, rotVel: 0, prevSpin: 0, toppling: false,
       hop: 0, hopV: 0,
       landT: 0, landImpact: 0, getup: 0,
-      prevAirborne: false, prevVy: 0, prevState: 'idle', prevT: 0, prevJumps: 0, prevHovering: false, prevRolling: false, prevTransformed: undefined, pan: 0, impactSeq: 0, str: 0, strV: 0,
+      prevAirborne: false, prevVy: 0, prevState: 'idle', prevT: 0, prevJumps: 0, prevHovering: false, prevRolling: false, prevSliding: false, swimBeat: 0, prevTransformed: undefined, pan: 0, impactSeq: 0, str: 0, strV: 0,
       dustTimer: 0,
     };
   }
@@ -1010,6 +1031,10 @@ const Animator = (() => {
     an.axial = st === 'hoverdive' && fighter._ability && fighter._ability.diving ? (an.axial || 0) + 0.75 * f : 0;
     // A crouch-roll turns in step with the distance covered (one turn per
     // ball circumference); it folds into the body angle when the roll stops.
+    // Sam's swimming stroke: advances with the distance he covers (and a lazy tread when still).
+    if (fighter.character.crouchSwim && st === 'block' && !fighter.sliding) {
+      an.swimPhase = (an.swimPhase || 0) + (0.14 + Math.abs(fighter.vx) * 0.085) * f;
+    }
     if (fighter.rolling) {
       an.rollAngle = (an.rollAngle || 0) + (fighter.vx * fighter.facing) / (0.2 * fighter.height) * f; // a stylised, quick tumble
       an.rollDir = Math.sign(fighter.vx * fighter.facing) || an.rollDir || 1;
@@ -1061,6 +1086,11 @@ const Animator = (() => {
       if (fighter.jumpsUsed > an.prevJumps) Sfx.jump(fighter.jumpsUsed, an.pan);
       if (fighter.hovering && !an.prevHovering) Sfx.hover(an.pan);
       if (fighter.rolling && !an.prevRolling) Sfx.roll(an.pan);
+      if (fighter.sliding && !an.prevSliding) Sfx.slide(an.pan);
+      if (fighter.character.crouchSwim && st === 'block' && !fighter.sliding && Math.abs(fighter.vx) > 0.4) {
+        const beat = Math.floor((an.swimPhase || 0) / Math.PI);
+        if (beat !== an.swimBeat) { an.swimBeat = beat; Sfx.swim(an.pan); }
+      }
       if (fighter.transformed && an.prevTransformed === false) Sfx.transform(an.pan);
       if (T0_TUMBLE(fighter, st) && !an.falling) { an.falling = true; Sfx.fall(an.pan); }
     }
@@ -1099,6 +1129,7 @@ const Animator = (() => {
     }
     an.prevHovering = !!fighter.hovering;
     an.prevRolling = !!fighter.rolling;
+    an.prevSliding = !!fighter.sliding;
     an.prevTransformed = !!fighter.transformed;
     an.prevT = fighter.actionTimer;
 

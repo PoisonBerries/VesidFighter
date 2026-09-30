@@ -14,6 +14,7 @@ before(async () => {
   browser = await puppeteer.launch({
     executablePath: findChrome(),
     headless: 'new',
+    protocolTimeout: 300000, // slow or busy machines
     args: ['--no-sandbox', '--disable-gpu', '--autoplay-policy=no-user-gesture-required'],
   });
 });
@@ -210,11 +211,15 @@ test('quitting to the main menu stops the match: nothing keeps running behind th
 test('every character is drawn, and survives attack/special/ultimate/jump/block/hit/KO with rendering on', async () => {
   const { page, errors } = await openGame();
   await page.evaluate(PAGE_HELPERS);
-  const results = await page.evaluate(() => {
-    const T = window.__t, out = [];
-    const ids = CHARACTER_LIST.map((c) => c.id);
-    const tap = (code, frames = 1) => { T.key(code, true); T.step(1); T.key(code, false); T.step(frames); };
-    ids.forEach((id, n) => {
+  // One browser call per character, so a slow machine (or CI) never has a single call
+  // that runs past Puppeteer's protocol timeout.
+  const ids = await page.evaluate(() => CHARACTER_LIST.map((c) => c.id));
+  const results = [];
+  for (const [n, id] of ids.entries()) {
+    results.push(await page.evaluate((id, n) => {
+      const T = window.__t;
+      const ids = CHARACTER_LIST.map((c) => c.id);
+      const tap = (code, frames = 1) => { T.key(code, true); T.step(1); T.key(code, false); T.step(frames); };
       const foe = ids[(n + 4) % ids.length];
       Game.startMatch(id, id === foe ? 'sam' : foe, () => {});
       T.step(200); // countdown -> fight
@@ -232,10 +237,9 @@ test('every character is drawn, and survives attack/special/ultimate/jump/block/
       r.afterVisible = T.visible(0);
       Game.applySnapshot({ f: [{ state: 'ko', actionTimer: 0 }, {}] });
       T.step(60);
-      out.push(r);
-    });
-    return out;
-  });
+      return r;
+    }, id, n));
+  }
   for (const r of results) {
     assert.strictEqual(r.state, 'fight', `${r.id}: match did not reach the fight state`);
     assert.ok(r.visible[0] > 0.15 && r.visible[1] > 0.15, `${r.id}: fighters not drawn at fight start (${r.visible.map((v) => (v * 100).toFixed(0) + '%')})`);

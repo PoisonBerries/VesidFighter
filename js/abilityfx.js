@@ -578,6 +578,22 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // Ripples spreading across the floor where Sam swims.
+  function drawRipple(ctx, e, t) {
+    ctx.save();
+    for (let i = 0; i < 2; i++) {
+      const tt = clamp((t - i * 0.18) / 0.82, 0, 1);
+      if (tt <= 0 || tt >= 1) continue;
+      const rx = 16 + 46 * easeOutCubic(tt);
+      ctx.strokeStyle = `rgba(190,240,255,${(1 - tt) * 0.8})`;
+      ctx.lineWidth = 3 * (1 - tt) + 1;
+      ctx.beginPath();
+      ctx.ellipse(e.x, e.y + 1, rx, rx * 0.17, 0, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawTimed(ctx) {
     if (!timed.length) return;
     const now = performance.now();
@@ -595,6 +611,7 @@ const AbilityFX = (() => {
         case 'flash': drawFlash(ctx, e, t); break;
         case 'counter': drawCounter(ctx, e, t); break;
         case 'ghost': drawGhost(ctx, e, t); break;
+        case 'ripple': drawRipple(ctx, e, t); break;
         case 'phasering': drawPhaseRing(ctx, e, t); break;
         default: break;
       }
@@ -1207,7 +1224,38 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // Sam sliding on his belly: water streaming off behind him and a bow wave ahead.
+  function drawSlideFX(ctx, f) {
+    const dir = Math.sign(f.vx) || f.facing, now = performance.now();
+    const x = f.x, y = GROUND_Y;
+    const sp = clamp(Math.abs(f.vx) / 7, 0.3, 1.2);
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let k = 0; k < 4; k++) {
+      const yy = y - 5 - k * 8, len = (60 + k * 28) * sp;
+      const x0 = x - dir * (f.width * 0.5);
+      const g = ctx.createLinearGradient(x0, 0, x0 - dir * len, 0);
+      g.addColorStop(0, 'rgba(150,230,255,0.7)');
+      g.addColorStop(1, 'rgba(150,230,255,0)');
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 3.5 - k * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(x0, yy + Math.sin(now / 60 + k) * 1.5);
+      ctx.lineTo(x0 - dir * len, yy);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 2.5;
+    for (let k = 0; k < 2; k++) {
+      ctx.beginPath();
+      ctx.ellipse(x + dir * (f.width * 0.6 + k * 10), y - 6, 9 + k * 5, 6 + k * 3, 0, dir > 0 ? -1.2 : Math.PI - 1.2, dir > 0 ? 1.2 : Math.PI + 1.2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawFront(ctx, f) {
+    if (f.sliding && f.state === 'block') drawSlideFX(ctx, f);
     if (f.state === 'hoverdive' && f._ability && f._ability.diving && f.character.hoverDive) drawClawDrill(ctx, f);
     if (f.rolling && f.grounded) drawNinjaRoll(ctx, f);
     if (f.character.phaseStep && (f.state === 'hitstun' || f.state === 'knockdown') && f.phaseCooldown <= 0 && f.y <= GROUND_Y + 1 && f.hp > 0) drawPhaseHint(ctx, f);
@@ -1418,6 +1466,21 @@ const AbilityFX = (() => {
       add({ kind: 'phasering', dur: 380, x: f.x, y: f.y, H });
       for (let i = 0; i < 10; i++) {
         Effects.spawn({ x: f.x + rnd(-1, 1) * f.width * 0.5, y: f.y - rnd(0, H), vx: rnd(-1, 1), vy: rnd(-2, -0.5), size: rnd(1.5, 3), color: '#cfeaff', life: 26, noGravity: true, shrink: true });
+      }
+    }
+
+    // Sam in the water-on-floor: spray while sliding, ripples while swimming.
+    if (f.character.crouchSwim && f.state === 'block' && f.grounded) {
+      const nowMs = performance.now(), moving = Math.abs(f.vx) > 0.4, dir = Math.sign(f.vx) || f.facing;
+      if (f.sliding) {
+        if (nowMs - (m.lastSpray || 0) > 38) {
+          m.lastSpray = nowMs;
+          Effects.spawn({ x: f.x - dir * f.width * 0.5, y: GROUND_Y - 4, vx: -dir * rnd(0.5, 3), vy: -rnd(1.2, 3.6), size: rnd(2, 4), color: Math.random() < 0.4 ? '#ffffff' : '#9be8ff', life: rnd(22, 36), g: 0.3, drag: 0.97 });
+        }
+      } else if (moving && nowMs - (m.lastRipple || 0) > 300) {
+        m.lastRipple = nowMs;
+        add({ kind: 'ripple', dur: 560, x: f.x, y: GROUND_Y });
+        Effects.spawn({ x: f.x + rnd(-1, 1) * f.width * 0.4, y: GROUND_Y - 4, vx: rnd(-0.8, 0.8), vy: -rnd(1, 2.4), size: rnd(1.5, 3), color: '#bfefff', life: rnd(18, 28), g: 0.25 });
       }
     }
 

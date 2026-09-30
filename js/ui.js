@@ -228,6 +228,13 @@ const UI = (() => {
           <div class="ability-desc">While being hit, press jump and crouch together to slip through your opponent and come out behind them. ${Math.round(char.phaseStep.cooldown / 60)}s cooldown.</div>
         </div>
       </div>` : ''}
+      ${char.crouchSwim ? `<div class="ability-row">
+        ${controls ? `<span class="key-badge">${keyLabel(controls.block)}</span>` : ''}
+        <div>
+          <div class="ability-name">Swim & slide</div>
+          <div class="ability-desc">Crouching lays him flat on the floor: very low, so punches go over him, and he swims along quickly. Crouch while running to slide on with your momentum.</div>
+        </div>
+      </div>` : ''}
       ${char.crouchRoll ? `<div class="ability-row">
         ${controls ? `<span class="key-badge">${keyLabel(controls.block)}+${keyLabel(controls.left)}/${keyLabel(controls.right)}</span>` : ''}
         <div>

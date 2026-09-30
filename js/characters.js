@@ -353,6 +353,16 @@ const CHARACTERS = {
     jumpForce: 19,
     maxJumps: 2,
     doubleJumpFlip: true,
+    // Crouching lays Sam flat on the floor, belly-down, and moving is a front-
+    // crawl swim (quicker than a normal crouch-walk). height/widthMul: the
+    // flat hurtbox (very low, and long). If he crouches while already moving
+    // (>= minSpeed) he slides on with that momentum instead -- boosted a
+    // touch, and barely slowed (friction is per frame) -- until it fades
+    // (endSpeed) or he lets go of crouch.
+    crouchSwim: {
+      speedMul: 0.5, height: 0.28, widthMul: 1.5,
+      slide: { minSpeed: 3.2, boost: 1.12, friction: 0.965, endSpeed: 1.6 },
+    },
     maxHp: 90,
     attack: {
       damage: 7, offset: 22, width: 60, height: 80,

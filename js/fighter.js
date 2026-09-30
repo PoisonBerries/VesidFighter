@@ -67,6 +67,7 @@ class Fighter {
     this.impactKind = null;
     this.hovering = false;
     this.rolling = false; // crouch-moving as a roll (characters with crouchRoll)
+    this.sliding = false; // gliding along the floor on crouch momentum (characters with crouchSwim)
     this.phaseCooldown = 0; // frames until Phase Step (Keenan) is ready again
     this._comboHeld = false; // jump + crouch both down last frame (to catch the moment the pair is completed)
     this.phaseStepFrom = 0;
@@ -134,11 +135,15 @@ class Fighter {
   }
 
   getHurtbox() {
-    const h = this.isCrouching ? this.height * CROUCH_HEIGHT : this.height;
+    // Crouched: a fraction of full height -- and for a swimmer (Sam) lying
+    // flat, so very low but long.
+    const swim = this.isCrouching ? this.character.crouchSwim : null;
+    const h = this.isCrouching ? this.height * (swim ? swim.height : CROUCH_HEIGHT) : this.height;
+    const w = swim ? this.width * swim.widthMul : this.width;
     return {
-      x: this.x - this.width / 2,
+      x: this.x - w / 2,
       y: this.y - h,
-      w: this.width,
+      w,
       h,
     };
   }
@@ -437,6 +442,7 @@ class Fighter {
     this.hoverLeft = this.character.hover ? this.character.hover.frames : 0;
     this.hovering = false;
     this.rolling = false;
+    this.sliding = false;
     this.phaseCooldown = 0;
     this._comboHeld = false;
     this.blocking = false;
@@ -477,6 +483,7 @@ class Fighter {
     this._updateStatusTimers();
 
     this.rolling = false; // set again below while a crouch-roll is in progress
+    if (this.state !== 'block') this.sliding = false; // a slide only lasts while crouched
     if (this.state !== 'ko' && this.state !== 'victory') {
       this._handleInput(controls, opponent);
     }
@@ -633,15 +640,24 @@ class Fighter {
       // player up to move/attack again. Still allows a slow crouch-walk
       // rather than fully rooting the player in place.
       if (held.block && this.grounded) {
+        const swim = this.character.crouchSwim;
+        // Crouching while already moving (Sam): slide on with that momentum.
+        if (swim && !this.blocking && Math.abs(this.vx) >= swim.slide.minSpeed) {
+          this.sliding = true;
+          this.vx *= swim.slide.boost;
+        }
         this.blockFrames = this.blocking ? this.blockFrames + 1 : 1;
         this.blocking = true;
         this.state = 'block';
         let crouchDir = 0;
         if (held.left && !held.right) crouchDir = -1;
         else if (held.right && !held.left) crouchDir = 1;
-        if (crouchDir !== 0) {
+        if (this.sliding) {
+          // Committed to the glide (no steering); it ends when it runs out of speed.
+          if (Math.abs(this.vx) < swim.slide.endSpeed) this.sliding = false;
+        } else if (crouchDir !== 0) {
           const roll = this.character.crouchRoll;
-          this.vx = crouchDir * this.moveSpeedEff * (roll ? roll.speedMul : CROUCH_SPEED_MULTIPLIER);
+          this.vx = crouchDir * this.moveSpeedEff * (roll ? roll.speedMul : swim ? swim.speedMul : CROUCH_SPEED_MULTIPLIER);
           this.rolling = !!roll;
         } else {
           this.vx *= FRICTION;
@@ -651,6 +667,7 @@ class Fighter {
     }
     this.blocking = false;
     this.blockFrames = 0;
+    this.sliding = false; // letting go of crouch ends any slide at once
 
     if (!phased) {
       if (pressed.ultimate && this.ultCharge >= ULT_METER_MAX) {
@@ -1033,8 +1050,9 @@ class Fighter {
     this.y += this.vy;
 
     if (this.state !== 'walk' && !this._keepsAirMomentum()) {
-      // Balance mode: the shakier you are, the more you slide.
-      this.vx *= FRICTION + BALANCE_SLIP * this.shakiness;
+      // Balance mode: the shakier you are, the more you slide. (A crouch-slide
+      // has its own, much lower friction.)
+      this.vx *= this.sliding && this.state === 'block' ? this.character.crouchSwim.slide.friction : FRICTION + BALANCE_SLIP * this.shakiness;
     }
 
     const onStage = this.x > STAGE_LEFT_EDGE && this.x < STAGE_RIGHT_EDGE;

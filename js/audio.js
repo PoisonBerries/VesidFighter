@@ -165,6 +165,14 @@ const Sfx = (() => {
       tone({ type: 'sawtooth', f0: 200, f1: 620, dur: 0.38, vol: 0.14, attack: 0.02, pan });
       tone({ type: 'square', f0: 900, f1: 1500, dur: 0.3, vol: 0.06, delay: 0.06, pan });
     },
+    slide(pan) {
+      noise({ f0: 500, f1: 2400, q: 0.9, dur: 0.5, vol: 0.2, attack: 0.04, pan });
+      noise({ filter: 'lowpass', f0: 900, f1: 260, q: 0.6, dur: 0.45, vol: 0.14, pan });
+    },
+    swim(pan) {
+      noise({ f0: 1300, f1: 3200, q: 1.2, dur: 0.1, vol: 0.09, attack: 0.01, pan });
+      tone({ f0: 700, f1: 380, dur: 0.06, vol: 0.05, pan });
+    },
     roll(pan) {
       noise({ filter: 'lowpass', f0: 700, f1: 240, q: 0.7, dur: 0.3, vol: 0.2, attack: 0.03, pan });
       tone({ f0: 120, f1: 70, dur: 0.16, vol: 0.16, pan });
@@ -294,6 +302,8 @@ const Sfx = (() => {
     swing: (pan) => play('swing', pan),
     hover: (pan) => play('hover', pan),
     roll: (pan) => play('roll', pan),
+    slide: (pan) => play('slide', pan),
+    swim: (pan) => play('swim', pan),
     drill: (pan) => play('drill', pan),
     phasestep: (pan) => play('phasestep', pan),
     boing: (pan) => play('boing', pan),

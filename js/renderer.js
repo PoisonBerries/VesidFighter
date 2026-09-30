@@ -439,7 +439,7 @@ const Renderer = (() => {
     ctx.restore();
 
     if (fighter.blocking) {
-      drawShieldIcon(ctx, fighter.x, fighter.y - fighter.height - 18);
+      drawShieldIcon(ctx, fighter.x, fighter.y - (fighter.isCrouching ? fighter.getHurtbox().h : fighter.height) - 18);
     }
     if (!card) drawPlayerMarker(ctx, fighter);
     return { lift: rig.lift, lying };
