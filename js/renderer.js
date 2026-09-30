@@ -407,6 +407,10 @@ const Renderer = (() => {
       const s = rig.stretch;
       ctx.transform(1 + 0.25 * Math.abs(s), 0, -s * 0.45, 1 - 0.1 * Math.abs(s), 0, 0);
     }
+    if (rig.vstretch && Math.abs(rig.vstretch - 1) > 0.004) {
+      // Squash and stretch (elastic bodies): taller and thinner rising, squat landing.
+      ctx.scale(1 / Math.sqrt(rig.vstretch), rig.vstretch);
+    }
 
     if (fighter.isPhased) ctx.globalAlpha = 0.35;
 
@@ -874,7 +878,9 @@ const Renderer = (() => {
 
   // Shoulder -> elbow -> fist. Elbows bend down and back, like a real guard.
   function drawArm(ctx, shoulder, hand, dims, colors, profile, orb, accent, art, only) {
-    const { upper, fore, fist, bulk } = dims;
+    const stretch = hand.stretch || 1; // elastic arms: bones lengthen, the limb thins
+    const upper = dims.upper * stretch, fore = dims.fore * stretch;
+    const { fist, bulk } = dims;
     const H = dims.H;
     // Elbows bend down and back -- or, for a mocap clip, toward the real elbow.
     const h = hand.hint;
@@ -885,7 +891,7 @@ const Renderer = (() => {
     const ang = Math.atan2(wrist.y - elbow.y, wrist.x - elbow.x);
     const knuckles = { x: wrist.x + Math.cos(ang) * fist * 1.4, y: wrist.y + Math.sin(ang) * fist * 1.4 };
     if (only !== 'upper') smear(ctx, hand.trail, knuckles, hand.smear, fist * 1.8, H);
-    const S = limbSamples(shoulder, elbow, wrist, ARM_PROFILE, H * bulk);
+    const S = limbSamples(shoulder, elbow, wrist, ARM_PROFILE, (H * bulk) / Math.sqrt(stretch));
     const upperArm = () => { const lit = paintLimb(ctx, S, 0, 1, true, true, colors.skin); armDefinition(ctx, S, colors.skin, lit); };
     const forearm = () => { paintLimb(ctx, S, 1, 2, true, true, colors.skin); bracer(ctx, S, 1.42, 1.95, colors); };
     if (only === 'upper') {
@@ -1423,7 +1429,7 @@ const Renderer = (() => {
     const shoulderFront = rig.sh ? { x: rig.sh[1].x, y: shoulderY + rig.sh[1].y } : { x: H * 0.052 * d.fs, y: shY + H * 0.004 };
     const shoulderBack = rig.sh ? { x: rig.sh[0].x, y: shoulderY + rig.sh[0].y } : { x: -H * 0.042 * d.fs, y: shY - H * 0.006 };
     // The rig gives hand targets relative to a single shoulder point at x=0.
-    const handOf = (a, i) => ({ x: a.x, y: shY + a.y, hint: a.ex !== undefined ? { x: a.ex, y: shY + a.ey } : null, trail: trails[i], smear: rig.smear === 'arm' + i });
+    const handOf = (a, i) => ({ x: a.x, y: shY + a.y, hint: a.ex !== undefined ? { x: a.ex, y: shY + a.ey } : null, trail: trails[i], smear: rig.smear === 'arm' + i, stretch: a.stretch });
     const [armBack, armFront] = rig.arms;
 
     lean(() => drawArm(ctx, shoulderBack, handOf(armBack, 0), d.arm, back, profile, armBack.orb, accent, far, 'upper'));

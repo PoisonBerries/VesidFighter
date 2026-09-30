@@ -785,3 +785,91 @@ test('balance mode off: health KOs as usual, and knockback does not grow', () =>
   step(sim, 2);
   assert.strictEqual(sim.Game.getState(), 'roundEnd', 'zero health is a KO');
 });
+
+// ---- Artur's crouch-roll, Carlos's Guillotine Slash, Nathan's reach ----
+
+test('Artur rolls when he moves while crouched: faster than anyone\'s crouch-walk, still a crouch; nobody else rolls', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  const holdBlockMove = (id, frames) => {
+    const { f, foe } = startFighter(sim, id, 400);
+    for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], a === 'block' || a === 'right', false);
+    const x0 = f.x;
+    for (let i = 0; i < frames; i++) f.update(C, foe);
+    const r = { f, dist: f.x - x0 };
+    for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], false, false);
+    return r;
+  };
+  const artur = holdBlockMove('artur', 30);
+  assert.strictEqual(artur.f.rolling, true);
+  assert.strictEqual(artur.f.isCrouching, true, 'a roll is still the crouch (same hurtbox and guard)');
+  const crouchWalkSpeed = sim.CHARACTERS.artur.moveSpeed * 0.35;
+  const rollSpeed = artur.dist / 30;
+  assert.ok(rollSpeed > crouchWalkSpeed * 1.4 && rollSpeed < crouchWalkSpeed * 2.2, `roll speed ${rollSpeed.toFixed(2)} vs crouch-walk ${crouchWalkSpeed.toFixed(2)}: should be "a bit faster"`);
+  for (const c of sim.CHARACTER_LIST.filter((c) => c.id !== 'artur')) {
+    const r = holdBlockMove(c.id, 20);
+    assert.strictEqual(r.f.rolling, false, `${c.id} should not roll`);
+    assert.ok(Math.abs(r.dist / 20 - c.moveSpeed * 0.35) < 0.05, `${c.id}: crouch-walk speed should be unchanged`);
+  }
+  // Standing still while crouched, or letting go, is not rolling.
+  const { f, foe } = startFighter(sim, 'artur', 400);
+  for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], a === 'block', false);
+  for (let i = 0; i < 10; i++) f.update(C, foe);
+  assert.strictEqual(f.rolling, false);
+});
+
+// One basic special thrown at a target standing (or crouch-blocking) right in front.
+function specialDamage(sim, attackerId, targetId, block, frames) {
+  sim.Game.startMatch(attackerId, targetId, () => {}, { ball: 'off' }); // full damage numbers
+  for (let i = 0; i < 200; i++) sim.Game.update(sim.FIXED_STEP);
+  sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 570 }] });
+  const hp0 = sim.Game.getSnapshot().f[1].hp;
+  sim.InputManager.setVirtual(sim.VCONTROLS.p2.block, !!block, false);
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, true);
+  const lost = [];
+  for (let i = 0; i < frames; i++) {
+    sim.Game.update(sim.FIXED_STEP);
+    sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false);
+    lost.push(hp0 - sim.Game.getSnapshot().f[1].hp);
+  }
+  sim.InputManager.setVirtual(sim.VCONTROLS.p2.block, false, false);
+  return lost;
+}
+
+test('Carlos\'s Guillotine Slash: a long telegraph, then ONE big hit', () => {
+  const sim = createSim();
+  const sp = sim.CHARACTERS.carlos.special;
+  assert.strictEqual(sp.hits.length, 1, 'a single slash');
+  assert.ok(sp.hits[0].start >= 22, `wind-up should be long enough to read (${sp.hits[0].start} frames)`);
+  assert.ok(sp.damage >= 30, `it should hurt (${sp.damage})`);
+  assert.ok(sp.damage > 14 * 2, 'and hit harder than the old two-slash total');
+
+  const lost = specialDamage(sim, 'carlos', 'keenan', false, 60);
+  const first = lost.findIndex((v) => v > 0);
+  assert.ok(first >= sp.hits[0].start - 3, `no damage during the wind-up (first damage on frame ${first + 1}, wind-up ${sp.hits[0].start})`);
+  const total = lost[lost.length - 1];
+  assert.ok(Math.abs(total - sp.damage) < 0.01, `exactly one hit of ${sp.damage} (took ${total})`);
+
+  // Blocking still works, and it can't be ducked (a special reaches the floor).
+  const blocked = specialDamage(sim, 'carlos', 'john', true, 60);
+  assert.ok(Math.abs(blocked[blocked.length - 1] - sp.damage * 0.15) < 0.01, `a block should absorb 85% (took ${blocked[blocked.length - 1]})`);
+  const crouchedSmall = specialDamage(sim, 'carlos', 'keenan', true, 60);
+  assert.ok(crouchedSmall[crouchedSmall.length - 1] > 0, 'crouching does not duck a special');
+});
+
+test('Nathan\'s punch reaches nearly twice as far as a normal jab', () => {
+  const sim = createSim();
+  const reach = (id) => { const a = sim.CHARACTERS[id].attack; return a.offset + a.width; };
+  const others = sim.CHARACTER_LIST.filter((c) => c.id !== 'nathan').map((c) => reach(c.id)).sort((a, b) => a - b);
+  const median = others[Math.floor(others.length / 2)];
+  assert.ok(reach('nathan') >= median * 1.7, `Nathan reach ${reach('nathan')} vs median ${median}`);
+  assert.ok(reach('nathan') > Math.max(...others), 'the longest reach in the roster');
+  // It really connects at long range.
+  const A = new sim.Fighter('p1', sim.CHARACTERS.nathan, 500, 1);
+  A.state = 'attack';
+  A.actionTimer = sim.CHARACTERS.nathan.attack.startup + 1;
+  const box = A.getHitbox();
+  const T = new sim.Fighter('p2', sim.CHARACTERS.keenan, 500 + 190, -1);
+  T.grounded = true;
+  assert.ok(overlaps(box, T.getHurtbox()), 'a target 190 units away should be in range');
+});

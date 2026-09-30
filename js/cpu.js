@@ -103,8 +103,11 @@ const Cpu = (() => {
         case 'dive':
           if (def.angle === 'down') return dist < 140 ? { frames: 4, kind: 'dive' } : null;
           return toward && dist < def.speed * def.travel + 60 ? { frames: 4, kind: 'dash' } : null;
-        case 'poisonBurst': case 'multiHit':
-          return toward && dist < reachOf(def.offset, def.width, halfMe) + 20 ? { frames: 4, kind: 'melee', low: def.type === 'poisonBurst' } : null;
+        case 'poisonBurst': case 'multiHit': {
+          // A slow single slash (Carlos) telegraphs itself: the real frames until it lands.
+          const wind = def.type === 'multiHit' && def.hits.length === 1 ? Math.max(1, def.hits[0].start - o.t) : 4;
+          return toward && dist < reachOf(def.offset, def.width, halfMe) + 20 ? { frames: wind, kind: 'melee', low: def.type === 'poisonBurst' } : null;
+        }
         case 'slam':
           return dist < def.radius + halfMe + 30 ? { frames: 6, kind: 'slam' } : null;
         case 'nuke':
@@ -396,6 +399,12 @@ const Cpu = (() => {
         const s = c.special;
         switch (s.type) {
           case 'poisonBurst': case 'multiHit':
+            // A long, telegraphed wind-up only lands on someone who can't get out of the way
+            // (in hitstun, or committed to a move), so wait for that instead of throwing it at range.
+            if (s.type === 'multiHit' && s.hits.length === 1 && s.hits[0].start >= 20) {
+              if (dist < reachOf(s.offset, s.width, oppHalf) - 40 && (o.state === 'hitstun' || ACTING.has(o.state) || o.state === 'knockdown')) return press(B.special);
+              break;
+            }
             if (dist < reachOf(s.offset, s.width, oppHalf) - 15 && oBusyOrOpen) return press(B.special);
             break;
           case 'slam':

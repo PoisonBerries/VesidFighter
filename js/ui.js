@@ -125,6 +125,19 @@ const UI = (() => {
           <div class="ability-desc">Hold jump in the air to hang in place on the thrusters for a moment. Refills on landing.</div>
         </div>
       </div>` : ''}
+      ${char.crouchRoll ? `<div class="ability-row">
+        ${controls ? `<span class="key-badge">${keyLabel(controls.block)}+${keyLabel(controls.left)}/${keyLabel(controls.right)}</span>` : ''}
+        <div>
+          <div class="ability-name">Crouch-roll</div>
+          <div class="ability-desc">Moving while crouched is a tuck-and-roll, a bit quicker than a crouch-walk.</div>
+        </div>
+      </div>` : ''}
+      ${char.elastic ? `<div class="ability-row">
+        <div>
+          <div class="ability-name">Rubber body</div>
+          <div class="ability-desc">Stretching punches with a very long reach; the body wobbles, squashes and rebounds when hit.</div>
+        </div>
+      </div>` : ''}
     `;
   }
 

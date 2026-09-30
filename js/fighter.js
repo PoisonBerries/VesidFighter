@@ -66,6 +66,7 @@ class Fighter {
     this.impactPower = 0; // 0-1.3, how hard
     this.impactKind = null;
     this.hovering = false;
+    this.rolling = false; // crouch-moving as a roll (characters with crouchRoll)
 
     // Timed buffs (Ryan/Nathan ultimates).
     this.buffTimer = 0;
@@ -426,6 +427,7 @@ class Fighter {
     this.doubleJumpFlipTimer = 0;
     this.hoverLeft = this.character.hover ? this.character.hover.frames : 0;
     this.hovering = false;
+    this.rolling = false;
     this.blocking = false;
     this.facingLocked = false;
     this.attackHasHit = false;
@@ -463,6 +465,7 @@ class Fighter {
     this._controls = controls;
     this._updateStatusTimers();
 
+    this.rolling = false; // set again below while a crouch-roll is in progress
     if (this.state !== 'ko' && this.state !== 'victory') {
       this._handleInput(controls, opponent);
     }
@@ -541,7 +544,9 @@ class Fighter {
         if (held.left && !held.right) crouchDir = -1;
         else if (held.right && !held.left) crouchDir = 1;
         if (crouchDir !== 0) {
-          this.vx = crouchDir * this.moveSpeedEff * CROUCH_SPEED_MULTIPLIER;
+          const roll = this.character.crouchRoll;
+          this.vx = crouchDir * this.moveSpeedEff * (roll ? roll.speedMul : CROUCH_SPEED_MULTIPLIER);
+          this.rolling = !!roll;
         } else {
           this.vx *= FRICTION;
         }

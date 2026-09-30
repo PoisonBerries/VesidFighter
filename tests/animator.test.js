@@ -66,3 +66,38 @@ test('Nathan reaches further and John is broader than the default body', () => {
   const long = arms('nathan', { ...PROFILE, armScale: 1.25 })[1];
   assert.ok(Math.hypot(long.x, long.y) > Math.hypot(plain.x, plain.y) * 1.2, 'armScale should lengthen arm poses');
 });
+
+test('a crouch-roll turns the body with the distance covered and finishes the turn when it stops', () => {
+  const lib = load();
+  const f = new lib.Fighter('p1', lib.CHARACTERS.artur, 500, 1);
+  f.grounded = true;
+  f.state = 'block'; f.rolling = true; f.vx = 3.6;
+  let rot = 0;
+  for (let i = 0; i < 60; i++) { lib.tick(); rot = lib.Animator.update(f, PROFILE).rot; }
+  const turned = Math.abs(rot);
+  assert.ok(turned > 2.5, `should have turned well over half a revolution in 60 frames (${turned.toFixed(2)} rad)`);
+  assert.ok(lib.Animator.update(f, PROFILE).ball > 0.5, 'curled into a ball');
+  // Stop: it should keep turning (never reverse) until a whole turn is done, then stand.
+  f.rolling = false; f.vx = 0; f.state = 'idle';
+  let prev = rot, reversed = false, last = null;
+  const wrap = (x) => x - Math.PI * 2 * Math.round(x / (Math.PI * 2)); // whole turns are the same pose
+  for (let i = 0; i < 90; i++) { lib.tick(); last = lib.Animator.update(f, PROFILE); if (wrap(last.rot - prev) < -0.05) reversed = true; prev = last.rot; }
+  assert.strictEqual(reversed, false, 'must not unwind backwards through a flop');
+  const wrapped = ((last.rot % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+  assert.ok(Math.abs(wrapped) < 0.15, `should end upright (off by ${wrapped.toFixed(2)} rad)`);
+  assert.ok(last.ball < 0.2, 'and uncurled');
+});
+
+test('elastic Nathan squashes and stretches vertically with his jump; others stay put', () => {
+  const lib = load();
+  const rise = (id) => {
+    const f = new lib.Fighter('p1', lib.CHARACTERS[id], 500, 1);
+    for (let i = 0; i < 6; i++) { lib.tick(); lib.Animator.update(f, PROFILE); }
+    f.grounded = false; f.y = 400; f.vy = -14; f.state = 'jump';
+    let vs = 1;
+    for (let i = 0; i < 12; i++) { lib.tick(); vs = lib.Animator.update(f, PROFILE).vstretch; }
+    return vs;
+  };
+  assert.ok(rise('nathan') > 1.08, `Nathan should lengthen rising (${rise('nathan').toFixed(3)})`);
+  assert.strictEqual(rise('sam'), 1);
+});

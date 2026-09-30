@@ -155,6 +155,10 @@ const Sfx = (() => {
       [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone({ type: 'triangle', f0: f, dur: 0.28, vol: 0.2, delay: i * 0.11 }));
       tone({ type: 'triangle', f0: 1046.5, dur: 0.6, vol: 0.18, delay: 0.5 });
     },
+    roll(pan) {
+      noise({ filter: 'lowpass', f0: 700, f1: 240, q: 0.7, dur: 0.3, vol: 0.2, attack: 0.03, pan });
+      tone({ f0: 120, f1: 70, dur: 0.16, vol: 0.16, pan });
+    },
     hover(pan) {
       noise({ filter: 'lowpass', f0: 1100, f1: 380, q: 0.7, dur: 0.32, vol: 0.24, attack: 0.04, pan });
       tone({ type: 'sawtooth', f0: 85, f1: 120, dur: 0.3, vol: 0.1, attack: 0.05, pan });
@@ -201,7 +205,7 @@ const Sfx = (() => {
   };
 
   // Specials/ultimates keyed by ability type (shared across characters).
-  function ability(type, isUlt, pan) {
+  function ability(type, isUlt, pan, def) {
     switch (type) {
       case 'projectileCharge':
       case 'soundwaveProjectile':
@@ -219,10 +223,22 @@ const Sfx = (() => {
         noise({ f0: 250, f1: 2000, q: 1, dur: 0.34, vol: 0.28, attack: 0.05, pan });
         tone({ f0: 120, f1: 70, dur: 0.3, vol: 0.2, pan });
         break;
-      case 'multiHit':
-        noise({ f0: 700, f1: 3000, q: 1.2, dur: 0.12, vol: 0.22, pan });
-        noise({ f0: 3000, f1: 700, q: 1.2, dur: 0.12, vol: 0.22, delay: 0.12, pan });
+      case 'multiHit': {
+        const wind = def && def.hits && def.hits.length === 1 ? def.hits[0].start / 60 : 0;
+        if (wind) {
+          // One huge slash: a rising, ominous charge (the audible tell)...
+          noise({ f0: 250, f1: 1500, q: 0.9, dur: wind * 0.95, vol: 0.14, attack: wind * 0.7, pan });
+          tone({ type: 'sawtooth', f0: 90, f1: 320, dur: wind * 0.95, vol: 0.11, attack: wind * 0.7, pan });
+          tone({ f0: 900, f1: 1800, dur: 0.08, vol: 0.1, delay: wind * 0.85, pan });
+          // ...then the heavy strike as it lands.
+          noise({ f0: 600, f1: 3400, q: 1.1, dur: 0.18, vol: 0.34, delay: wind, pan });
+          tone({ f0: 210, f1: 60, dur: 0.3, vol: 0.45, delay: wind + 0.02, pan });
+        } else {
+          noise({ f0: 700, f1: 3000, q: 1.2, dur: 0.12, vol: 0.22, pan });
+          noise({ f0: 3000, f1: 700, q: 1.2, dur: 0.12, vol: 0.22, delay: 0.12, pan });
+        }
         break;
+      }
       case 'counterDodge':
         SOUNDS.dodge(pan);
         break;
@@ -267,6 +283,7 @@ const Sfx = (() => {
   const api = {
     swing: (pan) => play('swing', pan),
     hover: (pan) => play('hover', pan),
+    roll: (pan) => play('roll', pan),
     boing: (pan) => play('boing', pan),
     jump: (n, pan) => play('jump', n, pan),
     land: (impactAmt, pan) => play('land', impactAmt, pan),
@@ -278,7 +295,7 @@ const Sfx = (() => {
     go: () => play('go'),
     click: () => play('click'),
     transform: (pan) => play('transform', pan),
-    ability(type, isUlt, pan) { if (ensure() && gate('ability', 40)) ability(type, isUlt, pan); },
+    ability(type, isUlt, pan, def) { if (ensure() && gate('ability', 40)) ability(type, isUlt, pan, def); },
     impact,
     settings, save, applyVolumes, ensure, sfxBoost: SFX_BOOST,
     toggleMute() { settings.muted = !settings.muted; save(); applyVolumes(); return settings.muted; },

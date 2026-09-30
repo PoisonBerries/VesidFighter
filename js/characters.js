@@ -70,6 +70,10 @@ const CHARACTERS = {
     jumpForce: 15,
     maxJumps: 2,
     doubleJumpFlip: true,
+    // Moving while crouched is a tuck-and-roll instead of a shuffle: still
+    // the crouch/guard (same hurtbox and block), but a fair bit quicker than
+    // everyone's crouch-walk (which is CROUCH_SPEED_MULTIPLIER of run speed).
+    crouchRoll: { speedMul: 0.55 },
     maxHp: 115,
     attack: {
       damage: 9, offset: 26, width: 70, height: 90,
@@ -124,16 +128,18 @@ const CHARACTERS = {
     },
     special: {
       type: 'multiHit',
-      name: 'Double Slash',
-      description: 'Two heavy claw slashes in quick succession.',
-      cooldown: 4.5,
-      offset: 26, width: 82, height: 100,
+      name: 'Guillotine Slash',
+      description: 'Rears back with a slow, obvious wind-up, then brings down one huge claw slash for massive damage.',
+      cooldown: 5.5,
+      // One enormous swing. The wind-up (the first ~0.45s) is the tell: the
+      // claw goes overhead and the strike zone lights up on the floor, so an
+      // attentive opponent can block, duck out of range or punish the recovery.
+      offset: 20, width: 150, height: 130,
       hits: [
-        { start: 8, end: 12 },
-        { start: 16, end: 20 },
+        { start: 28, end: 34 },
       ],
-      recovery: 16,
-      damage: 14, knockback: 8, knockbackUp: 3, hitstun: 14,
+      recovery: 26,
+      damage: 32, knockback: 13, knockbackUp: 6, hitstun: 30,
     },
     ultimate: {
       type: 'dive',
@@ -159,11 +165,18 @@ const CHARACTERS = {
     moveSpeed: 5.4,
     jumpForce: 15,
     maxJumps: 1,
-    elastic: true, // rubber body: visually stretches and snaps back when hit, blocked or reflecting
+    // Mr. Fantastic / Elastigirl rubber body: the punch stretches the arm out
+    // to its (very long) reach and snaps it back; the body wobbles as it
+    // moves, stretches when it jumps, and stretches and rebounds when hit,
+    // blocked or reflecting. reach = how far the arm is drawn out.
+    elastic: { reach: true },
     maxHp: 140,
     attack: {
-      damage: 10, offset: 30, width: 76, height: 96,
-      startup: 8, active: 4, recovery: 15,
+      // Long-range punch: nearly twice a normal reach (the arm stretches out
+      // to it), at a slightly lower damage and a touch slower to land than
+      // the average jab.
+      damage: 9, offset: 40, width: 135, height: 96,
+      startup: 9, active: 4, recovery: 16,
       knockback: 8, knockbackUp: 3, hitstun: 16,
     },
     special: {

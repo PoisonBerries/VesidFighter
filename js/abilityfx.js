@@ -340,9 +340,11 @@ const AbilityFX = (() => {
     ctx.save();
     ctx.lineCap = 'round';
     ctx.globalCompositeOperation = 'lighter';
-    for (let k = -1; k <= 1; k++) {
-      const off = k * 15, bulge = 20 - Math.abs(k) * 6;
-      const N = 16;
+    const th = e.big ? 1.9 : 1;          // the guillotine slash is a much bigger swing
+    const spread = e.big ? 2 : 1;
+    for (let k = -spread; k <= spread; k++) {
+      const off = k * 15 * th, bulge = (20 - Math.abs(k) * 6 / th) * th;
+      const N = 18;
       let prev = null;
       for (let s = 0; s <= N; s++) {
         const u = lerp(tail, head, s / N);
@@ -351,14 +353,25 @@ const AbilityFX = (() => {
         if (prev) {
           const taper = Math.sin((s / N) * Math.PI * 0.5 + 0.1);
           ctx.strokeStyle = rgba(e.color, fade * 0.85);
-          ctx.lineWidth = 9 * taper;
+          ctx.lineWidth = 9 * taper * th;
           ctx.beginPath(); ctx.moveTo(prev[0], prev[1]); ctx.lineTo(bx, by); ctx.stroke();
           ctx.strokeStyle = `rgba(255,255,255,${fade})`;
-          ctx.lineWidth = 3 * taper;
+          ctx.lineWidth = 3 * taper * th;
           ctx.beginPath(); ctx.moveTo(prev[0], prev[1]); ctx.lineTo(bx, by); ctx.stroke();
         }
         prev = [bx, by];
       }
+    }
+    if (e.big && t < 0.5) {
+      // The strike lands: a flash where the claws end up, and a shock line along the floor.
+      const a = 1 - t / 0.5;
+      glow(ctx, x1, y1, e.w * 0.32, e.color, 0.9 * a);
+      ctx.strokeStyle = `rgba(255,220,160,${a * 0.8})`;
+      ctx.lineWidth = 5 * a + 1;
+      ctx.beginPath();
+      ctx.moveTo(x1 - dir * e.w * 0.6 * (1 - a), GROUND_Y + 3);
+      ctx.lineTo(x1 + dir * e.w * 0.3, GROUND_Y + 3);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -1011,6 +1024,57 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // Carlos's Guillotine Slash: the wind-up must be readable. A glowing claw
+  // charges overhead, and from about halfway in the exact area the slash will
+  // hit lights up on the floor, pulsing faster as it gets closer.
+  function drawClawTelegraph(ctx, f, def) {
+    const s0 = def.hits[0].start, t = f.actionTimer;
+    if (t > s0) return;
+    const p = clamp(t / s0, 0, 1), now = performance.now(), H = f.height, dir = f.facing;
+    const accent = f.displayAccent;
+    const hx = f.x + dir * H * 0.06, hy = f.y - H * 1.05;
+    const r = 12 + 34 * easeIn(p) + Math.sin(now / 40) * 2 * p;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    glow(ctx, hx, hy, r * 1.8, accent, 0.18 + 0.4 * p);
+    glow(ctx, hx, hy, r * 0.8, '#ffffff', 0.4 + 0.4 * p);
+    for (let k = 0; k < 10; k++) {
+      const u = (now / 380 + k / 10) % 1, ang = k * TAU / 10 + now / 300, d = lerp(r * 3.2, r * 0.5, u);
+      ctx.fillStyle = rgba(accent, u * p);
+      ctx.beginPath();
+      ctx.arc(hx + Math.cos(ang) * d, hy + Math.sin(ang) * d, 2.2, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+    if (p > 0.4) {
+      const box = f._forwardBox(def.offset, def.width, def.height);
+      const q = (p - 0.4) / 0.6;
+      const pulse = 0.5 + 0.5 * Math.sin(now / (90 - 60 * q));
+      ctx.save();
+      const g = ctx.createLinearGradient(0, GROUND_Y - 70, 0, GROUND_Y + 4);
+      g.addColorStop(0, 'rgba(255,90,30,0)');
+      g.addColorStop(1, `rgba(255,120,40,${0.16 + 0.34 * q * (0.5 + 0.5 * pulse)})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(box.x, GROUND_Y - 70, box.w, 74);
+      ctx.strokeStyle = `rgba(255,200,120,${0.4 + 0.5 * pulse * q})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(box.x, GROUND_Y + 3);
+      ctx.lineTo(box.x + box.w, GROUND_Y + 3);
+      ctx.stroke();
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 4; i++) {
+        const cx = f.x + dir * (def.offset + 24 + i * (def.width - 48) / 3), y = GROUND_Y - 16;
+        ctx.beginPath();
+        ctx.moveTo(cx - dir * 9, y - 11);
+        ctx.lineTo(cx + dir * 4, y);
+        ctx.lineTo(cx - dir * 9, y + 11);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
   function drawFront(ctx, f) {
     if (f.hovering) drawHoverJets(ctx, f);
     if (f.character.hover) drawHoverMeter(ctx, f);
@@ -1024,6 +1088,7 @@ const AbilityFX = (() => {
     const t = f.actionTimer;
     switch (def.type) {
       case 'projectileCharge': drawChargeOrb(ctx, f, def); break;
+      case 'multiHit': if (def.hits.length === 1) drawClawTelegraph(ctx, f, def); break;
       case 'nuke': drawNukeChannel(ctx, f, def); break;
       case 'buff': if (t <= def.castFrames) drawCastRings(ctx, f, def); break;
       case 'lunge':
@@ -1133,7 +1198,7 @@ const AbilityFX = (() => {
           def.hits.forEach((w, i) => {
             if (crossed(prevT, t, w.start)) {
               const box = f._forwardBox(def.offset, def.width, def.height);
-              add({ kind: 'claw', dur: 300, i, cx: box.x + box.w / 2, cy: box.y + box.h / 2, w: box.w, h: box.h, dir: f.facing, color: f.displayAccent });
+              add({ kind: 'claw', dur: def.hits.length === 1 ? 560 : 300, big: def.hits.length === 1, i, cx: box.x + box.w / 2, cy: box.y + box.h / 2, w: box.w, h: box.h, dir: f.facing, color: f.displayAccent });
             }
           });
           break;
@@ -1206,6 +1271,15 @@ const AbilityFX = (() => {
           }
           break;
         default: break;
+      }
+    }
+
+    // Dust kicked up by a crouch-roll along the floor.
+    if (f.rolling && f.grounded) {
+      const nowMs = performance.now();
+      if (nowMs - (m.lastRollDust || 0) > 60) {
+        m.lastRollDust = nowMs;
+        Effects.spawnDust(f.x - f.facing * 18, GROUND_Y, 1, 1.8);
       }
     }
 

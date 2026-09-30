@@ -230,8 +230,36 @@ const Animator = (() => {
         }
         break;
       }
-      case 'multiHit': { // Carlos: cock -> diagonal claw sweep -> reverse sweep
+      case 'multiHit': { // Carlos: a long wind-up, then one huge overhead-to-low slash
         const h = def.hits;
+        if (h.length === 1) {
+          const s0 = h[0].start, e0 = h[0].end;
+          const back = P(-14, 12, -8);
+          let front, lean, crouch;
+          if (t <= s0) {
+            // The tell: the claw goes overhead over the first 60% of the
+            // wind-up, then trembles there while the body coils back.
+            const p = clamp(t / s0, 0, 1);
+            const rise = easeOutCubic(clamp(p / 0.6, 0, 1));
+            const shake = p > 0.6 ? Math.sin(t * 2.4) * 2.4 * ((p - 0.6) / 0.4) : 0;
+            front = P(lerp(12, -4, rise) + shake, lerp(14, -50, rise) + shake * 0.6, lerp(8, 12, rise), 1);
+            lean = -20 * rise; crouch = 0.05 + 0.16 * rise;
+          } else if (t <= e0) {
+            const q = easeOutCubic(clamp((t - s0) / Math.max(1, e0 - s0), 0, 1));
+            front = P(lerp(-4, R + 10, q), lerp(-50, 46, q), lerp(12, 2, q), 1);
+            lean = lerp(-20, 26, q); crouch = lerp(0.21, 0.06, q);
+          } else {
+            // Stuck low and open after the swing: the punish window.
+            const c = easeInOut(clamp((t - e0) / def.recovery, 0, 1));
+            front = P(lerp(R + 10, 12, c), lerp(46, 14, c), lerp(2, 8, c), c < 0.5);
+            lean = lerp(26, 0, c); crouch = lerp(0.06, 0.04, c);
+          }
+          T.arms = [back, front];
+          T.lean = lean; T.crouch = crouch;
+          T.fA = F(-18, 0); T.fB = F(18, 0);
+          T.rate = t <= s0 ? 30 : 60; // the wind-up eases in; the strike snaps
+          break;
+        }
         const sweep = (win, from, to) => {
           const q = easeOutCubic(clamp((t - win.start) / Math.max(1, win.end - win.start), 0, 1));
           return P(lerp(from.x, to.x, q), lerp(from.y, to.y, q), lerp(from.b, to.b, q), 1);
@@ -307,6 +335,14 @@ const Animator = (() => {
     }
   }
 
+  // Crouch-roll (Artur): a curled ball turning with the distance covered.
+  function rollPose(T, an) {
+    T.crouch = 0.4; T.lean = 10; T.armPose = 'tuckedDive'; T.arms = null;
+    T.ball = 1; T.spin = an.rollAngle || 0;
+    T.fA = F(-4, -12); T.fB = F(10, -18);
+    T.rate = 45;
+  }
+
   function computeTargets(fighter, profile, an, now) {
     const T = baseTargets(fighter, profile, now);
     const id = fighter.character.id;
@@ -349,7 +385,9 @@ const Animator = (() => {
 
       case 'block': {
         T.crouch = 0.47; T.lean = 6; T.armPose = 'crossed';
-        if (Math.abs(fighter.vx) > 0.4) {
+        if (fighter.rolling) { // crouch-move as a tucked ball rolling along the floor
+          rollPose(T, an);
+        } else if (Math.abs(fighter.vx) > 0.4) {
           walkPose(T, fighter, profile, 10 * stance, 4, 45);
           T.crouch = 0.47 + 0.03 * Math.abs(Math.sin(fighter.walkCycle));
           T.s = 0; T.armPose = 'crossed';
@@ -460,14 +498,18 @@ const Animator = (() => {
     }
     // Landing squash.
     if (an.landT > 0) {
-      T.crouch += (0.06 + 0.2 * an.landImpact) * an.landT;
+      T.crouch += (0.06 + 0.2 * an.landImpact) * an.landT * (fighter.character.elastic ? 1.6 : 1); // rubber squashes more
       T.rate = Math.max(T.rate, 46);
     }
     // Carlos only hovers while upright.
     if (T.rot !== 0 && Math.abs(T.rot) > 0.5) T.float = 0;
 
+    // Finishing the last part of a roll after the fighter has stopped: keep
+    // the curled ball pose (over any clip) until the turn completes.
+    const rollFinish = !fighter.rolling && an.rollAngle !== 0 && an.rollAngle !== undefined;
+    if (rollFinish) rollPose(T, an);
     if (!T.arms) T.arms = armsFor(T.armPose, { R, E: T.E, s: T.s });
-    applyClip(T, fighter, an, now);
+    applyClip(T, fighter, an, now, rollFinish);
     // Long-armed characters (Nathan): every arm pose reaches proportionally further.
     if (profile.armScale !== 1 && !T.clip) {
       T.arms = T.arms.map((a) => ({
@@ -646,11 +688,45 @@ const Animator = (() => {
     };
   }
 
-  function applyClip(T, fighter, an, now) {
+  // How far out the strike is, 0 (guard) to 1 (fully extended): builds to the
+  // clip's impact, then whips back in a fraction of the recovery.
+  function strikeExtent(pb) {
+    const w = pb.clip.window || [0, 1], im = pb.clip.impact;
+    if (pb.u <= im) return Math.pow(clamp((pb.u - w[0]) / Math.max(0.01, im - w[0]), 0, 1), 3.4);
+    return Math.pow(clamp(1 - (pb.u - im) / Math.max(0.01, (w[1] - im) * 0.4), 0, 1), 2);
+  }
+
+  // Stretches the striking arm (bones lengthen, limb thins) so the fist
+  // reaches the end of the attack's hitbox at full extension.
+  function elasticReach(T, fighter, sh, shY, ext, dims, idx) {
+    const atk = fighter.character.attack;
+    const a = T.arms[idx];
+    if (!a) return;
+    const S = { x: sh[idx].x, y: sh[idx].y - shY };
+    let vx = a.x - S.x, vy = a.y - S.y;
+    const dist = Math.hypot(vx, vy) || 1;
+    const want = Math.max(dist, atk.offset + atk.width * 0.82 - S.x);
+    const nd = dist + (want - dist) * ext;
+    const k = nd / dist;
+    // As it stretches the arm straightens out toward the target (level with
+    // the shoulder) instead of following the clip's rising haymaker arc.
+    const turn = -Math.atan2(vy, vx) * 0.75 * ext;
+    const cs = Math.cos(turn), sn = Math.sin(turn);
+    const rot = (x, y) => ({ x: x * cs - y * sn, y: x * sn + y * cs });
+    const w = rot(vx * k, vy * k);
+    a.x = S.x + w.x; a.y = S.y + w.y;
+    if (a.ex !== undefined) {
+      const e = rot((a.ex - S.x) * k, (a.ey - S.y) * k);
+      a.ex = S.x + e.x; a.ey = S.y + e.y;
+    }
+    a.stretch = Math.max(1, nd / ((dims.arm.upper + dims.arm.fore) * 0.97));
+  }
+
+  function applyClip(T, fighter, an, now, skipClip) {
     T.sh = defaultShoulders(fighter);
     T.rootX = 0;
     T.headTilt = 0;
-    const pb = clipPlayback(fighter, an, now);
+    const pb = skipClip ? null : clipPlayback(fighter, an, now);
     if (!pb || typeof Renderer === 'undefined' || !Renderer.bodyDims) return;
     let f = Mocap.sample(pb.clip, pb.u);
     if (pb.oneShot && pb.clip === Mocap.clipFor(fighter.character.id, 'attack')) f = exaggerate(f, pb.clip);
@@ -671,6 +747,14 @@ const Animator = (() => {
       const wrist = F(elbow.x + w.x, elbow.y + w.y);
       return { ...P(wrist.x, wrist.y - shY + breathe * H * 0.006, 0, 1), ex: elbow.x, ey: elbow.y - shY };
     });
+    const el = fighter.character.elastic;
+    if (el && el.reach && pb.oneShot && pb.clip === Mocap.clipFor(fighter.character.id, 'attack')) {
+      const ext = strikeExtent(pb);
+      if (ext > 0.001) {
+        const limb = pb.clip.limb;
+        elasticReach(T, fighter, sh, shY, ext, d, limb && limb[0] === 'arm' ? Number(limb[1]) : 1);
+      }
+    }
     T.sh = sh;
     T.lean = f.l + breathe * 0.8;
     T.headTilt = f.hd;
@@ -759,7 +843,7 @@ const Animator = (() => {
       rot: 0, rotVel: 0, prevSpin: 0, toppling: false,
       hop: 0, hopV: 0,
       landT: 0, landImpact: 0, getup: 0,
-      prevAirborne: false, prevVy: 0, prevState: 'idle', prevT: 0, prevJumps: 0, prevHovering: false, prevTransformed: undefined, pan: 0, impactSeq: 0, str: 0, strV: 0,
+      prevAirborne: false, prevVy: 0, prevState: 'idle', prevT: 0, prevJumps: 0, prevHovering: false, prevRolling: false, prevTransformed: undefined, pan: 0, impactSeq: 0, str: 0, strV: 0,
       dustTimer: 0,
     };
   }
@@ -810,6 +894,7 @@ const Animator = (() => {
       const a = c.arms[i], b = T.arms[i];
       a.x += (b.x - a.x) * k; a.y += (b.y - a.y) * k; a.bend += (b.bend - a.bend) * k;
       a.hand += (b.hand - a.hand) * k; a.orb += (b.orb - a.orb) * k;
+      a.stretch = (a.stretch || 1) + ((b.stretch || 1) - (a.stretch || 1)) * Math.min(1, k * 2.5); // stretches snap
       // Elbow hints (mocap clips): where the real elbow was, to pick the bend.
       if (b.ex !== undefined) {
         a.ex = a.ex === undefined ? b.ex : a.ex + (b.ex - a.ex) * k;
@@ -886,6 +971,24 @@ const Animator = (() => {
     const down = st === 'knockdown' || st === 'ko';
     const airborne = !fighter.grounded;
     an.walkDist = (an.walkDist || 0) + Math.abs(fighter.vx) * f; // drives walk clips
+    // A crouch-roll turns in step with the distance covered (one turn per
+    // ball circumference); it folds into the body angle when the roll stops.
+    if (fighter.rolling) {
+      an.rollAngle = (an.rollAngle || 0) + (fighter.vx * fighter.facing) / (0.3 * fighter.height) * f;
+      an.rollDir = Math.sign(fighter.vx * fighter.facing) || an.rollDir || 1;
+    } else if (an.rollAngle) {
+      // The roll stopped mid-turn: finish the rotation to the next whole turn
+      // (still curled up) instead of unwinding backwards through a flop. Any
+      // other action cuts it short.
+      const finishing = fighter.grounded && (st === 'idle' || st === 'walk' || st === 'block');
+      if (!finishing) an.rollAngle = 0;
+      else {
+        const a0 = an.rollAngle;
+        const target = (an.rollDir >= 0 ? Math.ceil(a0 / TAU - 1e-6) : Math.floor(a0 / TAU + 1e-6)) * TAU;
+        an.rollAngle = a0 + (target - a0) * (1 - Math.exp(-11 * dt));
+        if (Math.abs(target - an.rollAngle) < 0.05) an.rollAngle = 0;
+      }
+    } else an.rollAngle = 0;
 
     // Event detection from state transitions (render-side only).
     if (!settle && an.prevAirborne && !airborne && fighter.y >= GROUND_Y - 1) {
@@ -912,12 +1015,13 @@ const Animator = (() => {
         if (st === 'attack') Sfx.swing(an.pan);
         else if (st === 'special' || st === 'ultimate') {
           const def = st === 'ultimate' ? fighter.character.ultimate : fighter.character.special;
-          Sfx.ability(def.type, st === 'ultimate', an.pan);
+          Sfx.ability(def.type, st === 'ultimate', an.pan, def);
         } else if (st === 'ko') Sfx.ko(an.pan);
         else if (st === 'victory') Sfx.victory();
       }
       if (fighter.jumpsUsed > an.prevJumps) Sfx.jump(fighter.jumpsUsed, an.pan);
       if (fighter.hovering && !an.prevHovering) Sfx.hover(an.pan);
+      if (fighter.rolling && !an.prevRolling) Sfx.roll(an.pan);
       if (fighter.transformed && an.prevTransformed === false) Sfx.transform(an.pan);
       if (T0_TUMBLE(fighter, st) && !an.falling) { an.falling = true; Sfx.fall(an.pan); }
     }
@@ -927,20 +1031,35 @@ const Animator = (() => {
     // fighter kicks a spring that stretches the body along the hit, then
     // snaps it back with a wobble.
     if (fighter.character.elastic) {
+      an.impactAge = (an.impactAge === undefined ? 99 : an.impactAge) + f;
       if ((fighter.impactSeq || 0) > an.impactSeq) {
+        an.impactAge = 0;
         const push = (fighter.impactDir || 1) * fighter.facing; // hit direction in body space
         an.strV += push * (fighter.impactPower || 0.7) * STRETCH_W * 0.9;
         if (typeof Sfx !== 'undefined') Sfx.boing(an.pan);
       }
       an.impactSeq = fighter.impactSeq || 0;
+      // Secondary motion: a rubber body lags behind its own acceleration, so
+      // starting, stopping and turning make it sway and wobble back.
+      if (!settle && an.impactAge > 14) {
+        const dvx = (fighter.vx - (an.prevVx === undefined ? fighter.vx : an.prevVx)) * fighter.facing;
+        an.strV -= dvx * 0.045 * STRETCH_W;
+      }
+      an.prevVx = fighter.vx;
       const steps = Math.max(1, Math.ceil(dt / (1 / 90))), h = dt / steps;
       for (let i = 0; i < steps; i++) {
         an.strV += (-STRETCH_W * STRETCH_W * an.str - 2 * STRETCH_Z * STRETCH_W * an.strV) * h;
         an.str += an.strV * h;
       }
       an.str = clamp(an.str, -1.4, 1.4);
+      // Squash and stretch: a rubber body lengthens rising, squashes landing.
+      const vsTarget = airborne
+        ? 1 + 0.2 * clamp(-fighter.vy / 15, 0, 1)
+        : 1 - 0.2 * an.landImpact * an.landT;
+      an.vs = (an.vs || 1) + (vsTarget - (an.vs || 1)) * (1 - Math.exp(-22 * dt));
     }
     an.prevHovering = !!fighter.hovering;
+    an.prevRolling = !!fighter.rolling;
     an.prevTransformed = !!fighter.transformed;
     an.prevT = fighter.actionTimer;
 
@@ -999,6 +1118,7 @@ const Animator = (() => {
       rigidTorso: !!T.rigidTorso,
       rot, ball: c.ball, pv, wh: wh + an.hop + c.lift, lift: an.hop + c.lift,
       stretch: an.str,
+      vstretch: an.vs || 1,
     };
   }
 
