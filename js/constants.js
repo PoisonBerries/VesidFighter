@@ -165,3 +165,13 @@ const RALLY_CATCH_WINDOW = 12;   // block within this many frames of impact to c
 const RALLY_HOLD = 45;           // frames you can hold a caught ball before it auto-throws
 const RALLY_RESPAWN = 90;        // after the ball falls off the stage (it shouldn't: walls keep it on)
 
+
+// ---- Balance mode (see Fighter.applyHit) ----
+// No KOs: the health bar is your balance, and the only way to lose a round
+// is falling off the stage. Every hit wears your balance down, and the lower
+// it is, the bigger a mess you are -- hits knock you further, and you slide
+// instead of stopping. Time up: whoever has more balance left.
+const BALANCE_ENABLED = true;
+const BALANCE_KNOCKBACK_SCALE = 2;   // knockback x(1 + 2 * shaky^2): x3 with no balance left
+const BALANCE_FLY_AT = 0.25;         // from 25% balance lost, hits send you flying (no skid)
+const BALANCE_SLIP = 0.12;           // ground friction eases from FRICTION toward FRICTION + this

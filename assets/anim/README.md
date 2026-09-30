@@ -1,10 +1,13 @@
 # Animations (motion capture)
 
 Fighters can play motion-capture clips instead of their built-in, hand-made
-animation, move by move. A clip drives where the hands and feet go, which way
-the elbows and knees bend, the body's lean and how low it crouches; each
-character's own body shape and drawn parts follow it. It's purely visual:
-hitboxes, timing and online play are unchanged.
+animation, move by move. Clips are stored as the *directions* of every bone
+(upper arms, forearms, thighs, shins, feet), the spine's lean, the head's
+tilt, where each shoulder and hip sits and how the body shifts -- and the game
+rebuilds that pose with each character's own bone lengths, then stands the
+planted foot on the floor. So the motion is the clip's and the proportions
+stay the character's (including drawn parts and body.json shapes). It's
+purely visual: hitboxes, timing and online play are unchanged.
 
 ## Files
 
@@ -48,8 +51,8 @@ hitboxes, timing and online play are unchanged.
 
 | Move | Clip time |
 |------|-----------|
-| `attack` | Stretched to the basic attack's frames: the clip's **impact** lands in the middle of the attack's active (hitbox) frames. |
-| `hitstun` | Plays once over the hit's stun time. |
+| `attack` | Only the clip's **action window** plays (the converter trims the standing around before and after). The wind-up is compressed so the clip's **impact** lands mid-way through the attack's active (hitbox) frames; the recovery then plays at real speed, carrying on after the attack while the fighter just stands or walks. |
+| `hitstun` | The action window, once, at real speed. |
 | `block` | Holds the clip's impact pose (its fullest guard). |
 | `walk` | Follows the walk cycle (one clip = one stride). |
 | `idle`, `victory` | Loop in real time. |
@@ -66,6 +69,8 @@ the converter again.
 |--------|---------|
 | `impact` | 0-1: when in the clip the strike is fully out (e.g. `0.45`). Detected as the moment the striking limb is furthest from where it started. |
 | `strike` | `"hand"`, `"foot"` or `"head"` (informational). A clip where either foot leaves the ground by more than ~12% of body height counts as a kick. |
+| `window` | `[start, end]`, 0-1: the part of the clip to play (detected from when the striking limb starts and stops moving). |
+| `view` | Degrees to turn the clip toward the camera before flattening (default 0 = pure side view). Try 15-25 for moves with a lot of rotation, like hooks. |
 | `flip` | `true` if the character in the clip faces the other way (the converter assumes Mixamo's +z). |
 
 ## Limits
@@ -75,6 +80,15 @@ the converter again.
   Strikes thrown sideways (most fighting-game moves) come through fully.
 - One clip looks the same on everyone who uses it; give characters different
   clips to tell them apart.
+- Mixing mocap and built-in moves shows a small shift in stance when one hands
+  over to the other. Clips from the same family (e.g. Mixamo's boxing idle,
+  walk, jab, cross, hook, block, hit, knockdown, get up) avoid it.
+
+## Checking a clip
+
+The studio's Animations dropdowns show a clip on any character. To compare a
+clip against its source frame by frame, the page exposes `Mocap.debug.time`
+(set 0-1 to hold every clip at that point; `null` to go back to normal).
 
 ## Licensing
 

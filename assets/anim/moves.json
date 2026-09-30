@@ -23,22 +23,98 @@
     },
     "jab": {
       "fbx": "fbx/jab.fbx"
+    },
+    "dying": {
+      "fbx": "fbx/Dying.fbx"
+    },
+    "dying2": {
+      "fbx": "fbx/Dying2.fbx"
+    },
+    "backflip": {
+      "fbx": "fbx/Backflip.fbx"
+    },
+    "cross-punch": {
+      "fbx": "fbx/Cross Punch.fbx"
+    },
+    "crouched-walking": {
+      "fbx": "fbx/Crouched Walking.fbx"
+    },
+    "floating": {
+      "fbx": "fbx/Floating.fbx"
+    },
+    "flying-kick": {
+      "fbx": "fbx/Flying Kick.fbx"
+    },
+    "front-flip": {
+      "fbx": "fbx/Front Flip.fbx"
+    },
+    "joyful-jump": {
+      "fbx": "fbx/Joyful Jump.fbx"
+    },
+    "jump": {
+      "fbx": "fbx/Jump.fbx"
+    },
+    "jumping": {
+      "fbx": "fbx/Jumping.fbx"
+    },
+    "quad-punch": {
+      "fbx": "fbx/Quad Punch.fbx"
+    },
+    "ready-idle": {
+      "fbx": "fbx/Ready Idle.fbx"
+    },
+    "roundhouse-kick": {
+      "fbx": "fbx/Roundhouse Kick.fbx"
+    },
+    "stepping-left": {
+      "fbx": "fbx/Stepping Left.fbx"
+    },
+    "strafing": {
+      "fbx": "fbx/Strafing.fbx"
+    },
+    "backward-jump": {
+      "fbx": "fbx/backward jump.fbx"
+    },
+    "jumpkick": {
+      "fbx": "fbx/jumpKick.fbx"
     }
   },
   "use": {
     "*": {
+      "stance": "ready-idle",
+      "idle": "ready-idle",
       "attack": "jab",
       "hitstun": "receive-uppercut-to-the-face",
       "victory": "victory"
     },
-    "artur": {
-      "attack": "pontera-kick"
+    "keenan": {
+      "attack": "jab"
+    },
+    "owen": {
+      "attack": "jab"
+    },
+    "nathan": {
+      "attack": "cross-punch"
+    },
+    "sam": {
+      "attack": "cross-punch",
+      "victory": "backflip"
+    },
+    "carlos": {
+      "attack": "quad-punch"
+    },
+    "robert": {
+      "attack": "hook-punch"
     },
     "john": {
       "attack": "hook-punch"
     },
-    "robert": {
-      "attack": "hook-punch"
+    "artur": {
+      "attack": "pontera-kick"
+    },
+    "ryan": {
+      "attack": "roundhouse-kick",
+      "victory": "joyful-jump"
     }
   }
 }

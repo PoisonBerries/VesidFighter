@@ -1099,8 +1099,10 @@ const AbilityFX = (() => {
       m.phase = null;
     }
 
-    // Basic-attack swoosh when the active frames begin.
-    if (st === 'attack') {
+    // Basic-attack swoosh when the active frames begin (not with a mocap
+    // attack: that draws a smear that follows the actual fist instead).
+    const mocapAttack = typeof Mocap !== 'undefined' && Mocap.clipFor(f.character.id, 'attack');
+    if (st === 'attack' && !mocapAttack) {
       const atk = f.character.attack;
       if (crossed(prevT, t, atk.startup)) {
         add({ kind: 'swoosh', dur: 200, x: f.x, y: f.y - H * 0.6, dir: f.facing, r: atk.offset + atk.width * 0.8 });

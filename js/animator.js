@@ -467,9 +467,9 @@ const Animator = (() => {
     if (T.rot !== 0 && Math.abs(T.rot) > 0.5) T.float = 0;
 
     if (!T.arms) T.arms = armsFor(T.armPose, { R, E: T.E, s: T.s });
-    applyClip(T, fighter, now);
+    applyClip(T, fighter, an, now);
     // Long-armed characters (Nathan): every arm pose reaches proportionally further.
-    if (profile.armScale !== 1) {
+    if (profile.armScale !== 1 && !T.clip) {
       T.arms = T.arms.map((a) => ({
         ...a, x: a.x * profile.armScale, y: a.y * profile.armScale,
         ...(a.ex !== undefined ? { ex: a.ex * profile.armScale, ey: a.ey * profile.armScale } : {}),
@@ -480,46 +480,175 @@ const Animator = (() => {
 
   // ---- Motion-capture clips (mocap.js) ------------------------------------
   // When moves.json gives this character a clip for the current move, the
-  // clip drives the pose: hands and feet become the targets, with the real
-  // elbow and knee positions as hints for which way each limb bends. Time is
-  // stretched so the clip's strike lands in the move's active frames.
-  function clipTime(clip, fighter, now) {
+  // clip drives the whole pose. Clips store directions (bone angles, spine
+  // lean, shoulder placement), so the pose is rebuilt here with this
+  // fighter's own bone lengths and then stood on the floor -- the motion is
+  // the clip's, the proportions stay the character's.
+  //
+  // Timing: an attack's wind-up is compressed just enough that the clip's
+  // impact lands in the middle of the attack's active (hitbox) frames; the
+  // recovery then plays at the clip's real speed, carrying on after the
+  // attack while the fighter only stands or walks. Hit reactions play at
+  // real speed too. Idle, walk and victory loop; block holds its peak.
+
+  const IMPACT_HOLD_MS = 70;   // visual freeze at full extension
+  const EXAGGERATE = 1.12;     // strikes pushed this much further from the guard
+
+  // Default shoulder placement (renderer's), relative to the top of the
+  // shoulders in the torso's frame, for blending in and out of clips.
+  function defaultShoulders(fighter) {
+    if (typeof Renderer === 'undefined' || !Renderer.bodyDims) return null;
+    const d = Renderer.bodyDims(fighter.character.id, fighter.height, fighter.transformed);
+    const H = fighter.height;
+    return [F(-H * 0.042 * d.fs, H * 0.024), F(H * 0.052 * d.fs, H * 0.034)];
+  }
+
+  // Which clip is playing and where in it (0-1), or null.
+  function clipPlayback(fighter, an, now) {
+    if (typeof Mocap === 'undefined') return null;
+    const st = fighter.state;
     const t = fighter.actionTimer;
-    switch (fighter.state) {
-      case 'attack': {
+    const id = fighter.character.id;
+    const settling = st === 'idle' || st === 'walk';
+    if (Mocap.debug && Mocap.debug.time !== null) {
+      const clip = Mocap.clipFor(id, st);
+      return clip ? { clip, u: Mocap.debug.time } : null;
+    }
+
+    // A one-shot (attack, hit reaction) that's still playing out.
+    let mo = an.mocap;
+    if (st === 'attack' || st === 'hitstun') {
+      const clip = Mocap.clipFor(id, st);
+      if (!clip) { an.mocap = null; return null; }
+      if (!mo || mo.state !== st || mo.clip !== clip || t < mo.t) mo = an.mocap = { state: st, clip, since: now, hitAt: null, t };
+      mo.t = t;
+    } else if (!(mo && settling)) {
+      an.mocap = mo = null;
+    }
+    if (mo) {
+      const c = mo.clip, [ws, we] = c.window || [0, 1];
+      const secs = (ms) => (ms / 1000) / Math.max(0.1, c.duration);
+      let u;
+      if (mo.state === 'attack') {
         const a = fighter.character.attack;
         const hit = a.startup + a.active * 0.5;
-        const total = a.startup + a.active + a.recovery;
-        return t <= hit ? clip.impact * (t / hit) : clip.impact + (1 - clip.impact) * Math.min(1, (t - hit) / Math.max(1, total - hit));
+        // Anticipation: the wind-up starts slow and accelerates into the hit.
+        if (st === 'attack' && t < hit) u = ws + (c.impact - ws) * Math.pow(t / hit, 1.6);
+        else {
+          // Hold the fully-extended pose for a moment (visual hitstop), then
+          // recover at the clip's real speed.
+          if (mo.hitAt === null) mo.hitAt = now;
+          u = c.impact + secs(Math.max(0, now - mo.hitAt - IMPACT_HOLD_MS));
+        }
+      } else {
+        u = ws + secs(now - mo.since);
       }
-      case 'hitstun':
-        return Math.min(1, t / Math.max(10, fighter.stunFrames || 10));
-      case 'block':
-        return clip.impact; // hold the guard at its fullest
-      case 'walk':
-        return ((fighter.walkCycle / (Math.PI * 2)) % 1 + 1) % 1;
-      default: // idle, victory: loop in real time
-        return ((now / 1000) / Math.max(0.1, clip.duration)) % 1;
+      if (u >= we) { an.mocap = null; if (settling) return null; u = we; }
+      return { clip: c, u, oneShot: true };
+    }
+
+    const clip = Mocap.clipFor(id, st);
+    if (!clip) {
+      // No idle/walk clip: stand in the guard the attack clip starts from, so
+      // idle, walk and attack share one stance and nothing shifts between them.
+      const stance = (st === 'idle' || st === 'walk') && (Mocap.clipFor(id, 'stance') || Mocap.clipFor(id, 'attack'));
+      if (!stance) return null;
+      return { clip: stance, u: (stance.window || [0, 1])[0], stance: true, upperOnly: st === 'walk' };
+    }
+    switch (st) {
+      case 'block': return { clip, u: clip.impact };
+      case 'walk': return { clip, u: ((fighter.walkCycle / TAU) % 1 + 1) % 1 };
+      case 'idle': case 'victory': return { clip, u: ((now / 1000) / Math.max(0.1, clip.duration)) % 1 };
+      default: return null;
     }
   }
 
-  function applyClip(T, fighter, now) {
-    if (typeof Mocap === 'undefined') return;
-    const clip = Mocap.clipFor(fighter.character.id, fighter.state);
-    if (!clip) return;
-    const f = Mocap.sample(clip, clipTime(clip, fighter, now));
+  // Push a strike's pose further from the guard it started in.
+  function exaggerate(f, clip) {
+    const g = Mocap.sample(clip, (clip.window || [0, 1])[0]);
+    const k = EXAGGERATE;
+    const ang = (a, b) => b + Math.atan2(Math.sin(a - b), Math.cos(a - b)) * k;
+    return {
+      ...f,
+      l: g.l + (f.l - g.l) * k,
+      root: [g.root[0] + (f.root[0] - g.root[0]) * k, f.root[1]],
+      arm: f.arm.map((pair, i) => pair.map((a, j) => ang(a, g.arm[i][j]))),
+      leg: f.leg.map((pair, i) => pair.map((a, j) => ang(a, g.leg[i][j]))),
+    };
+  }
+
+  function applyClip(T, fighter, an, now) {
+    T.sh = defaultShoulders(fighter);
+    T.rootX = 0;
+    T.headTilt = 0;
+    const pb = clipPlayback(fighter, an, now);
+    if (!pb || typeof Renderer === 'undefined' || !Renderer.bodyDims) return;
+    let f = Mocap.sample(pb.clip, pb.u);
+    if (pb.oneShot && pb.clip === Mocap.clipFor(fighter.character.id, 'attack')) f = exaggerate(f, pb.clip);
     const H = fighter.height;
-    T.crouch = f.c;
-    T.lean = f.l;
-    T.fA = F(f.f[0][0] * H, f.f[0][1] * H);
-    T.fB = F(f.f[1][0] * H, f.f[1][1] * H);
-    T.knees = [F(f.k[0][0] * H, f.k[0][1] * H), F(f.k[1][0] * H, f.k[1][1] * H)];
-    T.footPoint = Math.max(0, Math.min(1, -f.f[1][1] * 4));
-    T.arms = [0, 1].map((i) => ({
-      ...P(f.h[i][0] * H, f.h[i][1] * H, 0, 1), ex: f.e[i][0] * H, ey: f.e[i][1] * H,
-    }));
+    const d = Renderer.bodyDims(fighter.character.id, H, fighter.transformed);
+    // Standing in the guard: breathe a little so it isn't a statue.
+    const breathe = pb.stance ? Math.sin(now / 650) : 0;
+    const L = ((f.l + breathe * 0.8) * Math.PI) / 180;
+    const dir = (a, len) => F(Math.cos(a) * len, Math.sin(a) * len);
+
+    // Arms, in the torso's own frame (the renderer leans the upper body).
+    const sh = f.sh.map(([x, y]) => F(x * H, y * H));
+    const shY = H * 0.03; // the rig's hand targets are relative to this point
+    T.arms = [0, 1].map((i) => {
+      const [a1, a2] = f.arm[i];
+      const u = dir(a1 - L, d.arm.upper), w = dir(a2 - L, d.arm.fore);
+      const elbow = F(sh[i].x + u.x, sh[i].y + u.y);
+      const wrist = F(elbow.x + w.x, elbow.y + w.y);
+      return { ...P(wrist.x, wrist.y - shY + breathe * H * 0.006, 0, 1), ex: elbow.x, ey: elbow.y - shY };
+    });
+    T.sh = sh;
+    T.lean = f.l + breathe * 0.8;
+    T.headTilt = f.hd;
+    if (pb.upperOnly) {
+      // Walking: the stance's upper body over the walk cycle's legs.
+      T.clip = true; // arms are already built at this fighter's arm length
+      T.rate = 45;
+      return;
+    }
+
+    // Legs from the hips, then stand the lower foot on the floor (or at the
+    // height the clip has it) by raising or lowering the hips.
+    const hipY0 = -H * d.hipFrac * (1 - f.c);
+    // Each hip where the clip has it (in a fighting stance the far leg is
+    // often the forward one).
+    const hips = f.hp ? f.hp.map(([x, y]) => F(x * H, hipY0 + y * H)) : [F(-H * 0.022 * d.fh, hipY0), F(H * 0.026 * d.fh, hipY0)];
+    const legs = [0, 1].map((i) => {
+      const [t1, t2] = f.leg[i];
+      const k = dir(t1, d.leg.thigh), s2 = dir(t2, d.leg.shin);
+      const knee = F(hips[i].x + k.x, hips[i].y + k.y);
+      return { knee, ankle: F(knee.x + s2.x, knee.y + s2.y) };
+    });
+    const ankleLift = d.leg.foot * 0.45;
+    const lowY = Math.max(legs[0].ankle.y, legs[1].ankle.y);
+    const shift = (-(f.lo * H) - ankleLift) - lowY;
+    const hipY = hipY0 + shift;
+    T.crouch = clamp(1 - -hipY / (H * d.hipFrac), -0.3, 0.6);
+    T.fA = F(legs[0].ankle.x, legs[0].ankle.y + shift + ankleLift);
+    T.fB = F(legs[1].ankle.x, legs[1].ankle.y + shift + ankleLift);
+    T.knees = legs.map((l) => F(l.knee.x, l.knee.y + shift));
+    T.hips = hips.map((h) => F(h.x, h.y - hipY0)); // offsets from the hip line
+    T.footAngles = f.ft;
+    T.footPoint = 0;
+
+    // Body lean, head tilt, and the body's own shift forward and back
+    // within the move (measured from where the move started).
+    T.crouch += breathe * 0.008;
+    const x0 = Mocap.sample(pb.clip, (pb.clip.window || [0, 1])[0]).root[0];
+    T.rootX = (f.root[0] - x0) * H;
+    T.float = 0;
     T.rot = 0;
-    T.rate = 70;
+    T.spin = 0;
+    T.clip = true;
+    T.rate = 55;
+    // Motion smear behind the striking hand/foot, from the wind-up to the hit.
+    const striking = pb.oneShot && an.mocap && an.mocap.state === 'attack' && pb.u <= pb.clip.impact + 0.02;
+    T.smear = striking && pb.clip.limb ? pb.clip.limb[0] + pb.clip.limb[1] : null; // e.g. 'arm1', 'leg0'
   }
 
   // ---- Per-fighter state & integration ---------------------------------
@@ -541,10 +670,35 @@ const Animator = (() => {
       crouch: T.crouch, lean: T.lean, float: T.float, lift: T.lift, ball: T.ball, footPoint: T.footPoint,
       fA: { ...T.fA }, fB: { ...T.fB },
       arms: T.arms.map((a) => ({ ...a })),
+      sh: T.sh ? T.sh.map((v) => ({ ...v })) : null,
+      knees: T.knees ? T.knees.map((v) => ({ ...v })) : null,
+      hips: T.hips ? T.hips.map((v) => ({ ...v })) : null,
+      footAngles: T.footAngles ? T.footAngles.slice() : null,
+      rootX: T.rootX || 0, headTilt: T.headTilt || 0,
     };
   }
 
+  // Ease a list of points (or angles) toward targets; appears/disappears
+  // with the clip that drives it.
+  function easePoints(cur, target, k) {
+    if (!target) return null;
+    if (!cur) return target.map((v) => ({ ...v }));
+    cur.forEach((v, i) => { v.x += (target[i].x - v.x) * k; v.y += (target[i].y - v.y) * k; });
+    return cur;
+  }
+  function easeAngles(cur, target, k) {
+    if (!target) return null;
+    if (!cur) return target.slice();
+    return cur.map((a, i) => a + Math.atan2(Math.sin(target[i] - a), Math.cos(target[i] - a)) * k);
+  }
+
   function smoothInto(c, T, k) {
+    c.sh = easePoints(c.sh, T.sh, k);
+    c.knees = easePoints(c.knees, T.knees, k);
+    c.hips = easePoints(c.hips, T.hips, k);
+    c.footAngles = easeAngles(c.footAngles, T.footAngles, k);
+    c.rootX += ((T.rootX || 0) - c.rootX) * k;
+    c.headTilt += ((T.headTilt || 0) - c.headTilt) * k;
     c.crouch += (T.crouch - c.crouch) * k;
     c.lean += (T.lean - c.lean) * k;
     c.float += (T.float - c.float) * k;
@@ -739,7 +893,9 @@ const Animator = (() => {
 
     return {
       crouch: c.crouch, lean: c.lean, float: c.float, footPoint: c.footPoint,
-      fA: c.fA, fB: c.fB, arms: c.arms, knees: T.knees || null,
+      fA: c.fA, fB: c.fB, arms: c.arms, knees: c.knees,
+      sh: c.sh, hips: c.hips, footAngles: c.footAngles, rootX: c.rootX, headTilt: c.headTilt,
+      smear: T.smear || null,
       rot, ball: c.ball, pv, wh: wh + an.hop + c.lift, lift: an.hop + c.lift,
       stretch: an.str,
     };

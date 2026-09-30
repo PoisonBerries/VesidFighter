@@ -21,6 +21,7 @@ window.sampleClip = async (url, fps = 30) => {
     rShoulder: pick(/RightArm$/), rElbow: pick(/RightForeArm$/), rHand: pick(/RightHand$/),
     lHip: pick(/LeftUpLeg$/), lKnee: pick(/LeftLeg$/), lFoot: pick(/LeftFoot$/),
     rHip: pick(/RightUpLeg$/), rKnee: pick(/RightLeg$/), rFoot: pick(/RightFoot$/),
+    lToe: pick(/LeftToeBase$/), rToe: pick(/RightToeBase$/), spine: pick(/Spine2$/),
   };
   const frames = [];
   const n = Math.max(2, Math.round(clip.duration * fps));

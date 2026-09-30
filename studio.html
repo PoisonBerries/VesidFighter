@@ -415,7 +415,7 @@
     }
 
     // ---- Animations: try motion-capture clips on this character ----
-    const MOVE_NAMES = { attack: 'Punch', hitstun: 'Hit', idle: 'Idle', walk: 'Walk', block: 'Block', victory: 'Victory' };
+    const MOVE_NAMES = { stance: 'Stance', attack: 'Punch', hitstun: 'Hit', idle: 'Idle', walk: 'Walk', block: 'Block', victory: 'Victory' };
     const tried = {}; // state -> '' (as assigned) | 'builtin' | clip id
     function renderAnims() {
       const root = document.getElementById('anims');

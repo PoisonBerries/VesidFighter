@@ -396,6 +396,10 @@ if (webglAvailable()) {
     m.visible = true;
     m.position.set(toX(f.x), toY(f.y - FEET_Y + CARD_H / 2), card.z);
     m.rotation.y = card.rotY;
+    // Balance mode: the shakier they are, the more the card wobbles, like
+    // they're about to tip over.
+    const shaky = f.shakiness > 0.4 ? (f.shakiness - 0.4) / 0.6 : 0;
+    m.rotation.z = shaky && f.state !== 'ko' ? Math.sin(performance.now() / (110 - 50 * shaky)) * 0.09 * shaky : 0;
 
     const overStage = f.x > STAGE_LEFT_EDGE && f.x < STAGE_RIGHT_EDGE;
     const height = (Math.max(0, GROUND_Y - f.y) + rig.lift) * S;

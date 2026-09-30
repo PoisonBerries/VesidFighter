@@ -28,76 +28,127 @@ function loadMoves() {
   return { clips: {}, use: { '*': {} } };
 }
 
-// 3D joint positions (Mixamo: y up, the character faces +z) -> side view,
-// facing right, in body heights. Everything the rig needs per frame:
-//   c: crouch (0 = legs straight), l: torso lean in degrees (+ = forward)
-//   h / e: back and front hand / elbow, relative to the shoulders, in the
-//          torso's own (un-leaned) frame
-//   f / k: back and front foot / knee, x from the hips, y from the floor
-//          (negative = up)
-function toRig(raw, opts) {
+// 3D joint positions (Mixamo: y up, the character faces +z) -> a 2D pose
+// seen from the side (optionally turned `view` degrees toward the camera for
+// a three-quarter look), facing right, screen y pointing down. The pose is
+// stored as *directions*, so the game can rebuild it with each fighter's own
+// bone lengths:
+//   root: [x, h]  hips' shift forward since the clip started, and hip height
+//                 above the floor (body heights)
+//   c:    crouch (0 = legs straight), l: spine lean in degrees (+ = forward)
+//   hd:   head tilt relative to the spine, change from the first frame, degrees
+//   sh:   [far, near] shoulder offsets from the base of the neck, in the
+//         torso's own (un-leaned) frame, body heights
+//   arm:  [far, near] [upper arm angle, forearm angle] (radians, screen)
+//   hp:   [far, near] hip joint offsets from the hips' centre (screen frame)
+//   leg:  [far, near] [thigh angle, shin angle]
+//   ft:   [far, near] foot angle change from standing (0 = flat, + = toe down)
+//   lo:   height of the lower foot above the floor (0 = standing on it)
+// "far"/"near" are by depth: the near limbs are drawn in front.
+function toPose(raw, opts) {
   const flip = opts.flip ? -1 : 1;
-  const X = (p) => p[2] * flip, Y = (p) => p[1];
+  const yaw = ((opts.view || 0) * Math.PI) / 180;
+  const cy = Math.cos(yaw), sy = Math.sin(yaw);
+  // Screen x (forward), screen y (down), and depth (toward the camera = smaller).
+  const P = (p) => [(p[2] * cy + p[0] * sy) * flip, -p[1]];
+  const depth = (p) => p[0] * cy - p[2] * sy;
   const f0 = raw[0];
-  const ankleFloor = Math.min(...raw.map((f) => Math.min(Y(f.lFoot), Y(f.rFoot))));
-  const height = (Y(f0.head) - ankleFloor) / 0.83;
+  const ankleFloor = Math.min(...raw.map((f) => Math.min(f.lFoot[1], f.rFoot[1])));
+  const height = (f0.head[1] - ankleFloor) / 0.83;
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
   const legLen = (dist(f0.lHip, f0.lKnee) + dist(f0.lKnee, f0.lFoot) + dist(f0.rHip, f0.rKnee) + dist(f0.rKnee, f0.rFoot)) / 2;
-  // The lead side is whichever is further forward (arms: on average).
   const avg = (fn) => raw.reduce((s, f) => s + fn(f), 0) / raw.length;
-  const leftArmFront = avg((f) => X(f.lShoulder) - X(f.rShoulder)) > 0;
-  const leftLegFront = X(f0.lFoot) > X(f0.rFoot);
-  const armSide = leftArmFront ? ['r', 'l'] : ['l', 'r']; // [back, front]
-  const legSide = leftLegFront ? ['r', 'l'] : ['l', 'r'];
+  // Far side first: the side further from the camera on average.
+  const armSides = avg((f) => depth(f.lShoulder) - depth(f.rShoulder)) > 0 ? ['l', 'r'] : ['r', 'l'];
+  const legSides = avg((f) => depth(f.lHip) - depth(f.rHip)) > 0 ? ['l', 'r'] : ['r', 'l'];
+  const ang = (a, b) => { const A = P(a), B = P(b); return round(Math.atan2(B[1] - A[1], B[0] - A[0])); };
+  const hip0 = P(f0.hips);
+  // Resting angles (first frame): Mixamo's foot and head bones point off at
+  // an angle even standing normally, so store changes from these.
+  const footRest = legSides.map((s) => ang(f0[s + 'Foot'], f0[s + 'Toe']));
+  const tiltOf = (f) => {
+    const hips = P(f.hips), neck = P(f.neck), head = P(f.head);
+    return Math.atan2(head[0] - neck[0], neck[1] - head[1]) - Math.atan2(neck[0] - hips[0], hips[1] - neck[1]);
+  };
+  const tiltRest = tiltOf(f0);
 
   const frames = raw.map((f) => {
-    const hips = f.hips;
-    const lean = Math.atan2(X(f.neck) - X(hips), Y(f.neck) - Y(hips));
+    const hips = P(f.hips), neck = P(f.neck), head = P(f.head);
+    const lean = Math.atan2(neck[0] - hips[0], hips[1] - neck[1]);
+    const tilt = tiltOf(f) - tiltRest;
     const cos = Math.cos(lean), sin = Math.sin(lean);
-    const sc = [(f.lShoulder[0] + f.rShoulder[0]) / 2, (f.lShoulder[1] + f.rShoulder[1]) / 2, (f.lShoulder[2] + f.rShoulder[2]) / 2];
-    // Relative to the shoulders, y down, then undo the lean.
-    const armPt = (p) => {
-      const x = (X(p) - X(sc)) / height, y = -(Y(p) - Y(sc)) / height;
-      // Inverse of the renderer's lean rotation (canvas rotate by +lean).
-      return [round(x * cos + y * sin), round(-x * sin + y * cos)];
+    const torsoFrame = (p) => {
+      const q = P(p);
+      const x = (q[0] - neck[0]) / height, y = (q[1] - neck[1]) / height;
+      return [round(x * cos + y * sin), round(-x * sin + y * cos)]; // undo the lean
     };
-    const legPt = (p) => [round((X(p) - X(hips)) / height), round(-(Y(p) - ankleFloor) / height)];
+    const feetY = [f.lFoot[1], f.rFoot[1]];
     return {
-      c: round(Math.max(0, Math.min(0.45, 1 - (Y(hips) - ankleFloor) / legLen))),
+      root: [round((hips[0] - hip0[0]) / height), round((f.hips[1] - ankleFloor) / height)],
+      c: round(Math.max(0, Math.min(0.5, 1 - (f.hips[1] - ankleFloor) / legLen))),
       l: round((lean * 180) / Math.PI),
-      h: armSide.map((s) => armPt(f[s + 'Hand'])),
-      e: armSide.map((s) => armPt(f[s + 'Elbow'])),
-      f: legSide.map((s) => legPt(f[s + 'Foot'])),
-      k: legSide.map((s) => legPt(f[s + 'Knee'])),
+      hd: round((tilt * 180) / Math.PI),
+      sh: armSides.map((s) => torsoFrame(f[s + 'Shoulder'])),
+      arm: armSides.map((s) => [ang(f[s + 'Shoulder'], f[s + 'Elbow']), ang(f[s + 'Elbow'], f[s + 'Hand'])]),
+      hp: legSides.map((s) => { const q = P(f[s + 'Hip']); return [round((q[0] - hips[0]) / height), round((q[1] - hips[1]) / height)]; }),
+      leg: legSides.map((s) => [ang(f[s + 'Hip'], f[s + 'Knee']), ang(f[s + 'Knee'], f[s + 'Foot'])]),
+      ft: legSides.map((s, i) => round(ang(f[s + 'Foot'], f[s + 'Toe']) - footRest[i])),
+      lo: round((Math.min(...feetY) - ankleFloor) / height),
     };
   });
 
-  // The strike: whichever limb travels furthest from where it started (in
-  // 3D -- a hook swings across the body, which the side view can't see),
-  // at the moment it's furthest out. moves.json can override either.
-  // A clip where the front foot really leaves the ground is a kick (the arms
-  // swing a long way for balance, so they'd otherwise win).
-  // Either foot: plenty of kicks come off the back leg.
-  const lift = (k) => Math.max(...frames.map((fr) => -fr.f[k][1]));
-  const kickLeg = lift(1) >= lift(0) ? 1 : 0;
-  const limbs = lift(kickLeg) > 0.12
-    ? { foot: [legSide[kickLeg] + 'Foot'] }
-    : { hand: [armSide[1] + 'Hand', armSide[0] + 'Hand'], head: ['head'] };
-  let impact = 0, best = -1, strike = 'hand';
-  for (const [kind, joints] of Object.entries(limbs)) {
-    for (const j of joints) {
-      raw.forEach((f, i) => {
-        // Measured against the hips, so walking forward doesn't count.
-        const rel = (fr) => [fr[j][0] - fr.hips[0], fr[j][1] - fr.hips[1], fr[j][2] - fr.hips[2]];
-        const a = rel(f), b = rel(f0);
-        const d = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) / height;
-        if (d > best) { best = d; impact = i; strike = kind; }
-      });
-    }
+  // The strike, and when it lands: every punch and kick is at its straightest
+  // at contact (hand furthest from its shoulder, foot furthest from its
+  // hip), which a wind-up never is. The striking limb is the one that
+  // straightens the most over the clip; a clip where a foot really leaves
+  // the ground is a kick; a headbutt is the head moving furthest from the
+  // hips. moves.json can override any of it.
+  const reach = (f, from, to) => dist(f[from], f[to]) / height;
+  const cands = [];
+  armSides.forEach((sd, i) => cands.push({ kind: 'hand', limb: ['arm', i], joint: sd + 'Hand', ext: (f) => reach(f, sd + 'Shoulder', sd + 'Hand') }));
+  legSides.forEach((sd, i) => cands.push({ kind: 'foot', limb: ['leg', i], joint: sd + 'Foot', ext: (f) => reach(f, sd + 'Hip', sd + 'Foot') }));
+  const lift = (sd) => Math.max(...raw.map((f) => (f[sd + 'Foot'][1] - ankleFloor) / height));
+  const kick = Math.max(lift('l'), lift('r')) > 0.12;
+  const pool = cands.filter((c) => (kick ? c.kind === 'foot' : c.kind === 'hand'));
+  let chosen = pool[0], impact = 0, gain = -1;
+  for (const c of pool) {
+    const ex = raw.map(c.ext);
+    const i = ex.indexOf(Math.max(...ex));
+    const g = ex[i] - Math.min(...ex);
+    if (g > gain) { gain = g; chosen = c; impact = i; }
   }
+  // A headbutt: the head moves a long way while no limb straightens much.
+  const headTravel = raw.map((f) => Math.hypot(f.head[0] - f.hips[0] - (f0.head[0] - f0.hips[0]), f.head[2] - f.hips[2] - (f0.head[2] - f0.hips[2])) / height);
+  const headMax = Math.max(...headTravel);
+  let strike = chosen.kind, strikeLimb = chosen.limb, strikeJoint = chosen.joint;
+  if (!kick && headMax > gain * 1.5) { strike = 'head'; strikeLimb = null; strikeJoint = 'head'; impact = headTravel.indexOf(headMax); }
   if (typeof opts.impact === 'number') impact = Math.round(opts.impact * (frames.length - 1));
   if (opts.strike) strike = opts.strike;
-  return { frames, impact: round(impact / (frames.length - 1)), strike };
+  const rel = (fr, j) => [fr[j][0] - fr.hips[0], fr[j][1] - fr.hips[1], fr[j][2] - fr.hips[2]];
+
+  // The action window: from when the striking limb starts moving to when it
+  // has settled again, so the game plays the strike itself (not the standing
+  // around before and after) at close to its real speed.
+  const speed = raw.map((f, i) => {
+    if (i === 0) return 0;
+    const a = rel(f, strikeJoint), b = rel(raw[i - 1], strikeJoint);
+    return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) / height;
+  });
+  const peak = Math.max(...speed) || 1;
+  const quiet = (i) => speed[i] < peak * 0.12;
+  // The limb is momentarily still at full extension, so first find the fast
+  // movement on each side of the impact, then go outward to where it's quiet.
+  const argmax = (lo, hi) => { let k = lo; for (let i = lo; i <= hi; i++) if (speed[i] > speed[k]) k = i; return k; };
+  const last = raw.length - 1;
+  let start = argmax(0, impact), end = argmax(impact, last);
+  while (start > 0 && !(quiet(start) && quiet(start - 1))) start--;
+  while (end < last && !(quiet(end) && quiet(Math.min(last, end + 1)) && quiet(Math.min(last, end + 2)))) end++;
+  const n = frames.length - 1;
+  let window = [round(Math.max(0, start - 1) / n), round(Math.min(n, end + 1) / n)];
+  // Not really a strike (a victory pose, a fall): play the whole clip.
+  if ((window[1] - window[0]) * raw.length < 8) window = [0, 1];
+  if (Array.isArray(opts.window)) { window[0] = opts.window[0]; window[1] = opts.window[1]; }
+  return { frames, impact: round(impact / n), strike, limb: strikeLimb, window };
 }
 
 (async () => {
@@ -130,10 +181,11 @@ function toRig(raw, opts) {
       for (const [id, clip] of todo) {
         const url = '/' + clip.fbx.split('/').map(encodeURIComponent).join('/');
         const raw = await page.evaluate((u, fps) => window.sampleClip(u, fps), url, FPS);
-        const rig = toRig(raw.frames, clip);
-        const out = { source: clip.fbx, fps: FPS, duration: round(raw.duration), impact: rig.impact, strike: rig.strike, frames: rig.frames };
+        const pose = toPose(raw.frames, clip);
+        const out = { version: 2, source: clip.fbx, fps: FPS, duration: round(raw.duration), impact: pose.impact, strike: pose.strike, limb: pose.limb, window: pose.window, frames: pose.frames };
         fs.writeFileSync(path.join(ANIM_DIR, id + '.json'), JSON.stringify(out));
-        console.log(`  ${id}: ${rig.frames.length} frames, ${out.duration}s, ${rig.strike} strike at ${Math.round(rig.impact * 100)}%`);
+        const secs = ((pose.window[1] - pose.window[0]) * raw.duration).toFixed(2);
+        console.log(`  ${id}: ${pose.frames.length} frames, action ${Math.round(pose.window[0] * 100)}-${Math.round(pose.window[1] * 100)}% (${secs}s), ${pose.strike} strike at ${Math.round(pose.impact * 100)}%`);
       }
     } finally {
       await browser.close();

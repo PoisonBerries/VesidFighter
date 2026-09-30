@@ -13,7 +13,9 @@ const Mocap = (() => {
   const preview = {}; // state -> clip id (Body Part Studio), or null = off
 
   // Moves a clip can be assigned to, and how its time is driven (animator.js).
-  const STATES = ['attack', 'hitstun', 'idle', 'walk', 'block', 'victory'];
+  // 'stance': the guard a fighter stands and walks in when there's no
+  // idle/walk clip (the start of that clip's action is used).
+  const STATES = ['stance', 'attack', 'hitstun', 'idle', 'walk', 'block', 'victory'];
 
   if (typeof fetch !== 'undefined') {
     fetch('assets/anim/moves.json')
@@ -41,15 +43,25 @@ const Mocap = (() => {
   }
 
   // A frame at clip time u (0-1), blended between the two nearest frames.
+  // Works on any nesting of numbers/arrays; `arm`, `leg` and `ft` hold
+  // angles, which blend the short way round.
+  const ANGLES = new Set(['arm', 'leg', 'ft']);
+  function blend(a, b, t, angle) {
+    if (Array.isArray(a)) return a.map((v, i) => blend(v, b[i], t, angle));
+    if (typeof a !== 'number') return a;
+    let d = b - a;
+    if (angle) d = Math.atan2(Math.sin(d), Math.cos(d));
+    return a + d * t;
+  }
   function sample(clip, u) {
     const fr = clip.frames;
     const x = Math.max(0, Math.min(1, u)) * (fr.length - 1);
     const i = Math.floor(x), t = x - i;
     const a = fr[i], b = fr[Math.min(fr.length - 1, i + 1)];
     if (t === 0 || a === b) return a;
-    const mix = (p, q) => p + (q - p) * t;
-    const pair = (P, Q) => P.map((p, k) => [mix(p[0], Q[k][0]), mix(p[1], Q[k][1])]);
-    return { c: mix(a.c, b.c), l: mix(a.l, b.l), h: pair(a.h, b.h), e: pair(a.e, b.e), f: pair(a.f, b.f), k: pair(a.k, b.k) };
+    const out = {};
+    for (const k of Object.keys(a)) out[k] = blend(a[k], b[k], t, ANGLES.has(k));
+    return out;
   }
 
   // Body Part Studio: try a clip for a move (null = the built-in animation,
@@ -67,5 +79,8 @@ const Mocap = (() => {
     return (use[charId] && use[charId][state]) || (use['*'] && use['*'][state]) || null;
   }
 
-  return { STATES, clipFor, sample, setPreview, list, assigned };
+  // Testing aid: hold every clip at this point (0-1) instead of its timing.
+  const debug = { time: null };
+
+  return { STATES, clipFor, sample, setPreview, list, assigned, debug };
 })();

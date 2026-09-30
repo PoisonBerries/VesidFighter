@@ -57,11 +57,11 @@ const BOTS = {
   passive() { return { think: () => 0 }; },
 };
 
-// ball: the match's ball mode (default: the game's default, rally).
-function playMatch(kinds, chars, seed, ball) {
+// ball / balance: the match's modes (default: the game's defaults).
+function playMatch(kinds, chars, seed, ball, balance) {
   const sim = createSim();
   let winner = null;
-  sim.Game.startMatch(chars[0], chars[1], (w) => { winner = w; }, { ball });
+  sim.Game.startMatch(chars[0], chars[1], (w) => { winner = w; }, { ball, balance });
   const brains = kinds.map((k, i) => (k.startsWith('cpu:')
     ? sim.Cpu.createBrain(i ? 'p2' : 'p1', k.slice(4), seed + i)
     : BOTS[k](sim, seed + i)));
@@ -97,14 +97,14 @@ function playMatch(kinds, chars, seed, ball) {
 }
 
 // Every character, on both sides, against a rotating opponent character.
-function series(a, b, ball) {
+function series(a, b, ball, balance) {
   const ids = createSim().CHARACTER_LIST.map((c) => c.id);
   let wins = 0, games = 0, unfinished = 0;
   const selfKO = [0, 0];
   ids.forEach((id, i) => {
     const other = ids[(i + 1) % ids.length];
     for (const flip of [false, true]) {
-      const r = flip ? playMatch([b, a], [other, id], 100 + i, ball) : playMatch([a, b], [id, other], 100 + i, ball);
+      const r = flip ? playMatch([b, a], [other, id], 100 + i, ball, balance) : playMatch([a, b], [id, other], 100 + i, ball, balance);
       const [ai, bi] = flip ? [1, 0] : [0, 1];
       games++;
       if (!r.winner) unfinished++;
@@ -131,9 +131,10 @@ test('Normal CPU beats random button-mashing', () => {
 
 // The rusher (walk in, punch when in range) stands in for a new player's
 // fighting: Easy should be easy to beat that way, and each level should be
-// harder than the last. Without the ball, since the rusher ignores it.
-test('difficulty ramps against a simple walk-in-and-punch player (no ball)', () => {
-  const [easy, normal, hard] = ['easy', 'normal', 'hard'].map((l) => series('cpu:' + l, 'rusher', 'off').rate);
+// harder than the last. Plain fighting (no ball, no balance mode), since the
+// rusher ignores the ball and walks itself into ring-outs.
+test('difficulty ramps against a simple walk-in-and-punch player (plain fighting)', () => {
+  const [easy, normal, hard] = ['easy', 'normal', 'hard'].map((l) => series('cpu:' + l, 'rusher', 'off', false).rate);
   const pct = (r) => (r * 100).toFixed(0) + '%';
   assert.ok(easy <= 0.25, `Easy beat the rusher ${pct(easy)} of the time -- too hard`);
   assert.ok(easy < normal && normal < hard, `levels out of order: easy ${pct(easy)}, normal ${pct(normal)}, hard ${pct(hard)}`);

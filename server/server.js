@@ -256,7 +256,7 @@ function onMessage(ws, msg) {
     room.lastSent = null; // next snapshot is a full one
     Game.startMatch(msg.p1, msg.p2, (winner) => {
       broadcast(room, { t: 'matchEnd', winner });
-    }, { ball: msg.ball });
+    }, { ball: msg.ball, balance: msg.balance });
     room.running = true;
     broadcast(room, { t: 'start', p1: msg.p1, p2: msg.p2 });
   }

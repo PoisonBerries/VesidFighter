@@ -50,7 +50,7 @@ test('assets/anim/moves.json: every assigned clip is listed and converted (tools
   if (!fs.existsSync(file)) return;
   const moves = JSON.parse(fs.readFileSync(file, 'utf8'));
   const clips = moves.clips || {};
-  const states = ['attack', 'hitstun', 'idle', 'walk', 'block', 'victory'];
+  const states = ['stance', 'attack', 'hitstun', 'idle', 'walk', 'block', 'victory'];
   for (const [who, uses] of Object.entries(moves.use || {})) {
     for (const [state, id] of Object.entries(uses)) {
       assert.ok(states.includes(state), `moves.json: ${who} assigns a clip to "${state}", which isn't a move clips can drive (${states.join(', ')})`);

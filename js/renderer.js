@@ -805,6 +805,34 @@ const Renderer = (() => {
     ctx.restore();
   }
 
+  // Motion smear: the tip's recent path (last ~110 ms) as a streak that
+  // tapers and fades toward the past, drawn behind the limb while it's
+  // moving fast. `trail` persists between frames (on the fighter's visual
+  // state); `on` is false outside strikes, which just resets it.
+  function smear(ctx, trail, tip, on, width, H) {
+    if (!trail) return;
+    const now = performance.now();
+    if (!on) { trail.length = 0; return; }
+    trail.push({ x: tip.x, y: tip.y, t: now });
+    while (trail.length && now - trail[0].t > 110) trail.shift();
+    if (trail.length < 3) return;
+    let len = 0;
+    for (let i = 1; i < trail.length; i++) len += Math.hypot(trail[i].x - trail[i - 1].x, trail[i].y - trail[i - 1].y);
+    if (len < H * 0.12) return; // too slow to streak
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let i = 1; i < trail.length; i++) {
+      const k = i / (trail.length - 1);
+      ctx.strokeStyle = `rgba(255,244,224,${0.5 * k})`;
+      ctx.lineWidth = Math.max(1, width * k);
+      ctx.beginPath();
+      ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
+      ctx.lineTo(trail[i].x, trail[i].y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // Hip -> knee -> ankle -> boot. Knees always bend forward.
   function drawLeg(ctx, hip, foot, pointAmt, dims, colors, art) {
     const { thigh, shin, foot: footSize, bulk } = dims;
@@ -817,8 +845,11 @@ const Renderer = (() => {
     const lifted = Math.min(1, Math.max(0, -foot.y / 25));
     const shinAng = Math.atan2(ankle.y - knee.y, ankle.x - knee.x) - Math.PI / 2;
     const flat = lifted * 0.5;
-    const footAng = flat + (shinAng - flat) * (pointAmt || 0);
+    // A mocap clip gives the foot's own direction; otherwise flat, tipping
+    // toe-down when lifted and along the shin for a kick.
+    const footAng = foot.angle !== undefined && foot.angle !== null ? foot.angle : flat + (shinAng - flat) * (pointAmt || 0);  // clip: change from flat
     const toe = { x: ankle.x + Math.cos(footAng) * footSize * 1.4, y: ankle.y + Math.sin(footAng) * footSize * 1.4 };
+    smear(ctx, foot.trail, toe, foot.smear, footSize * 1.4, H);
     const S = limbSamples(hip, knee, ankle, LEG_PROFILE, H * bulk);
     if (!art.has('thigh') && !art.has('shin')) {
       legShin(ctx, S, colors);
@@ -853,6 +884,7 @@ const Renderer = (() => {
     const elbow = sol.mid, wrist = sol.end;
     const ang = Math.atan2(wrist.y - elbow.y, wrist.x - elbow.x);
     const knuckles = { x: wrist.x + Math.cos(ang) * fist * 1.4, y: wrist.y + Math.sin(ang) * fist * 1.4 };
+    if (only !== 'upper') smear(ctx, hand.trail, knuckles, hand.smear, fist * 1.8, H);
     const S = limbSamples(shoulder, elbow, wrist, ARM_PROFILE, H * bulk);
     const upperArm = () => { const lit = paintLimb(ctx, S, 0, 1, true, true, colors.skin); armDefinition(ctx, S, colors.skin, lit); };
     const forearm = () => { paintLimb(ctx, S, 1, 2, true, true, colors.skin); bracer(ctx, S, 1.42, 1.95, colors); };
@@ -1356,14 +1388,22 @@ const Renderer = (() => {
     const shoulderY = -H * d.shoulderFrac * crouchScale + floatY;
     const J = torsoJoints(d, shoulderY, hipY);
 
+    // A mocap move can shift the body forward and back (a step into a punch).
+    ctx.save();
+    ctx.translate(rig.rootX || 0, 0);
+
     drawBackAccessory(ctx, id, floatY);
 
     // Legs are placed before the torso lean is applied, so an attack's
     // forward lean pivots at the hip without warping them.
     // Side-on hips: the far leg starts just behind the near one.
-    const hipBack = { x: -H * 0.022 * d.fh, y: hipY };
-    const hipFront = { x: H * 0.026 * d.fh, y: hipY };
-    const footOf = (f, knee) => ({ x: f.x, y: floatY + f.y, hint: knee ? { x: knee.x, y: floatY + knee.y } : null });
+    const hipBack = rig.hips ? { x: rig.hips[0].x, y: hipY + rig.hips[0].y } : { x: -H * 0.022 * d.fh, y: hipY };
+    const hipFront = rig.hips ? { x: rig.hips[1].x, y: hipY + rig.hips[1].y } : { x: H * 0.026 * d.fh, y: hipY };
+    // Smear trails live on the fighter's visual state between frames.
+    const vis = fighter._visualPose || {};
+    const trails = vis.trails || (vis.trails = [[], [], [], []]);
+    const footOf = (f, knee, angle, i) => ({ x: f.x, y: floatY + f.y, hint: knee ? { x: knee.x, y: floatY + knee.y } : null, angle, trail: trails[2 + i], smear: rig.smear === 'leg' + i });
+    const fa = rig.footAngles || [null, null];
 
     // Upper body, leaned from the hip.
     const lean = (fn) => {
@@ -1377,15 +1417,16 @@ const Renderer = (() => {
     const shY = shoulderY + H * 0.03;
     // Three-quarter view: the near shoulder is at the top front of the
     // chest, the far one tucked behind the upper back.
-    const shoulderFront = { x: H * 0.052 * d.fs, y: shY + H * 0.004 };
-    const shoulderBack = { x: -H * 0.042 * d.fs, y: shY - H * 0.006 };
+    // (A mocap clip moves them: the shoulder driving a punch forward.)
+    const shoulderFront = rig.sh ? { x: rig.sh[1].x, y: shoulderY + rig.sh[1].y } : { x: H * 0.052 * d.fs, y: shY + H * 0.004 };
+    const shoulderBack = rig.sh ? { x: rig.sh[0].x, y: shoulderY + rig.sh[0].y } : { x: -H * 0.042 * d.fs, y: shY - H * 0.006 };
     // The rig gives hand targets relative to a single shoulder point at x=0.
-    const handOf = (a) => ({ x: a.x, y: shY + a.y, hint: a.ex !== undefined ? { x: a.ex, y: shY + a.ey } : null });
+    const handOf = (a, i) => ({ x: a.x, y: shY + a.y, hint: a.ex !== undefined ? { x: a.ex, y: shY + a.ey } : null, trail: trails[i], smear: rig.smear === 'arm' + i });
     const [armBack, armFront] = rig.arms;
 
-    lean(() => drawArm(ctx, shoulderBack, handOf(armBack), d.arm, back, profile, armBack.orb, accent, far, 'upper'));
-    drawLeg(ctx, hipBack, footOf(rig.fA, rig.knees && rig.knees[0]), 0, d.leg, back, far);
-    drawLeg(ctx, hipFront, footOf(rig.fB, rig.knees && rig.knees[1]), rig.footPoint, d.leg, colors, near);
+    lean(() => drawArm(ctx, shoulderBack, handOf(armBack, 0), d.arm, back, profile, armBack.orb, accent, far, 'upper'));
+    drawLeg(ctx, hipBack, footOf(rig.fA, rig.knees && rig.knees[0], fa[0], 0), 0, d.leg, back, far);
+    drawLeg(ctx, hipFront, footOf(rig.fB, rig.knees && rig.knees[1], fa[1], 1), rig.footPoint, d.leg, colors, near);
 
     lean(() => near.draw('neck', J.neck[0], J.neck[1], () => partNeck(ctx, J.neck[0], J.neck[1], d, colors)));
     lean(() => near.draw('torso', J.torso[0], J.torso[1], () => {
@@ -1397,13 +1438,22 @@ const Renderer = (() => {
     }));
 
     // The far arm's forearm and fist come across the front of the body.
-    lean(() => drawArm(ctx, shoulderBack, handOf(armBack), d.arm, back, profile, armBack.orb, accent, far, 'lower'));
+    lean(() => drawArm(ctx, shoulderBack, handOf(armBack, 0), d.arm, back, profile, armBack.orb, accent, far, 'lower'));
 
-    const drawHead = () => lean(() => near.draw('head', J.head[0], J.head[1], () => partHead(ctx, id, J.head[0], d, colors, head)));
-    const drawFrontArm = () => lean(() => drawArm(ctx, shoulderFront, handOf(armFront), d.arm, colors, profile, armFront.orb, accent, near));
+    const drawHead = () => lean(() => {
+      // Head tilt (mocap), pivoting at the chin.
+      if (rig.headTilt) {
+        ctx.translate(J.head[0].x, J.head[0].y);
+        ctx.rotate((rig.headTilt * Math.PI) / 180);
+        ctx.translate(-J.head[0].x, -J.head[0].y);
+      }
+      near.draw('head', J.head[0], J.head[1], () => partHead(ctx, id, J.head[0], d, colors, head));
+    });
+    const drawFrontArm = () => lean(() => drawArm(ctx, shoulderFront, handOf(armFront, 1), d.arm, colors, profile, armFront.orb, accent, near));
     // The front arm normally crosses in front of the head (a jab at face
     // height); raised overhead, it goes behind so it doesn't cover the face.
-    if (handOf(armFront).y < shoulderY - H * 0.08) { drawFrontArm(); drawHead(); } else { drawHead(); drawFrontArm(); }
+    if (handOf(armFront, 1).y < shoulderY - H * 0.08) { drawFrontArm(); drawHead(); } else { drawHead(); drawFrontArm(); }
+    ctx.restore();
   }
 
   // Torso, three-quarters on and facing right: a real side silhouette --
@@ -1965,6 +2015,7 @@ const Renderer = (() => {
     partSpec,
     drawPartGuide,
     bodyProfile: getBodyProfile,
+    bodyDims,
     drawPlayerMarker,
     drawProjectiles,
     drawHUD,

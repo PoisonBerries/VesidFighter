@@ -335,7 +335,7 @@ test('Robert transforms at half HP, and the transformation resets at the start o
   assert.strictEqual(f.maxHp, base.maxHp);
 
   // End to end through the round flow: transform, lose the round, start the next one.
-  sim.Game.startMatch('robert', 'sam', () => {});
+  sim.Game.startMatch('robert', 'sam', () => {}, { balance: false }); // needs health KOs
   driveRandom(sim, 200, 3); // through the countdown into the fight
   sim.Game.applySnapshot({ f: [{ transformed: true, maxHp: base.maxHp + base.transform.bonusHp, hp: 5 }, { hp: 0 }] });
   for (let i = 0; i < 400; i++) {
@@ -382,7 +382,7 @@ test('nothing lingers between rounds: buffs, poison, shields, stun and transform
 
   // Through the real round flow, for every character.
   for (const c of sim.CHARACTER_LIST) {
-    sim.Game.startMatch(c.id, 'sam', () => {});
+    sim.Game.startMatch(c.id, 'sam', () => {}, { balance: false }); // needs health KOs
     driveRandom(sim, 200, 11);
     sim.Game.applySnapshot({ f: [Object.assign({ hp: 5 }, lingering, { maxHp: c.maxHp }), { hp: 0 }] });
     for (let i = 0; i < 400; i++) {
@@ -718,3 +718,70 @@ test('rally: the ball never leaves the stage, and bouncing on the floor cools it
   assert.strictEqual(minHeat, 0, 'floor bounces and time cooled it all the way down');
 });
 
+
+// ---- Balance mode ----
+
+// One point-blank punch from Ryan to Carlos at mid-stage, with Carlos at the
+// given fraction of his balance. Returns how far it pushed him and whether
+// he went off the stage.
+function pushAt(sim, frac, opts) {
+  sim.Game.startMatch('ryan', 'carlos', () => {}, Object.assign({ ball: 'off' }, opts));
+  step(sim, 181);
+  const c = sim.Game.world().p2;
+  sim.Game.applySnapshot({ f: [{ x: 580 }, { x: 640, hp: c.maxHp * frac }] });
+  punch(sim, 'p1');
+  let furthest = 0;
+  for (let i = 0; i < 150 && sim.Game.getState() === 'fight'; i++) {
+    step(sim, 1);
+    furthest = Math.max(furthest, sim.Game.world().p2.x - 640);
+  }
+  return { pushed: furthest, out: sim.Game.getState() !== 'fight' };
+}
+
+test('balance mode: the less balance you have, the further hits send you', () => {
+  const sim = createSim();
+  const [full, three, half, quarter] = [1, 0.75, 0.5, 0.25].map((f) => pushAt(sim, f));
+  assert.ok(full.pushed < 80 && !full.out, `a fresh fighter barely moves (${full.pushed})`);
+  assert.ok(three.pushed > full.pushed * 2 && half.pushed > three.pushed, 'grows as balance drops');
+  assert.ok(!half.out, 'half balance: not yet knocked off from mid-stage');
+  assert.ok(quarter.out, 'a quarter left: a punch from mid-stage knocks you off');
+});
+
+test('balance mode: no KOs -- an empty bar keeps fighting, only falling off loses', () => {
+  const sim = createSim();
+  sim.Game.startMatch('ryan', 'carlos', () => {}, { ball: 'off' });
+  step(sim, 181);
+  sim.Game.applySnapshot({ f: [{ x: 400 }, { x: 800, hp: 0 }] });
+  step(sim, 30);
+  assert.strictEqual(sim.Game.getState(), 'fight', 'still fighting at zero balance');
+  assert.notStrictEqual(sim.Game.world().p2.state, 'ko');
+});
+
+test('balance mode: a fighter sent flying gets control back mid-air and can recover', () => {
+  const sim = createSim();
+  sim.Game.startMatch('ryan', 'carlos', () => {}, { ball: 'off' });
+  step(sim, 181);
+  sim.Game.applySnapshot({ f: [{ x: 580 }, { x: 640, hp: 20 }] });
+  punch(sim, 'p1');
+  // Carlos steers back toward the middle and double-jumps as he falls.
+  for (let i = 0; i < 200 && sim.Game.getState() === 'fight'; i++) {
+    const p = sim.Game.world().p2;
+    sim.InputManager.setVirtual(sim.VCONTROLS.p2.left, p.x > 640, false);
+    sim.InputManager.setVirtual(sim.VCONTROLS.p2.jump, p.vy > 0, p.vy > 0 && p.state === 'fall');
+    step(sim, 1);
+  }
+  sim.InputManager.setVirtual(sim.VCONTROLS.p2.left, false, false);
+  sim.InputManager.setVirtual(sim.VCONTROLS.p2.jump, false, false);
+  assert.strictEqual(sim.Game.getState(), 'fight', 'recovered back onto the stage');
+});
+
+test('balance mode off: health KOs as usual, and knockback does not grow', () => {
+  const sim = createSim();
+  const full = pushAt(sim, 1, { balance: false }), low = pushAt(sim, 0.1, { balance: false });
+  assert.ok(Math.abs(full.pushed - low.pushed) < 1, `same knockback (${full.pushed} vs ${low.pushed})`);
+  sim.Game.startMatch('ryan', 'carlos', () => {}, { ball: 'off', balance: false });
+  step(sim, 181);
+  sim.Game.applySnapshot({ f: [{}, { hp: 0 }] });
+  step(sim, 2);
+  assert.strictEqual(sim.Game.getState(), 'roundEnd', 'zero health is a KO');
+});

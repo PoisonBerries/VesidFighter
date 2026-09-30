@@ -20,6 +20,7 @@ const Game = (() => {
   }
 
   // opts.ball: 'rally' | 'bomb' | 'off' (or false) -- defaults to BALL_MODE.
+  // opts.balance: balance mode (no KOs, ring-outs only) -- defaults to BALANCE_ENABLED.
   function startMatch(char1Id, char2Id, matchEndCallback, opts) {
     onMatchEnd = matchEndCallback;
     const m = opts && opts.ball;
@@ -29,6 +30,7 @@ const Game = (() => {
     p1 = new Fighter('p1', CHARACTERS[char1Id], startX1, 1);
     p2 = new Fighter('p2', CHARACTERS[char2Id], startX2, -1);
     p2.paletteSwap = char1Id === char2Id;
+    p1.balanceMode = p2.balanceMode = opts && opts.balance !== undefined ? !!opts.balance : BALANCE_ENABLED;
     p1.roundsWon = 0;
     p2.roundsWon = 0;
     Effects.reset();
@@ -143,12 +145,13 @@ const Game = (() => {
       endRound('p1');
       return;
     }
-    if (p1.hp <= 0) {
+    // Balance mode: an empty bar doesn't KO -- it just leaves you easy to knock off.
+    if (p1.hp <= 0 && !p1.balanceMode) {
       p1.state = 'ko';
       endRound('p2');
       return;
     }
-    if (p2.hp <= 0) {
+    if (p2.hp <= 0 && !p2.balanceMode) {
       p2.state = 'ko';
       endRound('p1');
       return;

@@ -22,6 +22,8 @@ class Fighter {
     this.facing = facing; // 1 = facing right, -1 = facing left
     this.aim = 0; // held direction relative to facing (see _handleInput)
     this.blockFrames = 0; // how long block has been held (a fresh block catches the ball)
+    this.balanceMode = false;  // balance mode (constants.js): set by Game for the match
+    this.launched = false;     // flying from a hit in balance mode: keeps its momentum until it lands
     this.grounded = true;
     this.jumpsUsed = 0;
     this.doubleJumpFlipTimer = 0;
@@ -110,6 +112,11 @@ class Fighter {
   get displayAccent() {
     const c = (this.transformed && this.character.transformAccent) ? this.character.transformAccent : this.character.accent;
     return this.paletteSwap ? swapPalette(c) : c;
+  }
+
+  // Balance mode: how shaky you are, 0 (full balance) to 1 (none left).
+  get shakiness() {
+    return this.balanceMode ? 1 - Math.max(0, this.hp) / this.maxHp : 0;
   }
 
   get isPhased() {
@@ -351,10 +358,23 @@ class Fighter {
       return 'blocked';
     }
 
-    this.noteImpact('hit', hit.fromFacing, Math.min(1.3, Math.max(0.5, hit.knockback / 12)));
+    let kb = hit.knockback, kbUp = hit.knockbackUp;
     this.hp = Math.max(0, this.hp - hit.damage);
-    this.vx = hit.fromFacing * hit.knockback;
-    this.vy = -hit.knockbackUp;
+    if (this.balanceMode) {
+      // The shakier you are (after this hit), the further it sends you --
+      // gently at first, steeply near the end -- and past a point you fly
+      // with it rather than skidding to a stop.
+      const sh = this.shakiness;
+      const scale = 1 + BALANCE_KNOCKBACK_SCALE * sh * sh;
+      kb *= scale;
+      kbUp *= scale;
+      if (sh >= BALANCE_FLY_AT) this.launched = true;
+    }
+    const power = Math.min(1.3, Math.max(0.5, kb / 12));
+
+    this.noteImpact('hit', hit.fromFacing, power);
+    this.vx = hit.fromFacing * kb;
+    this.vy = -kbUp;
     this.grounded = false;
     this.hitFlashTimer = 10;
     this.facingLocked = false;
@@ -413,6 +433,7 @@ class Fighter {
     this.jumpsUsed = 0;
     this.grounded = true;
     this._ability = {};
+    this.launched = false;
   }
 
   // Undo a transformation (Robert's transform only lasts for the round it
@@ -602,6 +623,7 @@ class Fighter {
   // e.g. Rubber Guard and the straight-down dives).
   _keepsAirMomentum() {
     if (this.grounded) return false;
+    if (this.launched) return true;
     if (this.state === 'attack') return true;
     const def = this.state === 'special' ? this.character.special
       : this.state === 'ultimate' ? this.character.ultimate : null;
@@ -631,6 +653,9 @@ class Fighter {
     if (this.state === 'hitstun') {
       if (this.actionTimer > (this.stunFrames || 0) && this.grounded) {
         this.state = 'idle';
+      } else if (this.actionTimer > (this.stunFrames || 0) && this.launched) {
+        // Hitstun wears off mid-flight: you get control back to try to recover.
+        this.state = 'fall';
       }
     }
 
@@ -900,7 +925,8 @@ class Fighter {
     this.y += this.vy;
 
     if (this.state !== 'walk' && !this._keepsAirMomentum()) {
-      this.vx *= FRICTION;
+      // Balance mode: the shakier you are, the more you slide.
+      this.vx *= FRICTION + BALANCE_SLIP * this.shakiness;
     }
 
     const onStage = this.x > STAGE_LEFT_EDGE && this.x < STAGE_RIGHT_EDGE;
@@ -920,6 +946,7 @@ class Fighter {
       if (!this.grounded) {
         this.grounded = true;
         this.jumpsUsed = 0;
+        this.launched = false;
         if (this.state === 'jump' || this.state === 'fall') this.state = 'idle';
       }
     } else if (!onStage && this.y >= GROUND_Y) {
