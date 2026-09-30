@@ -1,4 +1,4 @@
-// DOM screen management: title, character select, sprite customization,
+// DOM screen management: title, character select,
 // pause menu, and match-end. The canvas only ever draws the arena/HUD; every
 // menu is a plain HTML overlay toggled via a `hidden` class.
 
@@ -6,7 +6,6 @@ const UI = (() => {
   const screens = {
     title: document.getElementById('screen-title'),
     select: document.getElementById('screen-select'),
-    customize: document.getElementById('screen-customize'),
     online: document.getElementById('screen-online'),
     matchend: document.getElementById('screen-matchend'),
     pause: document.getElementById('pause-menu'),
@@ -64,11 +63,13 @@ const UI = (() => {
 
   function renderPreview(slot, charId) {
     const char = CHARACTERS[charId];
-    const controls = CONTROLS[slot];
+    const controls = Net.controlLabelsFor(slot); // null on the opponent's panel online
     const container = document.getElementById('preview-' + slot);
+    // Mirror match: player 2 gets the alternate colours, as in the fight.
+    const color = (slot === 'p2' && charId === selected.p1) ? swapPalette(char.color) : char.color;
 
-    container.style.setProperty('--fp-color', char.color);
-    container.style.setProperty('--fp-glow', hexToRgba(char.color, 0.45));
+    container.style.setProperty('--fp-color', color);
+    container.style.setProperty('--fp-glow', hexToRgba(color, 0.45));
 
     const speedPct = statPct(char.moveSpeed, STAT_RANGES.speed);
     const atkSpeedPct = statPct(atkSpeedScore(char), STAT_RANGES.atkSpeed);
@@ -78,7 +79,7 @@ const UI = (() => {
 
     container.innerHTML = `
       <div class="preview-avatar-wrap">
-        <div class="avatar-fallback" style="background:${char.color}"></div>
+        <div class="avatar-fallback" style="background:${color}"></div>
         <img class="avatar-img" src="assets/heads/${char.id}.png" alt="" onerror="this.style.display='none'">
       </div>
       <div class="preview-name">${char.name}</div>
@@ -91,14 +92,14 @@ const UI = (() => {
         <div class="stat-row"><span class="stat-label">Size</span><div class="stat-bar"><div class="stat-fill" style="width:${sizePct}%"></div></div></div>
       </div>
       <div class="ability-row">
-        <span class="key-badge">${keyLabel(controls.special)}</span>
+        ${controls ? `<span class="key-badge">${keyLabel(controls.special)}</span>` : ''}
         <div>
           <div class="ability-name">Special: ${char.special.name}</div>
           <div class="ability-desc">${char.special.description}</div>
         </div>
       </div>
       <div class="ability-row">
-        <span class="key-badge">${keyLabel(controls.ultimate)}</span>
+        ${controls ? `<span class="key-badge">${keyLabel(controls.ultimate)}</span>` : ''}
         <div>
           <div class="ability-name">Ultimate: ${char.ultimate.name}</div>
           <div class="ability-desc">${char.ultimate.description}</div>
@@ -129,7 +130,7 @@ const UI = (() => {
         }
         selected[slot] = char.id;
         buildCharCards(containerId, slot);
-        renderPreview(slot, char.id);
+        refreshSelect();
       });
       container.appendChild(icon);
     }
@@ -141,74 +142,32 @@ const UI = (() => {
     document.getElementById('p1-cards').classList.toggle('locked', online && local !== 'p1');
     document.getElementById('p2-cards').classList.toggle('locked', online && local !== 'p2');
     document.getElementById('btn-fight').disabled = online && !Net.isLeader();
-    document.getElementById('btn-select-customize').style.display = online ? 'none' : '';
-    document.getElementById('select-online-note').textContent = !online ? ''
-      : (Net.isLeader() ? 'Online: you are Player 1. Press Fight! when you are both ready.'
-        : 'Online: you are Player 2. Waiting for the host to start...');
     buildCharCards('p1-cards', 'p1');
     buildCharCards('p2-cards', 'p2');
-    renderPreview('p1', selected.p1);
-    renderPreview('p2', selected.p2);
+    refreshSelect();
     show('select');
   }
 
-  // ---- Sprite customization ----
-  function buildPoseGrid(slot) {
-    const grid = document.getElementById('pose-grid-' + slot);
-    grid.innerHTML = '';
-    for (const pose of POSES) {
-      const wrap = document.createElement('div');
-      wrap.className = 'pose-slot';
-
-      const label = document.createElement('div');
-      label.className = 'pose-label';
-      label.textContent = pose;
-
-      const thumb = document.createElement('div');
-      thumb.className = 'pose-thumb';
-      renderThumb(thumb, slot, pose);
-
-      const fileInput = document.createElement('input');
-      fileInput.type = 'file';
-      fileInput.accept = 'image/*';
-      fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        SpriteManager.setSpriteFromFile(slot, pose, file, () => {
-          renderThumb(thumb, slot, pose);
-        });
-      });
-
-      const clearBtn = document.createElement('button');
-      clearBtn.className = 'clear-btn';
-      clearBtn.textContent = 'Clear';
-      clearBtn.addEventListener('click', () => {
-        SpriteManager.clearSprite(slot, pose);
-        fileInput.value = '';
-        renderThumb(thumb, slot, pose);
-      });
-
-      wrap.appendChild(label);
-      wrap.appendChild(thumb);
-      wrap.appendChild(fileInput);
-      wrap.appendChild(clearBtn);
-      grid.appendChild(wrap);
+  // Re-render both previews plus the side labels and the note under them
+  // (a pick on either side can change the other's preview -- mirror match).
+  function refreshSelect() {
+    const online = Net.isOnline();
+    const local = Net.localSlot();
+    for (const slot of ['p1', 'p2']) {
+      const el = document.querySelector('.' + slot + '-label');
+      el.textContent = 'Player ' + slot.slice(1) + (online ? (slot === local ? ' — You' : ' — Opponent') : '');
+      el.style.color = PLAYER_COLORS[slot];
+      renderPreview(slot, selected[slot]);
     }
-  }
-
-  function renderThumb(thumb, slot, pose) {
-    const dataUrl = SpriteManager.getThumbnail(slot, pose);
-    if (dataUrl) {
-      thumb.innerHTML = `<img src="${dataUrl}" alt="${pose}">`;
-    } else {
-      thumb.innerHTML = `<span class="placeholder-dot">no image</span>`;
+    const parts = [];
+    if (online) {
+      const k = CONTROLS.p1;
+      parts.push(Net.isLeader() ? 'You are Player 1. Press Fight! when you are both ready.'
+        : 'You are Player 2. Waiting for the host to start...');
+      parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} block · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys + L ; ' work too)`);
     }
-  }
-
-  function openCustomize() {
-    buildPoseGrid('p1');
-    buildPoseGrid('p2');
-    show('customize');
+    if (selected.p1 === selected.p2) parts.push('Mirror match: Player 2 gets an alternate colour scheme.');
+    document.getElementById('select-online-note').innerHTML = parts.join('<br>');
   }
 
   // ---- Match flow ----
@@ -234,8 +193,9 @@ const UI = (() => {
     document.getElementById('btn-rematch').disabled = online && !Net.isLeader();
     document.getElementById('btn-rematch').textContent = online && !Net.isLeader() ? 'P1 picks rematch' : 'Rematch';
     const winnerChar = CHARACTERS[selected[winnerSlot]];
+    const outcome = !online ? '' : (winnerSlot === Net.localSlot() ? ' — YOU WIN!' : ' — YOU LOSE');
     document.getElementById('matchend-title').textContent =
-      `${winnerChar.name} (${winnerSlot.toUpperCase()}) WINS THE MATCH!`;
+      `${winnerChar.name} (${winnerSlot.toUpperCase()}) WINS THE MATCH!${outcome}`;
     show('matchend');
   }
 
@@ -251,11 +211,8 @@ const UI = (() => {
 
   // ---- Wire up buttons ----
   document.getElementById('btn-start').addEventListener('click', openSelect);
-  document.getElementById('btn-customize').addEventListener('click', openCustomize);
-  document.getElementById('btn-customize-back').addEventListener('click', () => show('title'));
 
   document.getElementById('btn-select-back').addEventListener('click', () => show('title'));
-  document.getElementById('btn-select-customize').addEventListener('click', openCustomize);
   document.getElementById('btn-fight').addEventListener('click', startFight);
 
   document.getElementById('btn-rematch').addEventListener('click', startFight);
@@ -333,7 +290,7 @@ const UI = (() => {
       selected[msg.slot] = msg.id;
       if (!screens.select.classList.contains('hidden')) {
         buildCharCards(msg.slot + '-cards', msg.slot);
-        renderPreview(msg.slot, msg.id);
+        refreshSelect();
       }
     } else if (msg.t === 'start' && Net.isRemoteSim() && CHARACTERS[msg.p1] && CHARACTERS[msg.p2]) {
       selected.p1 = msg.p1;
@@ -356,14 +313,6 @@ const UI = (() => {
     isPaused = false;
     window.VF_setPaused(false);
     show('title');
-  });
-
-  document.querySelectorAll('.reset-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const slot = btn.getAttribute('data-slot');
-      SpriteManager.clearSlot(slot);
-      buildPoseGrid(slot);
-    });
   });
 
   // ---- 2D / 3D view toggle (button appears once the 3D renderer loads) ----

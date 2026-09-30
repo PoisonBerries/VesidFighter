@@ -320,7 +320,7 @@ function updateEmbers(now) {
 
 // ---- Fighter cards ----
 
-function makeCard(z) {
+function makeCard(z, slot) {
   const c = document.createElement('canvas');
   c.width = Math.round(CARD_W * CARD_RES);
   c.height = Math.round(CARD_H * CARD_RES);
@@ -348,10 +348,19 @@ function makeCard(z) {
   blob.renderOrder = 1;
   scene.add(blob);
 
-  return { canvas: c, ctx: c.getContext('2d'), tex, mesh, blob, z, rotY: 0 };
+  // P1/P2-coloured ring on the floor around the feet (the 2D view's ring).
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.9, 1, 40),
+    new THREE.MeshBasicMaterial({ color: PLAYER_COLORS[slot], transparent: true, opacity: 0.85, depthWrite: false }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.renderOrder = 1;
+  scene.add(ring);
+
+  return { canvas: c, ctx: c.getContext('2d'), tex, mesh, blob, ring, z, rotY: 0 };
 }
 
-const cards = { p1: makeCard(0.03), p2: makeCard(-0.03) };
+const cards = { p1: makeCard(0.03, 'p1'), p2: makeCard(-0.03, 'p2') };
 
 function updateCard(card, f, dt) {
   const { ctx, canvas: c } = card;
@@ -380,6 +389,11 @@ function updateCard(card, f, dt) {
   card.blob.position.set(toX(f.x), 0.004, card.z);
   card.blob.scale.set(f.width * S * 0.42 * k * stretch, f.width * S * 0.16 * k, 1);
   card.blob.material.opacity = 0.38 * k;
+
+  card.ring.visible = card.blob.visible;
+  card.ring.position.set(toX(f.x), 0.006, card.z);
+  card.ring.scale.set(f.width * S * 0.52 * k * (1 + 0.9 * rig.lying), f.width * S * 0.2 * k, 1);
+  card.ring.material.opacity = 0.85 * k;
 }
 
 // ---- Projectiles + particles sheet ----
@@ -400,10 +414,14 @@ fxSheet.position.set(toX(CANVAS_WIDTH / 2), toY(fxCanvas.height / 2), 0.08);
 fxSheet.renderOrder = 3;
 scene.add(fxSheet);
 
-function updateFx(projectiles) {
+function updateFx(state) {
   fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
-  Renderer.drawProjectiles(fxCtx, projectiles);
+  Renderer.drawProjectiles(fxCtx, state.projectiles);
   Effects.draw(fxCtx);
+  // P1/P2 markers live on this flat sheet rather than on the fighter cards,
+  // which mirror when a fighter turns and would print the label backwards.
+  Renderer.drawPlayerMarker(fxCtx, state.p1);
+  Renderer.drawPlayerMarker(fxCtx, state.p2);
   fxTex.needsUpdate = true;
 }
 
@@ -461,9 +479,9 @@ function render(state) {
   if (state) {
     updateCard(cards.p1, state.p1, dt);
     updateCard(cards.p2, state.p2, dt);
-    updateFx(state.projectiles);
+    updateFx(state);
   } else {
-    for (const c of Object.values(cards)) { c.mesh.visible = false; c.blob.visible = false; }
+    for (const c of Object.values(cards)) { c.mesh.visible = false; c.blob.visible = false; c.ring.visible = false; }
     fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
     fxTex.needsUpdate = true;
   }

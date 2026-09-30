@@ -1,9 +1,7 @@
 // Optional per-character head portraits, shipped as real project assets
-// (assets/heads/<characterId>.png) rather than per-player localStorage
-// uploads -- these are for telling characters apart by default, before
-// anyone has uploaded their own cutout sprites. A character with no image
-// yet just falls back to the plain colored circle the placeholder already
-// draws, so adding these one at a time is always safe.
+// (assets/heads/<characterId>.png). A character with no image yet just
+// falls back to the plain colored circle the body already draws, so adding
+// these one at a time is always safe.
 
 const CharacterHeads = (() => {
   const images = {};

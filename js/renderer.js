@@ -1,5 +1,4 @@
-// All drawing: background/stage, fighters (custom sprite or procedural
-// placeholder), and in-fight HUD (health bars, timer, round pips).
+// All drawing: background/stage, fighters (procedural body), and in-fight HUD (health bars, timer, round pips).
 
 const Renderer = (() => {
   // ---- Stage ----------------------------------------------------------
@@ -348,16 +347,14 @@ const Renderer = (() => {
   }
 
   // opts.card: drawing onto a 3D paper card (renderer3d.js). The card is
-  // mirrored in 3D to face left, so draw facing right, and skip the fake
-  // ground shadow since the 3D scene casts a real one. Returns the frame's
-  // rig so the 3D view can shape its contact shadow the same way.
+  // mirrored in 3D to face left, so draw facing right, and skip the
+  // floor-level shadow/P1-P2 ring and the P1/P2 marker: the 3D view draws
+  // those itself (a real shadow, a floor ring, and the marker on its
+  // unmirrored effects layer). Returns the frame's rig so the 3D view can
+  // shape its shadow and ring the same way.
   function drawFighter(ctx, fighter, opts) {
     const card = !!(opts && opts.card);
     const facing = card ? 1 : fighter.facing;
-    const pose = fighter.currentPose();
-    const customImg = SpriteManager.getImage(fighter.slot, pose)
-      || SpriteManager.getImage(fighter.slot, 'idle');
-
     const rig = Animator.update(fighter, getBodyProfile(fighter.character.id), opts);
 
     const auraColor = getAuraColor(fighter);
@@ -383,6 +380,14 @@ const Renderer = (() => {
       ctx.beginPath();
       ctx.ellipse(fighter.x, GROUND_Y + 3, fighter.width * 0.34 * shadowScale * (1 + 1.1 * lying), 7 * shadowScale, 0, 0, Math.PI * 2);
       ctx.fill();
+      // Side-coloured ring under the feet: identifies P1/P2 even when both
+      // fighters look the same.
+      ctx.globalAlpha = 0.85 * shadowScale;
+      ctx.strokeStyle = PLAYER_COLORS[fighter.slot];
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.ellipse(fighter.x, GROUND_Y + 3, fighter.width * 0.46 * shadowScale * (1 + 0.9 * lying), 9 * shadowScale, 0, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
     }
 
@@ -415,14 +420,7 @@ const Renderer = (() => {
     else if (fighter.state === 'block') tint = { color: '#000000', alpha: 0.22 };
     else if (fighter.poisonTicksLeft > 0) tint = { color: '#78c85a', alpha: 0.3 };
 
-    if (customImg) {
-      // Uploaded sprites can't bend, so they get the same squash/stretch
-      // the procedural body uses for crouching and landing.
-      ctx.scale(1 + rig.crouch * 0.15, 1 - rig.crouch * 0.5);
-      drawCustomSprite(ctx, customImg, fighter);
-    } else {
-      drawPlaceholder(ctx, fighter, rig, tint);
-    }
+    drawPlaceholder(ctx, fighter, rig, tint);
 
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -430,6 +428,7 @@ const Renderer = (() => {
     if (fighter.blocking) {
       drawShieldIcon(ctx, fighter.x, fighter.y - fighter.height - 18);
     }
+    if (!card) drawPlayerMarker(ctx, fighter);
     return { lift: rig.lift, lying };
   }
 
@@ -482,13 +481,6 @@ const Renderer = (() => {
 
       ctx.restore();
     }
-  }
-
-  function drawCustomSprite(ctx, img, fighter) {
-    const aspect = img.width / img.height;
-    const targetHeight = fighter.height * 1.08;
-    const targetWidth = targetHeight * aspect;
-    ctx.drawImage(img, -targetWidth / 2, -targetHeight, targetWidth, targetHeight);
   }
 
   function drawShieldIcon(ctx, x, y) {
@@ -644,7 +636,7 @@ const Renderer = (() => {
 
   // ---- Per-character build: differentiates silhouette/stance beyond just
   // sizeScale, so e.g. Carlos reads as a hovering claw-fighter and Robert
-  // reads as stocky even before any custom sprite exists.
+  // reads as stocky at a glance.
   const DEFAULT_BODY_PROFILE = { limbWidth: 1, headScale: 1, stanceMul: 1, idleCrouch: 0, floaty: false, clawHands: false, dancer: false, reachBoost: 0, staggerMul: 1 };
   const BODY_PROFILES = {
     keenan: { limbWidth: 0.82, headScale: 1.05, stanceMul: 0.9, staggerMul: 1.25 },
@@ -718,7 +710,7 @@ const Renderer = (() => {
 
   // ---- Per-character costume accents, layered onto the base filled body so
   // the roster reads as distinct characters (not just recolored stick
-  // figures) even before anyone has a real body sprite uploaded.
+  // figures).
 
   // Drawn first, before the legs -- for anything that sits behind/under the
   // whole figure (Carlos's hover thrusters glowing beneath his feet).
@@ -878,7 +870,7 @@ const Renderer = (() => {
     }
   }
 
-  // ---- Procedural placeholder figure (used until real sprites are uploaded) ----
+  // ---- Procedural fighter body ----
   // All motion comes from the rig Animator.update() built for this frame;
   // this only turns those numbers into shapes.
   function drawPlaceholder(ctx, fighter, rig, tint) {
@@ -1137,36 +1129,117 @@ const Renderer = (() => {
     ctx.restore();
   }
 
+  // A small coloured pill ("P1", "YOU"). `x` is the left edge, or the right
+  // edge when alignRight; returns the pill's width so chips can be chained.
+  function drawSlotChip(ctx, x, cy, text, color, alignRight) {
+    ctx.save();
+    ctx.font = 'bold 13px sans-serif';
+    const w = ctx.measureText(text).width + 14, h = 19;
+    const left = alignRight ? x - w : x;
+    roundRectPath(ctx, left, cy - h / 2, w, h, 9);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, left + w / 2, cy + 1);
+    ctx.restore();
+    return w;
+  }
+
   function drawHUD(ctx, p1, p2) {
     const barW = 380;
     const barH = 26;
     const margin = 30;
     const gaugeW = 160;
+    const online = typeof Net !== 'undefined' && Net.isOnline();
+    const local = online ? Net.localSlot() : null;
+    const labels1 = Net.controlLabelsFor('p1'), labels2 = Net.controlLabelsFor('p2');
 
     drawHealthBar(ctx, margin, 30, barW, barH, p1.hp, p1.maxHp, false);
     drawHealthBar(ctx, CANVAS_WIDTH - margin - barW, 30, barW, barH, p2.hp, p2.maxHp, true);
+    // Side colour strip along the top of each bar.
+    ctx.fillStyle = PLAYER_COLORS.p1;
+    ctx.fillRect(margin, 26, barW, 3);
+    ctx.fillStyle = PLAYER_COLORS.p2;
+    ctx.fillRect(CANVAS_WIDTH - margin - barW, 26, barW, 3);
 
     drawSpecialGauge(ctx, margin, 60, gaugeW, 8, p1.specialCooldownTimer, p1.character.special.cooldown, false);
     drawSpecialGauge(ctx, CANVAS_WIDTH - margin - gaugeW, 60, gaugeW, 8, p2.specialCooldownTimer, p2.character.special.cooldown, true);
-    drawKeyBadge(ctx, margin + gaugeW + 8, 64, keyLabel(CONTROLS.p1.special), false);
-    drawKeyBadge(ctx, CANVAS_WIDTH - margin - gaugeW - 8, 64, keyLabel(CONTROLS.p2.special), true);
+    if (labels1) drawKeyBadge(ctx, margin + gaugeW + 8, 64, keyLabel(labels1.special), false);
+    if (labels2) drawKeyBadge(ctx, CANVAS_WIDTH - margin - gaugeW - 8, 64, keyLabel(labels2.special), true);
 
     drawUltGauge(ctx, margin, 74, gaugeW, 10, p1.ultCharge, false);
     drawUltGauge(ctx, CANVAS_WIDTH - margin - gaugeW, 74, gaugeW, 10, p2.ultCharge, true);
-    drawKeyBadge(ctx, margin + gaugeW + 8, 79, keyLabel(CONTROLS.p1.ultimate), false);
-    drawKeyBadge(ctx, CANVAS_WIDTH - margin - gaugeW - 8, 79, keyLabel(CONTROLS.p2.ultimate), true);
+    if (labels1) drawKeyBadge(ctx, margin + gaugeW + 8, 79, keyLabel(labels1.ultimate), false);
+    if (labels2) drawKeyBadge(ctx, CANVAS_WIDTH - margin - gaugeW - 8, 79, keyLabel(labels2.ultimate), true);
 
     drawRoundPips(ctx, margin, 99, p1.roundsWon, false);
     drawRoundPips(ctx, CANVAS_WIDTH - margin, 99, p2.roundsWon, true);
 
+    // Name plates: name, then a P1/P2 chip in the side colour, then "YOU"
+    // on the local player's plate when playing online.
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 20px sans-serif';
     ctx.textBaseline = 'top';
+    const name1 = p1.character.name + (p1.transformed ? ' – TRANSFORMED' : '');
+    const name2 = p2.character.name + (p2.transformed ? ' – TRANSFORMED' : '');
     ctx.textAlign = 'left';
-    ctx.fillText(p1.character.name + ' (P1)' + (p1.transformed ? ' – TRANSFORMED' : ''), margin, 4);
+    ctx.fillText(name1, margin, 3);
+    const w1 = ctx.measureText(name1).width;
     ctx.textAlign = 'right';
-    ctx.fillText(p2.character.name + ' (P2)' + (p2.transformed ? ' – TRANSFORMED' : ''), CANVAS_WIDTH - margin, 4);
+    ctx.fillText(name2, CANVAS_WIDTH - margin, 3);
+    const w2 = ctx.measureText(name2).width;
     ctx.textAlign = 'left';
+    let cx = margin + w1 + 10;
+    cx += drawSlotChip(ctx, cx, 15, 'P1', PLAYER_COLORS.p1, false) + 6;
+    if (local === 'p1') drawSlotChip(ctx, cx, 15, 'YOU', '#2c2c3a', false);
+    cx = CANVAS_WIDTH - margin - w2 - 10;
+    cx -= drawSlotChip(ctx, cx, 15, 'P2', PLAYER_COLORS.p2, true) + 6;
+    if (local === 'p2') drawSlotChip(ctx, cx, 15, 'YOU', '#2c2c3a', true);
+    ctx.textAlign = 'left';
+  }
+
+  // Floating tag above a fighter (Smash-style): a pill in the side colour,
+  // with "YOU" over it for the local player online. Stays readable when both
+  // fighters are the same character.
+  function drawPlayerMarker(ctx, fighter) {
+    const color = PLAYER_COLORS[fighter.slot];
+    const you = typeof Net !== 'undefined' && Net.isOnline() && Net.localSlot() === fighter.slot;
+    const cx = fighter.x;
+    const y = Math.max(140, fighter.y - fighter.height - (fighter.blocking ? 68 : 48));
+    const w = 36, h = 19;
+    ctx.save();
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, y + h / 2 - 1);
+    ctx.lineTo(cx + 6, y + h / 2 - 1);
+    ctx.lineTo(cx, y + h / 2 + 8);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    roundRectPath(ctx, cx - w / 2, y - h / 2, w, h, 9);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(fighter.slot === 'p1' ? 'P1' : 'P2', cx, y + 1);
+    if (you) {
+      ctx.font = 'bold 12px sans-serif';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.strokeText('YOU', cx, y - h / 2 - 8);
+      ctx.fillStyle = '#fff';
+      ctx.fillText('YOU', cx, y - h / 2 - 8);
+    }
+    ctx.restore();
   }
 
   function drawTimer(ctx, seconds) {
@@ -1206,6 +1279,7 @@ const Renderer = (() => {
     drawStage,
     buildBackdropCanvas,
     drawFighter,
+    drawPlayerMarker,
     drawProjectiles,
     drawHUD,
     drawTimer,
