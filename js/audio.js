@@ -164,6 +164,20 @@ const Sfx = (() => {
       tone({ f0: 620, f1: 260, dur: 0.22, vol: 0.22, delay: 0.14, pan });
       tone({ f0: 300, f1: 420, dur: 0.16, vol: 0.12, delay: 0.32, pan });
     },
+    // Hot potato: a rubbery volley bonk, and the explosion.
+    // heat (rally ball, 0-10) raises the pitch and adds a crack.
+    bonk(pan, heat) {
+      const k = 1 + (heat || 0) * 0.09;
+      tone({ f0: 420 * k, f1: 180 * k, dur: 0.12, vol: 0.32, pan });
+      tone({ type: 'triangle', f0: 880 * k, f1: 520 * k, dur: 0.07, vol: 0.12, pan });
+      noise({ filter: 'lowpass', f0: 1800, f1: 400, dur: 0.06, vol: 0.12, pan });
+      if (heat >= 4) noise({ filter: 'highpass', f0: 2500 + heat * 300, dur: 0.08, vol: 0.05 * heat, pan });
+    },
+    boom(pan) {
+      noise({ filter: 'lowpass', f0: 2600, f1: 90, q: 0.4, dur: 0.9, vol: 0.7, pan });
+      tone({ f0: 110, f1: 28, dur: 0.8, vol: 0.8, pan });
+      tone({ type: 'sawtooth', f0: 70, f1: 30, dur: 0.5, vol: 0.2, pan });
+    },
     tick() { tone({ type: 'square', f0: 520, dur: 0.11, vol: 0.13 }); },
     go() {
       tone({ type: 'square', f0: 780, dur: 0.32, vol: 0.16 });
@@ -236,6 +250,8 @@ const Sfx = (() => {
   // Hit sparks carry their result in the colour (see game.js resolveCombat).
   function impact(color, kind) {
     if (kind === 'muzzle' || !ensure()) return;
+    if (kind && kind.startsWith('ball')) { if (gate('bonk', 40)) SOUNDS.bonk(0, Number(kind.split(':')[1]) || 0); return; }
+    if (kind === 'boom') { if (gate('boom', 200)) SOUNDS.boom(0); return; }
     const c = (color || '').toLowerCase();
     if (c === '#9fd8ff') { if (gate('block', 40)) SOUNDS.block(0); }
     else if (c === '#ffffff') { if (gate('dodge', 80)) SOUNDS.dodge(0); }

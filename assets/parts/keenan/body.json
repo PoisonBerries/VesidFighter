@@ -1,0 +1,16 @@
+{
+  "headScale": 0.89,
+  "neckLength": 1.05,
+  "neckWidth": 1.33,
+  "torsoLength": 1.14,
+  "shoulders": 0.87,
+  "waist": 1.04,
+  "hips": 0.7,
+  "armScale": 1.18,
+  "armBulk": 0.89,
+  "handScale": 1.2,
+  "legLength": 1,
+  "legBulk": 0.95,
+  "footScale": 1,
+  "stanceMul": 0.9
+}

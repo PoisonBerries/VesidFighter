@@ -57,39 +57,54 @@ const BOTS = {
   passive() { return { think: () => 0 }; },
 };
 
-function playMatch(kinds, chars, seed) {
+// ball: the match's ball mode (default: the game's default, rally).
+function playMatch(kinds, chars, seed, ball) {
   const sim = createSim();
   let winner = null;
-  sim.Game.startMatch(chars[0], chars[1], (w) => { winner = w; });
+  sim.Game.startMatch(chars[0], chars[1], (w) => { winner = w; }, { ball });
   const brains = kinds.map((k, i) => (k.startsWith('cpu:')
     ? sim.Cpu.createBrain(i ? 'p2' : 'p1', k.slice(4), seed + i)
     : BOTS[k](sim, seed + i)));
   const lastHit = [-999, -999], seq = [0, 0], selfKO = [0, 0];
-  let prev = 'countdown';
+  const shots = [0, 0], ballDamage = [0, 0], damage = [0, 0];
+  let prev = 'countdown', prevShot = null;
   for (let f = 0; f < 16000 && !winner; f++) {
     const w = sim.Game.world();
     const fs = [w.p1, w.p2];
-    sim.Rollback.applyInput('p1', brains[0].think(w.p1, w.p2, w.projectiles, w.matchState));
-    sim.Rollback.applyInput('p2', brains[1].think(w.p2, w.p1, w.projectiles, w.matchState));
+    sim.Rollback.applyInput('p1', brains[0].think(w.p1, w.p2, w.projectiles, w.matchState, w.ball));
+    sim.Rollback.applyInput('p2', brains[1].think(w.p2, w.p1, w.projectiles, w.matchState, w.ball));
+    const hp = fs.map((F) => F.hp);
     sim.Game.update(sim.FIXED_STEP);
     fs.forEach((F, i) => { if (F.impactSeq !== seq[i]) { seq[i] = F.impactSeq; lastHit[i] = f; } });
+    // Ball play: live shots taken, and damage done by the ball (the frame a
+    // live ball hits, it gives the victim 20 frames of grace).
+    const b = sim.Game.world().ball;
+    if (b && sim.Game.getState() === 'fight') {
+      const shot = b.live ? b.lastHit + b.heat : null;
+      if (shot && shot !== prevShot) shots[b.lastHit === 'p1' ? 0 : 1]++;
+      prevShot = shot;
+      fs.forEach((F, i) => {
+        const d = hp[i] - F.hp;
+        if (d > 0) { damage[i] += d; if (b.grace[F.slot] === 20) ballDamage[i] += d; }
+      });
+    }
     const st = sim.Game.getState();
     // Fell off the stage without being hit in the last two seconds.
     if (st === 'roundEnd' && prev === 'fight') fs.forEach((F, i) => { if (F.hasFallenOff() && f - lastHit[i] > 120) selfKO[i]++; });
     prev = st;
   }
-  return { winner, selfKO };
+  return { winner, selfKO, shots, ballDamage, damage };
 }
 
 // Every character, on both sides, against a rotating opponent character.
-function series(a, b) {
+function series(a, b, ball) {
   const ids = createSim().CHARACTER_LIST.map((c) => c.id);
   let wins = 0, games = 0, unfinished = 0;
   const selfKO = [0, 0];
   ids.forEach((id, i) => {
     const other = ids[(i + 1) % ids.length];
     for (const flip of [false, true]) {
-      const r = flip ? playMatch([b, a], [other, id], 100 + i) : playMatch([a, b], [id, other], 100 + i);
+      const r = flip ? playMatch([b, a], [other, id], 100 + i, ball) : playMatch([a, b], [id, other], 100 + i, ball);
       const [ai, bi] = flip ? [1, 0] : [0, 1];
       games++;
       if (!r.winner) unfinished++;
@@ -109,14 +124,36 @@ test('the CPU never falls off the stage on its own (all difficulties, every char
   }
 });
 
-test('Normal CPU beats button-mashing, and holds its own against a frame-perfect rusher', () => {
+test('Normal CPU beats random button-mashing', () => {
   const mash = series('cpu:normal', 'masher');
   assert.ok(mash.rate >= 0.75, `beat the masher only ${(mash.rate * 100).toFixed(0)}% of the time`);
-  const rush = series('cpu:normal', 'rusher');
-  assert.ok(rush.rate >= 0.5, `beat the rusher only ${(rush.rate * 100).toFixed(0)}% of the time`);
+});
+
+// The rusher (walk in, punch when in range) stands in for a new player's
+// fighting: Easy should be easy to beat that way, and each level should be
+// harder than the last. Without the ball, since the rusher ignores it.
+test('difficulty ramps against a simple walk-in-and-punch player (no ball)', () => {
+  const [easy, normal, hard] = ['easy', 'normal', 'hard'].map((l) => series('cpu:' + l, 'rusher', 'off').rate);
+  const pct = (r) => (r * 100).toFixed(0) + '%';
+  assert.ok(easy <= 0.25, `Easy beat the rusher ${pct(easy)} of the time -- too hard`);
+  assert.ok(easy < normal && normal < hard, `levels out of order: easy ${pct(easy)}, normal ${pct(normal)}, hard ${pct(hard)}`);
+  assert.ok(hard >= 0.4, `Hard beat the rusher only ${pct(hard)} of the time -- too easy`);
 });
 
 test('difficulty levels are ordered: Hard beats Easy', () => {
   const r = series('cpu:hard', 'cpu:easy');
   assert.ok(r.rate >= 0.6, `Hard beat Easy only ${(r.rate * 100).toFixed(0)}% of the time`);
 });
+
+test('rally mode: CPUs really play the ball -- shots both ways, and it does real damage', () => {
+  let shots = [0, 0], ballDamage = 0, damage = 0;
+  for (const [i, chars] of [['ryan', 'carlos'], ['owen', 'sam'], ['nathan', 'john']].entries()) {
+    const r = playMatch(['cpu:normal', 'cpu:normal'], chars, 300 + i);
+    shots = shots.map((v, k) => v + r.shots[k]);
+    ballDamage += r.ballDamage[0] + r.ballDamage[1];
+    damage += r.damage[0] + r.damage[1];
+  }
+  assert.ok(shots[0] >= 6 && shots[1] >= 6, `too few live shots: ${shots}`);
+  assert.ok(ballDamage / damage >= 0.1, `the ball did only ${(ballDamage / damage * 100).toFixed(0)}% of the damage`);
+});
+

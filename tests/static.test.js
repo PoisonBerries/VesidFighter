@@ -18,6 +18,9 @@ const modules = localScripts(html, /<script type="module" src="([^"]+)"/g);
 // The sprite planner is its own page, sharing the game's scripts.
 const plannerHtml = fs.existsSync(path.join(ROOT, 'sprite-planner.html')) ? read('sprite-planner.html') : '';
 const plannerScripts = localScripts(plannerHtml, /<script src="([^"]+)"/g);
+// The Body Part Studio is its own page too.
+const studioHtml = fs.existsSync(path.join(ROOT, 'studio.html')) ? read('studio.html') : '';
+const studioScripts = localScripts(studioHtml, /<script src="([^"]+)"/g);
 
 // vm.Script can't parse import/export, so modules get node's own syntax check.
 function moduleSyntaxError(file) {
@@ -37,8 +40,36 @@ test('every local <script src> exists and parses', () => {
   }
 });
 
-test('every local <script src> in the sprite planner exists', () => {
+test('every local <script src> in the sprite planner and the Body Part Studio exists', () => {
   for (const s of plannerScripts) assert.ok(fs.existsSync(path.join(ROOT, s)), `sprite-planner.html: missing script ${s}`);
+  for (const s of studioScripts) assert.ok(fs.existsSync(path.join(ROOT, s)), `studio.html: missing script ${s}`);
+});
+
+test('assets/anim/moves.json: every assigned clip is listed and converted (tools/convert-mocap.js)', () => {
+  const file = path.join(ROOT, 'assets/anim/moves.json');
+  if (!fs.existsSync(file)) return;
+  const moves = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const clips = moves.clips || {};
+  const states = ['attack', 'hitstun', 'idle', 'walk', 'block', 'victory'];
+  for (const [who, uses] of Object.entries(moves.use || {})) {
+    for (const [state, id] of Object.entries(uses)) {
+      assert.ok(states.includes(state), `moves.json: ${who} assigns a clip to "${state}", which isn't a move clips can drive (${states.join(', ')})`);
+      assert.ok(clips[id], `moves.json: ${who}.${state} uses "${id}", which isn't in "clips"`);
+      assert.ok(fs.existsSync(path.join(ROOT, 'assets/anim', id + '.json')), `assets/anim/${id}.json is missing -- run node tools/convert-mocap.js`);
+    }
+  }
+});
+
+test('assets/parts/manifest.json lists only body-part drawings that exist (run tools/update-parts.py)', () => {
+  const file = path.join(ROOT, 'assets/parts/manifest.json');
+  if (!fs.existsSync(file)) return;
+  const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (const [id, parts] of Object.entries(manifest)) {
+    for (const part of parts) {
+      const file = part === 'body' ? 'body.json' : part + '.png';
+      assert.ok(fs.existsSync(path.join(ROOT, 'assets/parts', id, file)), `manifest lists assets/parts/${id}/${file}, which doesn't exist`);
+    }
+  }
 });
 
 test('every js file in js/ is loaded by index.html (no orphaned or forgotten scripts)', () => {

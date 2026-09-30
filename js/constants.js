@@ -116,3 +116,52 @@ function keyLabel(code) {
   if (code.startsWith('Digit')) return code.slice(5);
   return code;
 }
+
+// ---- The ball (see game.js) ----
+// Two modes:
+//  'rally' -- one ball in play all round, and it's your main weapon. Every
+//     hit makes it hotter and faster; a ball your opponent hit ("live") hurts
+//     you, more the hotter it is. Punches on each other do less damage: they
+//     are for winning control of the ball. Block just as it arrives to catch it.
+//  'bomb' -- the hot potato: a bomb-ball you volley at each other until its
+//     fuse runs out or it touches the floor, and it explodes.
+// 'off' plays without a ball.
+const BALL_MODES = ['rally', 'bomb', 'off'];
+const BALL_MODE = 'rally';
+const BALL_RADIUS = 24;          // visual/body-contact radius
+const BALL_HIT_RADIUS = 40;      // generous radius for attacks connecting with it
+const BALL_GRAVITY = 0.2;        // floaty, like a beach ball
+const BALL_MAX_FALL = 8;         // terminal fall speed from gravity alone
+const BALL_FUSE = 540;           // frames from drop to detonation (9s)
+const BALL_FIRST_SPAWN = 120;    // frames into a round before the first ball
+const BALL_RESPAWN = 300;        // frames between an explosion and the next ball
+const BALL_APPEAR = 50;          // frames it hovers, materialising, before it drops
+const BALL_SPAWN_Y = 140;
+const BALL_BODY_BOUNCE = 0.6;    // speed kept bouncing off a fighter's body (harmless)
+// Launch velocity [vx away from the hitter, vy] when an attack connects,
+// by where the hitter is and which way they hold: toward the opponent
+// drives it flatter and farther, away pops it up short.
+const BALL_HITS = {
+  ground: { neutral: [8, -7], toward: [10, -4.5], away: [4.5, -11] },
+  air: { neutral: [9, 4], toward: [11, 2], away: [6, -4] },
+};
+const BALL_STRONG_HIT = 1.2;     // specials and ultimates hit it harder
+const BALL_DRAG = 0.99;          // horizontal speed kept per frame
+const BALL_HITSTOP = 5;          // frames it freezes on a hit, for impact
+const BALL_BLAST_RADIUS = 170;
+const BALL_BLAST_DAMAGE = 20;
+
+// Rally mode.
+const RALLY_FIGHT_DAMAGE = 0.5;  // fighter-on-fighter damage multiplier (knockback is unchanged)
+const RALLY_MAX_HEAT = 10;
+const RALLY_SPEED = 6, RALLY_SPEED_PER_HEAT = 0.6; // launch speed at heat h: 6 + 0.6h (12 at max)
+const RALLY_LIVE_GRAVITY = 0.12; // a struck ball flies flatter
+const RALLY_LIVE_BOUNCES = 2;    // floor bounces before a live ball goes dead
+const RALLY_MIN_BOUNCE = 7;      // a loose ball keeps bouncing (always hittable)
+const RALLY_HEAT_DECAY = 22;     // frames per heat lost while the ball is loose
+const RALLY_FLOOR_HEAT = 2;      // heat lost every time it bounces on the floor: keep it up to keep it hot
+const RALLY_DAMAGE = 6, RALLY_DAMAGE_PER_HEAT = 2.5;
+const RALLY_CATCH_WINDOW = 12;   // block within this many frames of impact to catch
+const RALLY_HOLD = 45;           // frames you can hold a caught ball before it auto-throws
+const RALLY_RESPAWN = 90;        // after the ball falls off the stage (it shouldn't: walls keep it on)
+

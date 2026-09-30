@@ -559,105 +559,420 @@ const Renderer = (() => {
     return grad;
   }
 
-  function fillCapsule(ctx, x1, y1, x2, y2, r1, r2, fillStyle) {
-    const angle = Math.atan2(y2 - y1, x2 - x1);
-    const perp = angle + Math.PI / 2;
-    const cos = Math.cos(perp), sin = Math.sin(perp);
-    ctx.beginPath();
-    ctx.moveTo(x1 + cos * r1, y1 + sin * r1);
-    ctx.lineTo(x2 + cos * r2, y2 + sin * r2);
-    ctx.arc(x2, y2, r2, perp, perp + Math.PI, false);
-    ctx.lineTo(x1 - cos * r1, y1 - sin * r1);
-    ctx.arc(x1, y1, r1, perp + Math.PI, perp + Math.PI * 2, false);
-    ctx.closePath();
-    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-    ctx.fillStyle = bodyGradient(ctx, mx, my, cos, sin, Math.max(r1, r2), fillStyle);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-    ctx.lineWidth = 1.8;
-    ctx.stroke();
-  }
+  // ---- Body parts ----
+  // The figure is built from parts -- torso, neck, head, upper arm,
+  // forearm, fist, thigh, shin, shoe -- placed on joints the rig positions.
+  // Arms and legs are each drawn as ONE continuous shape from the shoulder
+  // to the wrist / hip to the ankle, swelling over the muscles, so knees and
+  // elbows bend instead of showing a seam. Every part can be replaced by a
+  // drawing (bodyArt.js); the procedural shapes below are the defaults.
+  // Lighting: one key light from the front and above (the way the fighter
+  // faces), deep shadow on the far side with a little bounce light, and a
+  // rim of the arena's pink-violet glow along the back edges. Outlines are
+  // thin and dark -- the form comes from the light, not the line.
+  const OUTLINE = 'rgba(8,5,14,0.72)';
+  const KEY = { x: 0.8, y: -0.6 };
+  const RIM = '#ffb0ec';
+  const WRAP = '#e4dac6';
+  const BOOT = '#1b161f';
+  const LEATHER = '#35271f';
+  const GLOVE = '#211a1f';
+  const METAL = '#b3aca1';
 
-  function fillJoint(ctx, x, y, r, fillStyle) {
-    const grad = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
-    grad.addColorStop(0, shadeColor(fillStyle, 24));
-    grad.addColorStop(1, shadeColor(fillStyle, -16));
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.lineWidth = 1.4;
-    ctx.stroke();
-  }
-
-  // Hip -> knee -> foot with a two-bone solve: both bones keep the same
-  // fixed length, and the knee bends forward (or up, for a kick) by however
-  // much the hip-to-foot distance requires. That's what keeps legs from
-  // stretching and squashing as feet lift, plant and kick.
-  // pointAmt (0-1) aims the foot along the shin (a kick) instead of flat
-  // on the ground; a lifted foot also tips toe-down.
-  function drawLeg(ctx, hipX, hipY, footX, footY, legLen, thickness, color, footColor, pointAmt) {
-    let dx = footX - hipX, dy = footY - hipY;
+  // Two-bone solve: bones keep their length and the middle joint (elbow or
+  // knee) bends by however much the end-to-end distance requires. `pick`
+  // chooses which of the two possible bends to use.
+  function solveTwoBone(x1, y1, x2, y2, len1, len2, pick) {
+    let dx = x2 - x1, dy = y2 - y1;
     let d = Math.hypot(dx, dy) || 0.001;
-    const maxD = legLen * 2 * 0.999;
-    if (d > maxD) {
-      dx *= maxD / d; dy *= maxD / d;
-      footX = hipX + dx; footY = hipY + dy;
-      d = maxD;
-    }
-    const bend = Math.sqrt(Math.max(0, legLen * legLen - (d / 2) * (d / 2)));
-    const kneeX = hipX + dx / 2 + (dy / d) * bend;
-    const kneeY = hipY + dy / 2 - (dx / d) * bend;
-    const rHip = thickness * 0.66, rKnee = thickness * 0.48, rFoot = thickness * 0.4;
-    fillCapsule(ctx, hipX, hipY, kneeX, kneeY, rHip, rKnee, color);
-    fillCapsule(ctx, kneeX, kneeY, footX, footY, rKnee, rFoot, footColor);
-    fillJoint(ctx, kneeX, kneeY, rKnee * 0.92, color);
-    const lifted = Math.min(1, Math.max(0, -footY / 25));
-    const shinAngle = Math.atan2(footY - kneeY, footX - kneeX);
-    const flat = 0.15 + lifted * 0.55;
-    const angle = flat + (shinAngle - flat) * (pointAmt || 0);
-    ctx.save();
-    ctx.translate(footX + rFoot * 0.5, footY + 1);
-    ctx.rotate(angle);
+    const maxD = (len1 + len2) * 0.999;
+    if (d > maxD) { dx *= maxD / d; dy *= maxD / d; x2 = x1 + dx; y2 = y1 + dy; d = maxD; }
+    const minD = Math.abs(len1 - len2) + 0.5;
+    if (d < minD) { dx *= minD / d; dy *= minD / d; x2 = x1 + dx; y2 = y1 + dy; d = minD; }
+    const a = (len1 * len1 - len2 * len2 + d * d) / (2 * d);
+    const h = Math.sqrt(Math.max(0, len1 * len1 - a * a));
+    const mx = x1 + (dx * a) / d, my = y1 + (dy * a) / d;
+    const A = { x: mx + (dy / d) * h, y: my - (dx / d) * h };
+    const B = { x: mx - (dy / d) * h, y: my + (dx / d) * h };
+    return { mid: pick(A, B), end: { x: x2, y: y2 } };
+  }
+
+  // Simple tapered segment (neck).
+  function drawSegment(ctx, x1, y1, x2, y2, r1, r2, color) {
+    const ang = Math.atan2(y2 - y1, x2 - x1);
     ctx.beginPath();
-    ctx.ellipse(0, 0, rFoot * 1.5, rFoot * 0.72, 0, 0, Math.PI * 2);
-    ctx.fillStyle = footColor;
+    ctx.arc(x1, y1, r1, ang + Math.PI / 2, ang - Math.PI / 2);
+    ctx.arc(x2, y2, r2, ang - Math.PI / 2, ang + Math.PI / 2);
+    ctx.closePath();
+    ctx.lineWidth = 2.6;
+    ctx.strokeStyle = OUTLINE;
+    ctx.stroke();
+    const nx = -Math.sin(ang), ny = Math.cos(ang), R = Math.max(r1, r2);
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    const g = ctx.createLinearGradient(mx - nx * R, my - ny * R, mx + nx * R, my + ny * R);
+    g.addColorStop(0, shadeColor(color, 12));
+    g.addColorStop(1, shadeColor(color, -30));
+    ctx.fillStyle = g;
     ctx.fill();
+  }
+
+  // Muscle profiles: limb radius (in body heights) along the limb, s from 0
+  // (shoulder / hip) through 1 (elbow / knee) to 2 (wrist / ankle).
+  const ARM_PROFILE = [[0, 0.037], [0.3, 0.039], [0.62, 0.033], [0.88, 0.026], [1, 0.025], [1.25, 0.03], [1.6, 0.024], [2, 0.019]];
+  const LEG_PROFILE = [[0, 0.064], [0.3, 0.059], [0.75, 0.046], [0.95, 0.038], [1, 0.037], [1.3, 0.043], [1.6, 0.035], [1.88, 0.027], [2, 0.025]];
+
+  function radiusAt(profile, s) {
+    for (let i = 1; i < profile.length; i++) {
+      if (s <= profile[i][0]) {
+        const [s0, r0] = profile[i - 1], [s1, r1] = profile[i];
+        let t = (s - s0) / (s1 - s0 || 1);
+        t = t * t * (3 - 2 * t);
+        return r0 + (r1 - r0) * t;
+      }
+    }
+    return profile[profile.length - 1][1];
+  }
+
+  // Sample a two-bone limb A-B-C: centre points with the side normal
+  // (blended across the joint so the outline bends smoothly) and radius.
+  function limbSamples(A, B, C, profile, scale) {
+    const N = 10;
+    const d1x = B.x - A.x, d1y = B.y - A.y, l1 = Math.hypot(d1x, d1y) || 1;
+    const d2x = C.x - B.x, d2y = C.y - B.y, l2 = Math.hypot(d2x, d2y) || 1;
+    const n1 = { x: -d1y / l1, y: d1x / l1 }, n2 = { x: -d2y / l2, y: d2x / l2 };
+    const blend = (w) => {
+      const x = n1.x * (1 - w) + n2.x * w, y = n1.y * (1 - w) + n2.y * w;
+      const l = Math.hypot(x, y) || 1;
+      return { x: x / l, y: y / l };
+    };
+    const out = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const n = t > 0.7 ? blend(((t - 0.7) / 0.3) * 0.5) : n1;
+      out.push({ x: A.x + d1x * t, y: A.y + d1y * t, n, r: radiusAt(profile, t) * scale, s: t });
+    }
+    for (let i = 1; i <= N; i++) {
+      const t = i / N;
+      const n = t < 0.3 ? blend(0.5 + (t / 0.3) * 0.5) : n2;
+      out.push({ x: B.x + d2x * t, y: B.y + d2y * t, n, r: radiusAt(profile, 1 + t) * scale, s: 1 + t });
+    }
+    return out;
+  }
+
+  function smoothThrough(ctx, pts, first) {
+    if (first) ctx.moveTo(pts[0].x, pts[0].y); else ctx.lineTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i + 1].x) / 2, (pts[i].y + pts[i + 1].y) / 2);
+    }
+    const l = pts[pts.length - 1];
+    ctx.lineTo(l.x, l.y);
+  }
+
+  // Outline path for the part of a limb between s0 and s1, with rounded
+  // ends where asked (and straight cuts elsewhere, e.g. a trouser hem).
+  function limbPath(ctx, S, s0, s1, capStart, capEnd, widen = 1) {
+    const sel = S.filter((p) => p.s >= s0 - 1e-6 && p.s <= s1 + 1e-6);
+    if (sel.length < 2) return false;
+    const L = sel.map((p) => ({ x: p.x + p.n.x * p.r * widen, y: p.y + p.n.y * p.r * widen }));
+    const R = sel.map((p) => ({ x: p.x - p.n.x * p.r * widen, y: p.y - p.n.y * p.r * widen }));
+    const first = sel[0], last = sel[sel.length - 1];
+    ctx.beginPath();
+    smoothThrough(ctx, L, true);
+    if (capEnd) {
+      const th = Math.atan2(last.n.y, last.n.x);
+      ctx.arc(last.x, last.y, last.r * widen, th, th - Math.PI, true);
+    } else {
+      ctx.lineTo(R[R.length - 1].x, R[R.length - 1].y);
+    }
+    smoothThrough(ctx, R.slice().reverse(), false);
+    if (capStart) {
+      const th = Math.atan2(first.n.y, first.n.x);
+      ctx.arc(first.x, first.y, first.r * widen, th + Math.PI, th, true);
+    }
+    ctx.closePath();
+    return true;
+  }
+
+  // Fill a limb section: dark outline first (the fill then covers its inner
+  // half, including any fold where a deep bend overlaps itself), then the
+  // key-lit fill, then the rim light along the shadow side.
+  function paintLimb(ctx, S, s0, s1, capStart, capEnd, color, widen = 1, rim = true) {
+    if (!limbPath(ctx, S, s0, s1, capStart, capEnd, widen)) return;
+    ctx.lineWidth = 2.2;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = OUTLINE;
+    ctx.stroke();
+    const mid = S.filter((p) => p.s >= s0 && p.s <= s1);
+    const m = mid[Math.floor(mid.length / 2)] || S[0];
+    const lit = m.n.x * KEY.x + m.n.y * KEY.y >= 0 ? 1 : -1;
+    const R = m.r * widen * 1.05;
+    const g = ctx.createLinearGradient(m.x + m.n.x * R * lit, m.y + m.n.y * R * lit, m.x - m.n.x * R * lit, m.y - m.n.y * R * lit);
+    g.addColorStop(0, shadeColor(color, 24));
+    g.addColorStop(0.28, shadeColor(color, 6));
+    g.addColorStop(0.62, shadeColor(color, -24));
+    g.addColorStop(0.86, shadeColor(color, -40));
+    g.addColorStop(1, shadeColor(color, -22)); // bounce light
+    ctx.fillStyle = g;
+    ctx.fill();
+    if (rim) {
+      const edge = mid.map((p) => ({ x: p.x - p.n.x * p.r * widen * 0.9 * lit, y: p.y - p.n.y * p.r * widen * 0.9 * lit }));
+      if (edge.length > 1) {
+        ctx.save();
+        ctx.globalAlpha *= 0.26;
+        ctx.strokeStyle = RIM;
+        ctx.lineWidth = 1.2;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        smoothThrough(ctx, edge, true);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    return lit;
+  }
+
+  // Muscle definition on a bare arm: where the deltoid meets the arm, the
+  // split between biceps and triceps, and the line down the forearm.
+  function armDefinition(ctx, S, skin, lit) {
+    const at = (s) => S.reduce((a, b) => (Math.abs(b.s - s) < Math.abs(a.s - s) ? b : a));
+    const line = (s0, s1, off0, off1) => {
+      const a = at(s0), b = at(s1);
+      ctx.beginPath();
+      ctx.moveTo(a.x + a.n.x * a.r * off0 * lit, a.y + a.n.y * a.r * off0 * lit);
+      const m = at((s0 + s1) / 2);
+      ctx.quadraticCurveTo(m.x + m.n.x * m.r * ((off0 + off1) / 2 + 0.12) * lit, m.y + m.n.y * m.r * ((off0 + off1) / 2 + 0.12) * lit,
+        b.x + b.n.x * b.r * off1 * lit, b.y + b.n.y * b.r * off1 * lit);
+      ctx.stroke();
+    };
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = shadeColor(skin, -35);
+    ctx.globalAlpha *= 0.28;
+    ctx.lineWidth = 1.1;
+    line(0.45, 0.88, 0.1, 0.18);    // biceps / triceps
+    line(1.1, 1.45, 0.3, 0.12);     // forearm
     ctx.restore();
   }
 
-  // Shoulder -> elbow -> hand, elbow offset perpendicular to the
-  // shoulder-hand line by `bend` (sign controls which way it bends).
-  function drawArm(ctx, shX, shY, handX, handY, bend, thickness, color, sleeveColor) {
-    const mx = (shX + handX) / 2, my = (shY + handY) / 2;
-    const dx = handX - shX, dy = handY - shY;
-    const len = Math.hypot(dx, dy) || 1;
-    const px = -dy / len, py = dx / len;
-    const elbowX = mx + px * bend, elbowY = my + py * bend;
-    const rSh = thickness * 0.5, rEl = thickness * 0.37, rHand = thickness * 0.32;
-    fillCapsule(ctx, shX, shY, elbowX, elbowY, rSh, rEl, color);
-    fillCapsule(ctx, elbowX, elbowY, handX, handY, rEl, rHand, sleeveColor);
-    fillJoint(ctx, elbowX, elbowY, rEl * 0.9, color);
+  // Leather bracer on the forearm: trim at both ends and a couple of studs.
+  function bracer(ctx, S, s0, s1, colors) {
+    paintLimb(ctx, S, s0, s1, false, false, colors.leather, 1.1);
+    const at = (s) => S.reduce((a, b) => (Math.abs(b.s - s) < Math.abs(a.s - s) ? b : a));
+    ctx.save();
+    ctx.lineCap = 'butt';
+    for (const t of [s0 + 0.03, s1 - 0.03]) {
+      const p = at(t);
+      ctx.strokeStyle = colors.trim;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(p.x + p.n.x * p.r * 1.1, p.y + p.n.y * p.r * 1.1);
+      ctx.lineTo(p.x - p.n.x * p.r * 1.1, p.y - p.n.y * p.r * 1.1);
+      ctx.stroke();
+    }
+    ctx.fillStyle = METAL;
+    for (const t of [s0 + (s1 - s0) * 0.38, s0 + (s1 - s0) * 0.68]) {
+      const p = at(t);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(1, p.r * 0.2), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // A boot: heel under the ankle, toe pointing along `angle`.
+  function drawBoot(ctx, x, y, angle, size, color) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.5, -size * 0.85);
+    ctx.lineTo(size * 0.35, -size * 0.8);
+    ctx.quadraticCurveTo(size * 0.55, -size * 0.35, size * 1.15, -size * 0.22);
+    ctx.quadraticCurveTo(size * 1.55, -size * 0.1, size * 1.5, size * 0.3);
+    ctx.lineTo(-size * 0.62, size * 0.3);
+    ctx.quadraticCurveTo(-size * 0.72, -size * 0.2, -size * 0.5, -size * 0.85);
+    ctx.closePath();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = OUTLINE;
+    ctx.stroke();
+    const g = ctx.createLinearGradient(0, -size, size * 0.6, size * 0.3);
+    g.addColorStop(0, shadeColor(color, 30));
+    g.addColorStop(1, shadeColor(color, -30));
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.fillStyle = shadeColor(color, -45); // sole
+    ctx.fillRect(-size * 0.62, size * 0.14, size * 2.1, size * 0.16);
+    ctx.restore();
+  }
+
+  // Hip -> knee -> ankle -> boot. Knees always bend forward.
+  function drawLeg(ctx, hip, foot, pointAmt, dims, colors, art) {
+    const { thigh, shin, foot: footSize, bulk } = dims;
+    const H = dims.H;
+    // Knees bend forward -- or, for a mocap clip, toward where the real knee was.
+    const h = foot.hint;
+    const pickKnee = h ? (A, B) => (Math.hypot(A.x - h.x, A.y - h.y) <= Math.hypot(B.x - h.x, B.y - h.y) ? A : B) : (A, B) => (A.x > B.x ? A : B);
+    const sol = solveTwoBone(hip.x, hip.y, foot.x, foot.y - footSize * 0.45, thigh, shin, pickKnee);
+    const knee = sol.mid, ankle = sol.end;
+    const lifted = Math.min(1, Math.max(0, -foot.y / 25));
+    const shinAng = Math.atan2(ankle.y - knee.y, ankle.x - knee.x) - Math.PI / 2;
+    const flat = lifted * 0.5;
+    const footAng = flat + (shinAng - flat) * (pointAmt || 0);
+    const toe = { x: ankle.x + Math.cos(footAng) * footSize * 1.4, y: ankle.y + Math.sin(footAng) * footSize * 1.4 };
+    const S = limbSamples(hip, knee, ankle, LEG_PROFILE, H * bulk);
+    if (!art.has('thigh') && !art.has('shin')) {
+      legShin(ctx, S, colors);
+      paintLimb(ctx, S, 0, 1.4, true, false, colors.pants, 1.04); // loose trousers, tucked into the wraps
+    } else {
+      art.draw('shin', knee, ankle, () => legShin(ctx, S, colors, true));
+      art.draw('thigh', hip, knee, () => paintLimb(ctx, S, 0, 1, true, true, colors.pants, 1.04));
+    }
+    art.draw('shoe', ankle, toe, () => partShoeAt(ctx, ankle, toe, footSize, colors));
+  }
+
+  function legShin(ctx, S, colors, alone) {
+    if (alone) paintLimb(ctx, S, 1, 1.4, true, false, colors.pants, 1.04);
+    paintLimb(ctx, S, 1.28, 2, false, true, colors.boot, 1.06);
+    paintLimb(ctx, S, 1.28, 1.36, false, false, colors.trim, 1.1, false);
+  }
+
+  function partShoeAt(ctx, A, B, size, colors) {
+    const ang = Math.atan2(B.y - A.y, B.x - A.x);
+    drawBoot(ctx, A.x - Math.sin(ang) * size * 0.35, A.y + Math.cos(ang) * size * 0.35, ang, size, colors.boot);
+  }
+
+  // Shoulder -> elbow -> fist. Elbows bend down and back, like a real guard.
+  function drawArm(ctx, shoulder, hand, dims, colors, profile, orb, accent, art, only) {
+    const { upper, fore, fist, bulk } = dims;
+    const H = dims.H;
+    // Elbows bend down and back -- or, for a mocap clip, toward the real elbow.
+    const h = hand.hint;
+    const pickElbow = h ? (A, B) => (Math.hypot(A.x - h.x, A.y - h.y) <= Math.hypot(B.x - h.x, B.y - h.y) ? A : B)
+      : (A, B) => ((A.y - A.x * 0.35) > (B.y - B.x * 0.35) ? A : B);
+    const sol = solveTwoBone(shoulder.x, shoulder.y, hand.x, hand.y, upper, fore, pickElbow);
+    const elbow = sol.mid, wrist = sol.end;
+    const ang = Math.atan2(wrist.y - elbow.y, wrist.x - elbow.x);
+    const knuckles = { x: wrist.x + Math.cos(ang) * fist * 1.4, y: wrist.y + Math.sin(ang) * fist * 1.4 };
+    const S = limbSamples(shoulder, elbow, wrist, ARM_PROFILE, H * bulk);
+    const upperArm = () => { const lit = paintLimb(ctx, S, 0, 1, true, true, colors.skin); armDefinition(ctx, S, colors.skin, lit); };
+    const forearm = () => { paintLimb(ctx, S, 1, 2, true, true, colors.skin); bracer(ctx, S, 1.42, 1.95, colors); };
+    if (only === 'upper') {
+      art.draw('upperArm', shoulder, elbow, upperArm);
+      return;
+    }
+    if (only === 'lower') {
+      art.draw('forearm', elbow, wrist, forearm);
+    } else if (!art.has('upperArm') && !art.has('forearm')) {
+      const lit = paintLimb(ctx, S, 0, 2, true, true, colors.skin);
+      armDefinition(ctx, S, colors.skin, lit);
+      bracer(ctx, S, 1.42, 1.95, colors);
+    } else {
+      art.draw('upperArm', shoulder, elbow, upperArm);
+      art.draw('forearm', elbow, wrist, forearm);
+    }
+    art.draw('fist', wrist, knuckles, () => partFistAt(ctx, wrist, knuckles, fist, colors, profile, accent));
+    if (orb > 0.02) {
+      ctx.save();
+      ctx.globalAlpha *= Math.min(1, orb);
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.arc(knuckles.x, knuckles.y, 7 * orb, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function partFistAt(ctx, A, B, r, colors, profile, accent) {
+    const ang = Math.atan2(B.y - A.y, B.x - A.x);
+    drawFist(ctx, A.x + Math.cos(ang) * r * 0.55, A.y + Math.sin(ang) * r * 0.55, ang, r, colors, profile, accent);
+  }
+
+  // A fist in a fingerless fighting glove: knuckles forward, thumb across,
+  // the fingers showing. Carlos gets claws.
+  function drawFist(ctx, x, y, ang, r, colors, profile, accent) {
+    if (profile.clawHands) { drawHand(ctx, x, y, profile, accent); return; }
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(ang);
+    const shape = () => {
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.75, -r * 0.8);
+      ctx.quadraticCurveTo(r * 0.85, -r * 1.1, r * 1.05, -r * 0.15);
+      ctx.quadraticCurveTo(r * 1.1, r * 0.85, -r * 0.05, r * 0.95);
+      ctx.quadraticCurveTo(-r * 0.95, r * 0.85, -r * 0.75, -r * 0.8);
+      ctx.closePath();
+    };
+    shape();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = OUTLINE;
+    ctx.stroke();
+    const g = ctx.createLinearGradient(-r, -r, r, r);
+    g.addColorStop(0, shadeColor(colors.glove, 35));
+    g.addColorStop(1, shadeColor(colors.glove, -20));
+    ctx.fillStyle = g;
+    ctx.fill();
+    // The fingers, curled over the front.
+    ctx.save();
+    shape();
+    ctx.clip();
+    const fg = ctx.createLinearGradient(0, -r, 0, r);
+    fg.addColorStop(0, shadeColor(colors.skin, 10));
+    fg.addColorStop(1, shadeColor(colors.skin, -30));
+    ctx.fillStyle = fg;
+    ctx.fillRect(r * 0.58, -r * 1.2, r * 0.6, r * 2.4);
+    ctx.restore();
+    ctx.strokeStyle = shadeColor(colors.skin, -50);
+    ctx.lineWidth = 1;
+    for (const t of [-0.35, 0.1, 0.52]) {
+      ctx.beginPath();
+      ctx.moveTo(r * 0.62, r * t);
+      ctx.lineTo(r * 1.02, r * t);
+      ctx.stroke();
+    }
+    // Knuckle pad and wrist strap.
+    ctx.strokeStyle = colors.trim;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.55, -r * 0.7);
+    ctx.lineTo(-r * 0.35, r * 0.85);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // ---- Per-character build: differentiates silhouette/stance beyond just
   // sizeScale, so e.g. Carlos reads as a hovering claw-fighter and Robert
   // reads as stocky at a glance.
-  const DEFAULT_BODY_PROFILE = { limbWidth: 1, headScale: 1, stanceMul: 1, idleCrouch: 0, floaty: false, clawHands: false, dancer: false, reachBoost: 0, staggerMul: 1, torsoWidth: 1, armScale: 1 };
+  // Build: shoulders/waist/hips scale the torso's widths, armBulk/legBulk
+  // the limbs' thickness (muscle), headScale the photo head.
+  // Body shape settings (all multipliers of the default, 1 = standard):
+  //   headScale, neckLength, neckWidth -- head and neck
+  //   torsoLength, shoulders, waist, hips -- torso length and breadths
+  //   armScale (length), armBulk (thickness), handScale
+  //   legLength, legBulk (thickness), footScale, stanceMul (feet apart)
+  // Plus movement flags the animator reads (idleCrouch, floaty, dancer, ...).
+  // A character's saved assets/parts/<id>/body.json, and live edits in the
+  // Body Part Studio, override these (see BodyArt.build).
+  const DEFAULT_BODY_PROFILE = {
+    headScale: 1, neckLength: 1, neckWidth: 1,
+    torsoLength: 1, shoulders: 1, waist: 1, hips: 1,
+    armScale: 1, armBulk: 1, handScale: 1,
+    legLength: 1, legBulk: 1, footScale: 1, stanceMul: 1,
+    idleCrouch: 0, floaty: false, clawHands: false, dancer: false, reachBoost: 0, staggerMul: 1,
+  };
   const BODY_PROFILES = {
-    keenan: { limbWidth: 0.82, headScale: 1.05, stanceMul: 0.9, staggerMul: 1.25 },
-    artur: { limbWidth: 1.0, stanceMul: 1.3, idleCrouch: 0.14 }, // squat frog stance
-    carlos: { limbWidth: 1.05, headScale: 0.95, floaty: true, clawHands: true, staggerMul: 0.85 },
-    nathan: { limbWidth: 0.78, headScale: 0.95, reachBoost: 26, armScale: 1.25, staggerMul: 1.2 }, // stretchy long arms and reach
-    owen: { limbWidth: 0.85, stanceMul: 0.95, staggerMul: 1.2 },
-    robert: { limbWidth: 1.3, headScale: 0.95, stanceMul: 1.2, staggerMul: 0.6 },
-    ryan: { limbWidth: 0.78, dancer: true, staggerMul: 1.3 },
-    sam: { limbWidth: 0.85, headScale: 1.05, stanceMul: 0.85, staggerMul: 1.3 },
-    john: { limbWidth: 1.4, headScale: 0.9, stanceMul: 1.3, torsoWidth: 1.45, staggerMul: 0.5 }, // broad, thicc frame
+    keenan: { headScale: 1.05, stanceMul: 0.9, staggerMul: 1.25, shoulders: 0.92, waist: 0.9, armBulk: 0.85, legBulk: 0.88 }, // small and wiry
+    artur: { stanceMul: 1.3, idleCrouch: 0.14, shoulders: 1.0, armBulk: 0.95, legBulk: 1.12 }, // squat frog stance, strong kicking legs
+    carlos: { headScale: 0.95, floaty: true, clawHands: true, staggerMul: 0.85, shoulders: 1.15, armBulk: 1.12, legBulk: 1.05 },
+    nathan: { headScale: 0.95, reachBoost: 26, armScale: 1.25, staggerMul: 1.2, shoulders: 0.95, waist: 0.9, armBulk: 0.82, legBulk: 0.9 }, // stretchy long arms and reach
+    owen: { stanceMul: 0.95, staggerMul: 1.2, shoulders: 0.9, waist: 0.92, armBulk: 0.85, legBulk: 0.9 },
+    robert: { headScale: 0.95, stanceMul: 1.2, staggerMul: 0.6, shoulders: 1.22, waist: 1.02, armBulk: 1.4, legBulk: 1.2 }, // stocky, muscular
+    ryan: { dancer: true, staggerMul: 1.3, shoulders: 0.95, waist: 0.85, armBulk: 0.85, legBulk: 0.92 },
+    sam: { headScale: 1.05, stanceMul: 0.85, staggerMul: 1.3, shoulders: 1.1, waist: 0.84, armBulk: 1.0, legBulk: 0.95 }, // swimmer's V-shape
+    john: { headScale: 0.9, stanceMul: 1.3, staggerMul: 0.5, shoulders: 1.3, waist: 1.38, hips: 1.3, armBulk: 1.3, legBulk: 1.3 }, // broad, thicc frame
   };
   function getBodyProfile(id) {
-    return { ...DEFAULT_BODY_PROFILE, ...(BODY_PROFILES[id] || {}) };
+    const custom = typeof BodyArt !== 'undefined' && BodyArt.build ? BodyArt.build(id) : null;
+    return { ...DEFAULT_BODY_PROFILE, ...(BODY_PROFILES[id] || {}), ...(custom || {}) };
   }
 
   // Judgment call made by looking at each shipped head photo: Artur and
@@ -668,51 +983,41 @@ const Renderer = (() => {
 
   // Fist for most characters; a small three-talon metal claw for Carlos
   // (his whole kit is "Iron Claw"), drawn in the accent color.
+  // Carlos's hand: a dark gauntlet with three steel claw blades, their
+  // edges catching his accent colour.
   function drawHand(ctx, x, y, profile, accent) {
-    if (profile.clawHands) {
-      ctx.save();
-      const palmGrad = ctx.createRadialGradient(x - 2, y - 2, 1, x, y, 7);
-      palmGrad.addColorStop(0, shadeColor(accent, 8));
-      palmGrad.addColorStop(1, shadeColor(accent, -18));
-      ctx.fillStyle = palmGrad;
+    ctx.save();
+    for (const deg of [-22, -2, 18]) {
+      const a = deg * Math.PI / 180;
+      const ux = Math.cos(a), uy = Math.sin(a);
+      const len = 17, w = 2.2;
+      const bx = x + ux * 4, by = y + uy * 4 - 1;
       ctx.beginPath();
-      ctx.arc(x, y, 6.5, 0, Math.PI * 2);
+      ctx.moveTo(bx - uy * w, by + ux * w);
+      ctx.quadraticCurveTo(bx + ux * len * 0.6 - uy * w * 0.9, by + uy * len * 0.6 + ux * w * 0.9, bx + ux * len, by + uy * len - 3);
+      ctx.lineTo(bx + uy * w, by - ux * w);
+      ctx.closePath();
+      const g = ctx.createLinearGradient(bx - uy * w, by + ux * w, bx + uy * w, by - ux * w);
+      g.addColorStop(0, '#6f737c');
+      g.addColorStop(0.5, '#e6e8ee');
+      g.addColorStop(1, shadeColor(accent, -10));
+      ctx.fillStyle = g;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-      ctx.strokeStyle = accent;
-      ctx.lineWidth = 4.5;
-      ctx.lineCap = 'round';
-      for (const deg of [-20, 0, 20]) {
-        const rad = deg * Math.PI / 180;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + Math.cos(rad) * 17, y + Math.sin(rad) * 17 - 5);
-        ctx.stroke();
-      }
-      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-      ctx.lineWidth = 0.8;
-      for (const deg of [-20, 0, 20]) {
-        const rad = deg * Math.PI / 180;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + Math.cos(rad) * 17, y + Math.sin(rad) * 17 - 5);
-        ctx.stroke();
-      }
-      ctx.restore();
-    } else {
-      const grad = ctx.createRadialGradient(x - 3, y - 3, 1, x, y, 10.5);
-      grad.addColorStop(0, shadeColor(accent, 24));
-      grad.addColorStop(1, shadeColor(accent, -14));
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(x, y, 10.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = OUTLINE;
+      ctx.lineWidth = 0.9;
       ctx.stroke();
     }
+    const palm = ctx.createRadialGradient(x - 2, y - 2, 1, x, y, 7);
+    palm.addColorStop(0, shadeColor(GLOVE, 40));
+    palm.addColorStop(1, GLOVE);
+    ctx.fillStyle = palm;
+    ctx.beginPath();
+    ctx.arc(x, y, 6.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.restore();
   }
 
   // ---- Per-character costume accents, layered onto the base filled body so
@@ -726,21 +1031,17 @@ const Renderer = (() => {
       // Glow fills the gap between his lifted feet and the actual ground
       // line (y=0), so the hover reads as thruster-supported rather than
       // an unexplained floating figure.
-      const pulse = 0.7 + Math.sin(performance.now() / 90) * 0.25;
+      const pulse = 0.75 + Math.sin(performance.now() / 90) * 0.2;
       const glowY = floatY * 0.25; // just under his feet, above the ground line
       ctx.save();
-      ctx.globalAlpha = pulse;
-      ctx.fillStyle = '#ffb238';
       for (const fx of [-9, 9]) {
+        const g = ctx.createRadialGradient(fx, glowY, 0, fx, glowY, 16);
+        g.addColorStop(0, `rgba(255,244,214,${0.95 * pulse})`);
+        g.addColorStop(0.3, `rgba(255,170,60,${0.7 * pulse})`);
+        g.addColorStop(1, 'rgba(255,120,30,0)');
+        ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.ellipse(fx, glowY, 11, 7, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = Math.min(1, pulse * 0.8);
-      ctx.fillStyle = '#fff3d6';
-      for (const fx of [-9, 9]) {
-        ctx.beginPath();
-        ctx.ellipse(fx, glowY, 5, 3.2, 0, 0, Math.PI * 2);
+        ctx.ellipse(fx, glowY, 16, 10, 0, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.restore();
@@ -879,160 +1180,529 @@ const Renderer = (() => {
 
   // ---- Procedural fighter body ----
   // All motion comes from the rig Animator.update() built for this frame;
-  // this only turns those numbers into shapes.
-  function drawPlaceholder(ctx, fighter, rig, tint) {
-    let color = fighter.displayColor;
-    let accent = fighter.displayAccent;
-    if (tint) {
-      color = mixColor(color, tint.color, tint.alpha);
-      accent = mixColor(accent, tint.color, tint.alpha);
-    }
-    const H = fighter.height;
-    const profile = getBodyProfile(fighter.character.id);
-    const id = fighter.character.id;
-    const bulk = fighter.transformed ? 1.18 : 1;
+  // this only turns those joint targets into body parts. Drawn facing right
+  // (drawFighter mirrors for left): back arm and leg first, then the hips,
+  // front leg, torso, head, and the front (striking) arm on top.
+  //
+  // Proportions are fighting-game heroic: about six heads tall, broad sloped
+  // shoulders, narrow waist, long legs. Outfit: sleeveless gi top with a V
+  // neck, sash, loose trousers tucked into wrapped shins, boots, taped fists.
+  const DEFAULT_SKIN = '#d9a07a';
+  // Default heights, in body heights from the floor: legs (hip joints at
+  // LEG + ANKLE), torso on top. Leg and torso length settings scale these.
+  const LEG = 0.48, ANKLE = 0.025, TORSO = 0.29;
 
+  // Body measurements in game pixels, for a character at height H. Shared by
+  // the game and by the part templates (partSpec) so they always agree.
+  function bodyDims(id, H, transformed) {
+    const profile = getBodyProfile(id);
+    const bulk = transformed ? 1.18 : 1;
+    const legBulk = profile.legBulk * bulk, armBulk = profile.armBulk * bulk;
+    return {
+      H, profile,
+      // Torso build factors (the torso is drawn turned three-quarters toward
+      // the way the fighter faces; see torsoOutline).
+      fs: profile.shoulders * bulk, fw: profile.waist * bulk, fh: profile.hips * bulk,
+      sw: H * 0.1 * profile.shoulders * bulk,    // chest depth, front to back (costume scaling)
+      pw: H * 0.085 * profile.hips * bulk,
+      leg: { H, thigh: H * LEG * 0.51 * profile.legLength, shin: H * LEG * 0.49 * profile.legLength, bulk: legBulk, foot: H * 0.052 * profile.footScale },
+      arm: { H, upper: H * 0.185 * profile.armScale, fore: H * 0.165 * profile.armScale, bulk: armBulk, fist: H * 0.036 * Math.max(0.92, armBulk * 0.85) * profile.handScale },
+      headH: H * 0.23 * profile.headScale,
+      neckR: H * 0.026 * Math.max(1, profile.shoulders * 0.95) * bulk * profile.neckWidth,
+      neckLen: H * 0.05 * profile.neckLength,
+      // Hip joints and the top of the shoulders, in body heights from the floor.
+      hipFrac: LEG * profile.legLength + ANKLE,
+      shoulderFrac: LEG * profile.legLength + ANKLE + TORSO * profile.torsoLength,
+    };
+  }
+
+  // Joint pairs for the torso, neck and head of an upright body
+  // (y up is negative, feet at 0). Shared by drawPlaceholder and partSpec.
+  function torsoJoints(d, shoulderY, hipY) {
+    const H = d.H;
+    const chinY = shoulderY - d.neckLen;
+    const headX = H * 0.018;
+    return {
+      torso: [{ x: 0, y: shoulderY - H * 0.03 }, { x: 0, y: hipY }],
+      neck: [{ x: H * 0.004, y: shoulderY + H * 0.01 }, { x: headX * 0.8, y: chinY + H * 0.014 }],
+      head: [{ x: headX, y: chinY }, { x: headX, y: chinY - d.headH }],
+    };
+  }
+
+  // Template geometry for each drawable part of a character, in template
+  // pixels (BodyArt.ART_SCALE per game pixel at the character's normal
+  // size): canvas size w x h, and the two joint points `a` and `b` the part
+  // hangs between. Limbs point down (a on top), fists and shoes point right
+  // (a = wrist / ankle, b = knuckles / toe tip), head and neck point up (a at
+  // the bottom). `rigid` parts (torso, neck, head) keep their width
+  // when their joints move closer together (a crouch squashes the torso).
+  function partSpec(id) {
+    const char = CHARACTERS[id];
+    const H = FIGHTER_HEIGHT * char.sizeScale;
+    const d = bodyDims(id, H, false);
+    const k = typeof BodyArt !== 'undefined' ? BodyArt.ART_SCALE : 3;
+    const J = torsoJoints(d, -H * d.shoulderFrac, -H * d.hipFrac);
+    const vert = (len, halfW, padTop, padBottom, up) => {
+      const w = Math.ceil(halfW * 2 * k), h = Math.ceil((len + padTop + padBottom) * k);
+      const top = { x: w / 2, y: padTop * k }, bottom = { x: w / 2, y: (padTop + len) * k };
+      return up ? { w, h, a: bottom, b: top } : { w, h, a: top, b: bottom };
+    };
+    const horiz = (len, halfH, padBack, padFront, yFrac) => {
+      const w = Math.ceil((len + padBack + padFront) * k), h = Math.ceil(halfH * 2 * k);
+      return { w, h, a: { x: padBack * k, y: h * yFrac }, b: { x: (padBack + len) * k, y: h * yFrac } };
+    };
+    const len = (p) => Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y);
+    const L = d.leg, A = d.arm;
+    const armR = (s) => radiusAt(ARM_PROFILE, s) * H * A.bulk;
+    const legR = (s) => radiusAt(LEG_PROFILE, s) * H * L.bulk * 1.04;
+    return {
+      H, dims: d,
+      head: { ...vert(d.headH, d.headH * 0.6, d.headH * 0.12, d.headH * 0.08, true), rigid: true },
+      neck: { ...vert(len(J.neck), d.neckR * 2.4, d.neckR, d.neckR * 0.6, true), rigid: true },
+      torso: { ...vert(len(J.torso), H * 0.125 * Math.max(d.fs, d.fw), H * 0.06, H * 0.04), rigid: true },
+      upperArm: vert(A.upper, armR(0) * 1.9, armR(0) * 1.3, armR(1) * 1.3),
+      forearm: vert(A.fore, armR(1.25) * 2.1, armR(1) * 1.3, armR(2) * 1.6),
+      fist: horiz(A.fist * 1.4, A.fist * 1.5, A.fist * 0.7, A.fist * 0.5, 0.5),
+      thigh: vert(L.thigh, legR(0) * 1.8, legR(0) * 1.2, legR(1) * 1.3),
+      shin: vert(L.shin, legR(1.3) * 2, legR(1) * 1.3, legR(2) * 1.6),
+      shoe: horiz(L.foot * 1.4, L.foot * 1.25, L.foot * 0.9, L.foot * 0.6, 0.62),
+    };
+  }
+
+  // Draw a hand-drawn part between game-space joints A and B, with the
+  // template's joint points a and b landing on them; darkened/tinted as
+  // needed. Returns false if there's no drawing, so the caller draws the
+  // procedural part instead.
+  function drawArtPart(ctx, id, part, A, B, H, shade, tint) {
+    if (typeof BodyArt === 'undefined') return false;
+    const img = BodyArt.get(id, part);
+    if (!img) return false;
+    const spec = partSpec(id)[part];
+    const src = BodyArt.shaded(id, part, img, shade, tint);
+    const imgW = img.naturalWidth || img.width;
+    const artAng = Math.atan2(spec.b.y - spec.a.y, spec.b.x - spec.a.x);
+    const artLen = Math.hypot(spec.b.x - spec.a.x, spec.b.y - spec.a.y) || 1;
+    const gameAng = Math.atan2(B.y - A.y, B.x - A.x);
+    const gameLen = Math.hypot(B.x - A.x, B.y - A.y);
+    // Across the part: the character's current size (buffs/transforms grow
+    // it). Along it: rigid parts stretch to their joints; limbs keep their
+    // proportions (their bones never change length anyway).
+    const across = (H / (FIGHTER_HEIGHT * CHARACTERS[id].sizeScale)) / BodyArt.ART_SCALE;
+    const along = spec.rigid ? gameLen / artLen : across;
+    ctx.save();
+    ctx.translate(A.x, A.y);
+    ctx.rotate(gameAng);
+    ctx.scale(along, across);
+    ctx.rotate(-artAng);
+    ctx.translate(-spec.a.x, -spec.a.y);
+    // A drawing saved at a different resolution than its template still
+    // lines up, as long as it keeps the template's proportions.
+    const r = spec.w / imgW;
+    ctx.scale(r, r);
+    ctx.drawImage(src, 0, 0);
+    ctx.restore();
+    return true;
+  }
+
+  function bodyColors(fighter, head, tint) {
+    const skin = (head && head.skin) || DEFAULT_SKIN;
+    const tinted = (c) => (tint ? mixColor(c, tint.color, tint.alpha) : c);
+    const base = fighter.displayColor;
+    return {
+      shirt: tinted(mixColor(base, '#0c0910', 0.38)),   // tunic: deep version of their colour
+      pants: tinted(mixColor(base, '#09070d', 0.8)),    // near-black trousers
+      trim: tinted(shadeColor(base, 12)),               // their colour, bright, as trim
+      sash: tinted(LEATHER),
+      leather: tinted(LEATHER),
+      glove: tinted(GLOVE),
+      boot: tinted(BOOT),
+      wrap: tinted(WRAP),
+      skin: tinted(skin),
+      accent: tinted(fighter.displayAccent),
+    };
+  }
+
+  // Art-or-procedural helper for one side of the body (shade 0 = near side).
+  function partPainter(ctx, id, H, shade, tint) {
+    return {
+      has: (part) => typeof BodyArt !== 'undefined' && !!BodyArt.get(id, part),
+      draw: (part, A, B, fallback) => { if (!drawArtPart(ctx, id, part, A, B, H, shade, tint)) fallback(); },
+    };
+  }
+
+  function drawPlaceholder(ctx, fighter, rig, tint) {
+    const id = fighter.character.id;
+    const H = fighter.height;
+    const d = bodyDims(id, H, fighter.transformed);
+    const profile = d.profile;
+    // (getInfo may be missing if the browser still has an older cached
+    // characterHeads.js; never let that stop the fighter being drawn.)
+    const head = CharacterHeads.getInfo ? CharacterHeads.getInfo(id) : null;
+
+    const colors = bodyColors(fighter, head, tint);
+    const accent = colors.accent;
+    // The far limbs sit in shadow, which is what sells the depth.
+    const back = {
+      ...colors, pants: shadeColor(colors.pants, -25), boot: shadeColor(colors.boot, -15),
+      skin: shadeColor(colors.skin, -14), wrap: shadeColor(colors.wrap, -16),
+    };
+    const near = partPainter(ctx, id, H, 0, tint), far = partPainter(ctx, id, H, 0.24, tint);
+
+    // Skeleton, in body heights (H) from the floor. Crouching lowers the hips
+    // and the legs fold to meet the floor.
     const crouchScale = 1 - rig.crouch;
     const floatY = rig.float;
-    const hipY = -H * 0.38 * crouchScale + floatY;
-    const shoulderY = -H * 0.72 * crouchScale + floatY;
-    const headY = -H * 0.86 * crouchScale + floatY;
-    const headR = H * 0.14 * profile.headScale;
-
-    const limbThickness = 15 * profile.limbWidth * bulk;
-    const sleeveColor = shadeColor(color, -22);
-    const bootColor = shadeColor(color, -30);
-    const legLen = H * 0.2; // fixed bone length: legs bend instead of stretching
-    const leg = (foot, point) => {
-      const hipX = Math.max(-7 * profile.torsoWidth, Math.min(7 * profile.torsoWidth, foot.x * 0.3));
-      drawLeg(ctx, hipX, hipY, foot.x, floatY + foot.y, legLen, limbThickness, color, bootColor, point);
-    };
+    const hipY = -H * d.hipFrac * crouchScale + floatY;
+    const shoulderY = -H * d.shoulderFrac * crouchScale + floatY;
+    const J = torsoJoints(d, shoulderY, hipY);
 
     drawBackAccessory(ctx, id, floatY);
 
-    // Legs are drawn before the torso lean is applied, so an attack's
-    // forward lean pivots from the hip without warping them.
-    leg(rig.fA, 0);
-    leg(rig.fB, rig.footPoint);
+    // Legs are placed before the torso lean is applied, so an attack's
+    // forward lean pivots at the hip without warping them.
+    // Side-on hips: the far leg starts just behind the near one.
+    const hipBack = { x: -H * 0.022 * d.fh, y: hipY };
+    const hipFront = { x: H * 0.026 * d.fh, y: hipY };
+    const footOf = (f, knee) => ({ x: f.x, y: floatY + f.y, hint: knee ? { x: knee.x, y: floatY + knee.y } : null });
 
-    ctx.save();
-    ctx.translate(0, hipY);
-    ctx.rotate(rig.lean * Math.PI / 180);
-    ctx.translate(0, -hipY);
+    // Upper body, leaned from the hip.
+    const lean = (fn) => {
+      ctx.save();
+      ctx.translate(0, hipY);
+      ctx.rotate(rig.lean * Math.PI / 180);
+      ctx.translate(0, -hipY);
+      fn();
+      ctx.restore();
+    };
+    const shY = shoulderY + H * 0.03;
+    // Three-quarter view: the near shoulder is at the top front of the
+    // chest, the far one tucked behind the upper back.
+    const shoulderFront = { x: H * 0.052 * d.fs, y: shY + H * 0.004 };
+    const shoulderBack = { x: -H * 0.042 * d.fs, y: shY - H * 0.006 };
+    // The rig gives hand targets relative to a single shoulder point at x=0.
+    const handOf = (a) => ({ x: a.x, y: shY + a.y, hint: a.ex !== undefined ? { x: a.ex, y: shY + a.ey } : null });
+    const [armBack, armFront] = rig.arms;
 
-    // The torso block (torso, neck, costume) is stretched sideways for broad
-    // characters; the head and limbs are drawn at normal width around it.
-    ctx.save();
-    ctx.scale(profile.torsoWidth, 1);
+    lean(() => drawArm(ctx, shoulderBack, handOf(armBack), d.arm, back, profile, armBack.orb, accent, far, 'upper'));
+    drawLeg(ctx, hipBack, footOf(rig.fA, rig.knees && rig.knees[0]), 0, d.leg, back, far);
+    drawLeg(ctx, hipFront, footOf(rig.fB, rig.knees && rig.knees[1]), rig.footPoint, d.leg, colors, near);
 
-    // Torso -- a filled body with a natural waist taper instead of a rigid
-    // straight-sided trapezoid, shaded like the limbs for consistent volume.
-    // Shoulders are kept at least as wide as the head so it reads as "head
-    // sits on shoulders" rather than a big head balanced on a narrow body.
-    const shoulderW = Math.max(limbThickness * 0.62, headR * 0.95), hipW = limbThickness * 0.5;
-    const waistY = shoulderY + (hipY - shoulderY) * 0.58;
-    const waistW = Math.min(shoulderW, hipW) * 0.82;
+    lean(() => near.draw('neck', J.neck[0], J.neck[1], () => partNeck(ctx, J.neck[0], J.neck[1], d, colors)));
+    lean(() => near.draw('torso', J.torso[0], J.torso[1], () => {
+      partTorso(ctx, d, shoulderY, hipY, colors);
+      torsoCostume(ctx, d, id, shoulderY, hipY, colors, fighter.transformed);
+      // Tabard hangs straight down (undo the lean) and trails the movement.
+      const sway = Math.max(-0.45, Math.min(0.45, -fighter.vx * 0.035 - rig.lean * Math.PI / 180 * 0.8));
+      partSash(ctx, d, hipY, colors, sway);
+    }));
+
+    // The far arm's forearm and fist come across the front of the body.
+    lean(() => drawArm(ctx, shoulderBack, handOf(armBack), d.arm, back, profile, armBack.orb, accent, far, 'lower'));
+
+    const drawHead = () => lean(() => near.draw('head', J.head[0], J.head[1], () => partHead(ctx, id, J.head[0], d, colors, head)));
+    const drawFrontArm = () => lean(() => drawArm(ctx, shoulderFront, handOf(armFront), d.arm, colors, profile, armFront.orb, accent, near));
+    // The front arm normally crosses in front of the head (a jab at face
+    // height); raised overhead, it goes behind so it doesn't cover the face.
+    if (handOf(armFront).y < shoulderY - H * 0.08) { drawFrontArm(); drawHead(); } else { drawHead(); drawFrontArm(); }
+  }
+
+  // Torso, three-quarters on and facing right: a real side silhouette --
+  // chest and pecs along the front, trapezius, shoulder blade, lats and the
+  // curve of the lower back along the back -- rather than a flat front view,
+  // so it matches the side-on legs and arms. Points in body heights.
+  function torsoOutline(d, sY, hipY) {
+    const { H, fs, fw, fh } = d;
+    const waistY = sY + (hipY - sY) * 0.7;
+    const p = (x, y) => ({ x: x * H, y });
+    return {
+      waistY,
+      front: [
+        p(0.028, sY - H * 0.03),                 // front of the neck
+        p(0.07 * fs, sY - H * 0.004),            // collarbone to the front delt
+        p(0.098 * fs, sY + H * 0.045),           // top of the chest
+        p(0.104 * fs, sY + H * 0.08),            // pec
+        p(0.088 * fs, sY + H * 0.115),           // under the pec
+        p(0.078 * fw, waistY),                   // stomach
+        p(0.084 * fh, hipY - H * 0.005),         // front of the hip
+        p(0.08 * fh, hipY + H * 0.02),
+      ],
+      back: [
+        p(-0.02, sY - H * 0.04),                 // back of the neck
+        p(-0.07 * fs, sY - H * 0.008),           // trapezius
+        p(-0.1 * fs, sY + H * 0.045),            // shoulder blade
+        p(-0.094 * fs, sY + H * 0.105),          // upper back
+        p(-0.068 * fw, waistY),                  // lower back curves in
+        p(-0.088 * fh, hipY - H * 0.005),        // glute
+        p(-0.084 * fh, hipY + H * 0.02),
+      ],
+    };
+  }
+
+  function torsoPath(ctx, d, shoulderY, hipY) {
+    const o = torsoOutline(d, shoulderY, hipY);
+    const back = o.back.slice().reverse();
     ctx.beginPath();
-    ctx.moveTo(-shoulderW, shoulderY);
-    ctx.lineTo(shoulderW, shoulderY);
-    ctx.quadraticCurveTo(shoulderW * 0.92, waistY, waistW, waistY);
-    ctx.quadraticCurveTo(hipW * 1.06, waistY, hipW, hipY);
-    ctx.lineTo(-hipW, hipY);
-    ctx.quadraticCurveTo(-hipW * 1.06, waistY, -waistW, waistY);
-    ctx.quadraticCurveTo(-shoulderW * 0.92, waistY, -shoulderW, shoulderY);
+    smoothThrough(ctx, o.front, true);
+    smoothThrough(ctx, back, false);
     ctx.closePath();
-    ctx.fillStyle = bodyGradient(ctx, 0, (shoulderY + hipY) / 2, 1, 0, shoulderW, color);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-    ctx.lineWidth = 1.8;
+    return o;
+  }
+
+  function partTorso(ctx, d, shoulderY, hipY, colors) {
+    const { H, fs } = d;
+    const o = torsoPath(ctx, d, shoulderY, hipY);
+    ctx.lineWidth = 2.2;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = OUTLINE;
     ctx.stroke();
-
-    // Neck -- bridges up into the underside of the head (drawn later, on
-    // top, so it naturally tucks under the chin) instead of leaving the
-    // head looking like it's floating just above the shoulders.
-    const neckW = headR * 0.4;
-    ctx.beginPath();
-    ctx.moveTo(-neckW, headY + headR * 0.5);
-    ctx.lineTo(neckW, headY + headR * 0.5);
-    ctx.lineTo(neckW * 1.35, shoulderY + 3);
-    ctx.lineTo(-neckW * 1.35, shoulderY + 3);
-    ctx.closePath();
-    ctx.fillStyle = shadeColor(color, -12);
+    // Lit from the front and above: the back of the body falls into shadow.
+    const g = ctx.createLinearGradient(-0.1 * H * fs, shoulderY + H * 0.1, 0.1 * H * fs, shoulderY);
+    g.addColorStop(0, shadeColor(colors.shirt, -45));
+    g.addColorStop(0.45, shadeColor(colors.shirt, -12));
+    g.addColorStop(0.8, shadeColor(colors.shirt, 12));
+    g.addColorStop(1, shadeColor(colors.shirt, 28));
+    ctx.fillStyle = g;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    // Rim light down the back.
+    ctx.save();
+    ctx.globalAlpha *= 0.3;
+    ctx.strokeStyle = RIM;
     ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    smoothThrough(ctx, o.back.slice(1, 5).map((p) => ({ x: p.x + H * 0.004, y: p.y })), true);
     ctx.stroke();
-
-    drawTorsoCostume(ctx, id, hipY, shoulderY, color, accent, fighter.transformed);
     ctx.restore();
 
-    // Arms: back arm first, then the front/striking arm. Hands and the
-    // charge orb fade with their blend weights so they never pop in.
-    const shY = shoulderY + 6;
-    for (const a of rig.arms) {
-      const hx = a.x, hy = shY + a.y;
-      drawArm(ctx, 0, shY, hx, hy, a.bend, limbThickness, color, sleeveColor);
-      if (a.hand > 0.02) {
-        ctx.save();
-        ctx.globalAlpha *= Math.min(1, a.hand);
-        drawHand(ctx, hx, hy, profile, accent);
-        ctx.restore();
-      }
-      if (a.orb > 0.02) {
-        ctx.save();
-        ctx.globalAlpha *= Math.min(1, a.orb);
-        ctx.fillStyle = accent;
-        ctx.beginPath();
-        ctx.arc(hx, hy, 7 * a.orb, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-    }
-
-    drawHeadAccessory(ctx, id, headY, headR, color);
-
-    // Head -- a real portrait if one's been shipped for this character,
-    // otherwise the plain colored circle. The body's own facing flip
-    // (applied once, up in drawFighter) makes a head that's naturally
-    // gazing/turned toward camera-left in its source photo appear to look
-    // backward exactly half the time; HEAD_FLIP_FIX corrects those specific
-    // photos with one constant extra mirror so the gaze always tracks the
-    // body's facing direction instead.
-    const headImg = CharacterHeads.getImage(fighter.character.id);
-    if (headImg) {
-      if (HEAD_FLIP_FIX.has(fighter.character.id)) {
-        ctx.save();
-        ctx.scale(-1, 1);
-        drawHeadImage(ctx, headImg, 0, headY, headR);
-        ctx.restore();
-      } else {
-        drawHeadImage(ctx, headImg, 0, headY, headR);
-      }
-    } else {
-      ctx.fillStyle = accent;
-      ctx.beginPath();
-      ctx.arc(0, headY, headR, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
+    ctx.save();
+    torsoPath(ctx, d, shoulderY, hipY);
+    ctx.clip();
+    // Crossover gi lapel: a diagonal from behind the neck down to the front
+    // of the chest, with the chest showing in front of it.
+    const lapTop = { x: -H * 0.012, y: shoulderY - H * 0.04 };
+    const lapBottom = { x: H * 0.078 * fs, y: shoulderY + H * 0.135 };
     ctx.beginPath();
-    ctx.arc(0, headY, headR, 0, Math.PI * 2);
+    ctx.moveTo(lapTop.x, lapTop.y);
+    ctx.lineTo(H * 0.2, shoulderY - H * 0.06);
+    ctx.lineTo(H * 0.2, lapBottom.y);
+    ctx.lineTo(lapBottom.x, lapBottom.y);
+    ctx.closePath();
+    const sk = ctx.createLinearGradient(0, 0, H * 0.1 * fs, 0);
+    sk.addColorStop(0, shadeColor(colors.skin, -22));
+    sk.addColorStop(1, shadeColor(colors.skin, 8));
+    ctx.fillStyle = sk;
+    ctx.fill();
+    // Pec shadow under the chest.
+    ctx.strokeStyle = shadeColor(colors.skin, -40);
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(H * 0.05 * fs, shoulderY + H * 0.1);
+    ctx.quadraticCurveTo(H * 0.085 * fs, shoulderY + H * 0.112, H * 0.1 * fs, shoulderY + H * 0.095);
     ctx.stroke();
-
+    // The lapel band itself.
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = 5.2;
+    ctx.beginPath(); ctx.moveTo(lapTop.x, lapTop.y); ctx.lineTo(lapBottom.x, lapBottom.y); ctx.stroke();
+    ctx.strokeStyle = colors.trim;
+    ctx.lineWidth = 3.2;
+    ctx.beginPath(); ctx.moveTo(lapTop.x, lapTop.y); ctx.lineTo(lapBottom.x, lapBottom.y); ctx.stroke();
+    // Cloth folds pulled toward the sash.
+    ctx.strokeStyle = shadeColor(colors.shirt, -32);
+    ctx.lineWidth = 1.2;
+    for (const [x0, x1] of [[-0.06, -0.035], [-0.02, 0.0], [0.03, 0.045]]) {
+      ctx.beginPath();
+      ctx.moveTo(H * x0 * fs, shoulderY + H * 0.14);
+      ctx.quadraticCurveTo(H * (x0 + 0.01) * fs, o.waistY - H * 0.04, H * x1 * fs, o.waistY - H * 0.005);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
-  function drawHeadImage(ctx, img, cx, cy, radius) {
+  // Leather belt with a metal buckle, and the ninja tabard: a cloth panel
+  // hanging from the belt to the knees, trimmed in the character's colour,
+  // swinging a little with movement (`sway`, radians).
+  function partSash(ctx, d, hipY, colors, sway = 0) {
+    const { H } = d;
+    const o = torsoOutline(d, hipY - (d.shoulderFrac - d.hipFrac) * H, hipY);
+    const y = o.waistY - H * 0.012, h = H * 0.034;
+    const xb = o.back[4].x - H * 0.006, xf = o.front[5].x + H * 0.006;
+
+    // Tabard, hanging from under the front of the belt.
+    const tx0 = H * 0.0, tx1 = xf - H * 0.004, top = y + h * 0.6;
+    const len = H * 0.26;
     ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.translate((tx0 + tx1) / 2, top);
+    ctx.rotate(sway);
+    const w0 = (tx1 - tx0) / 2, w1 = w0 * 1.15;
+    const panel = () => {
+      ctx.beginPath();
+      ctx.moveTo(-w0, 0);
+      ctx.lineTo(w0, 0);
+      ctx.quadraticCurveTo(w1 * 1.05, len * 0.5, w1, len);
+      ctx.lineTo(-w1, len);
+      ctx.quadraticCurveTo(-w1 * 1.05, len * 0.5, -w0, 0);
+      ctx.closePath();
+    };
+    panel();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = OUTLINE;
+    ctx.stroke();
+    const tg = ctx.createLinearGradient(-w1, 0, w1, len);
+    tg.addColorStop(0, shadeColor(colors.shirt, -30));
+    tg.addColorStop(0.6, shadeColor(colors.shirt, 4));
+    tg.addColorStop(1, shadeColor(colors.shirt, -20));
+    ctx.fillStyle = tg;
+    ctx.fill();
+    ctx.save();
+    panel();
     ctx.clip();
-    const aspect = img.width / img.height;
-    let dw, dh;
-    if (aspect > 1) { dh = radius * 2.1; dw = dh * aspect; } else { dw = radius * 2.1; dh = dw / aspect; }
-    ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+    ctx.strokeStyle = colors.trim;
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(-w0 + 2, 0); ctx.lineTo(-w1 + 2, len - 2); ctx.lineTo(w1 - 2, len - 2); ctx.lineTo(w0 - 2, 0);
+    ctx.stroke();
+    // An emblem in the trim colour.
+    ctx.fillStyle = colors.trim;
+    ctx.globalAlpha *= 0.85;
+    ctx.beginPath();
+    const ey = len * 0.35, er = Math.min(w0, len * 0.12);
+    ctx.moveTo(0, ey - er); ctx.lineTo(er * 0.7, ey); ctx.lineTo(0, ey + er); ctx.lineTo(-er * 0.7, ey);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
+    ctx.restore();
+
+    // Belt.
+    ctx.beginPath();
+    ctx.moveTo(xb, y + H * 0.004);
+    ctx.lineTo(xf, y - H * 0.004);
+    ctx.lineTo(xf + H * 0.002, y + h - H * 0.004);
+    ctx.lineTo(xb, y + h + H * 0.004);
+    ctx.closePath();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = OUTLINE;
+    ctx.stroke();
+    const g = ctx.createLinearGradient(xb, 0, xf, 0);
+    g.addColorStop(0, shadeColor(colors.sash, -35));
+    g.addColorStop(1, shadeColor(colors.sash, 18));
+    ctx.fillStyle = g;
+    ctx.fill();
+    // Buckle.
+    const bx = xf - H * 0.028, by = y - H * 0.002, bw = H * 0.03, bh = h + H * 0.004;
+    ctx.fillStyle = METAL;
+    ctx.fillRect(bx - bw / 2, by, bw, bh);
+    ctx.fillStyle = shadeColor(colors.sash, -20);
+    ctx.fillRect(bx - bw * 0.28, by + bh * 0.28, bw * 0.56, bh * 0.44);
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx - bw / 2, by, bw, bh);
+  }
+
+  // Per-character costume details, kept inside the torso's outline. (They
+  // were designed on a ~12px-wide chest, so they're stretched to fit.)
+  function torsoCostume(ctx, d, id, shoulderY, hipY, colors, transformed) {
+    ctx.save();
+    torsoPath(ctx, d, shoulderY, hipY);
+    ctx.clip();
+    ctx.scale(d.sw / 12, 1);
+    drawTorsoCostume(ctx, id, hipY, shoulderY, colors.shirt, colors.accent, transformed);
+    ctx.restore();
+  }
+
+  function partNeck(ctx, A, B, d, colors) {
+    drawSegment(ctx, A.x, A.y, B.x, B.y, d.neckR, d.neckR * 0.92, colors.skin);
+    // The chin casts a shadow down the neck.
+    ctx.save();
+    const g = ctx.createLinearGradient(B.x, B.y, A.x, A.y);
+    g.addColorStop(0, 'rgba(20,8,10,0.55)');
+    g.addColorStop(0.6, 'rgba(20,8,10,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(B.x, B.y, d.neckR * 1.05, 0, Math.PI * 2);
+    ctx.rect(Math.min(A.x, B.x) - d.neckR, Math.min(A.y, B.y), d.neckR * 2 + Math.abs(A.x - B.x), Math.abs(A.y - B.y));
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // The head: the character's cut-out photo with its chin at `chin`, or a
+  // plain drawn head until there is one.
+  function partHead(ctx, id, chin, d, colors, info) {
+    const img = CharacterHeads.getImage(id);
+    const headH = d.headH;
+    if (img && info) {
+      const bx = info.box;
+      const dw = bx.w * (headH / bx.h);
+      ctx.save();
+      ctx.translate(chin.x, 0);
+      // Photos looking toward camera-left get one extra mirror so the gaze
+      // follows the body's facing (see HEAD_FLIP_FIX).
+      if (HEAD_FLIP_FIX.has(id)) ctx.scale(-1, 1);
+      ctx.shadowColor = 'rgba(6,3,12,0.85)';
+      ctx.shadowBlur = Math.max(2, headH * 0.05);
+      ctx.drawImage(img, bx.x, bx.y, bx.w, bx.h, -dw / 2, chin.y - headH, dw, headH);
+      ctx.restore();
+      return;
+    }
+    // Hair/hood shapes were made for the plain drawn head.
+    drawHeadAccessory(ctx, id, chin.y - headH * 0.5, headH * 0.5, colors.shirt);
+    ctx.beginPath();
+    ctx.ellipse(chin.x, chin.y - headH * 0.48, headH * 0.36, headH * 0.47, 0, 0, Math.PI * 2);
+    ctx.lineWidth = 2.6;
+    ctx.strokeStyle = OUTLINE;
+    ctx.stroke();
+    ctx.fillStyle = colors.skin;
+    ctx.fill();
+  }
+
+  // A part template's guide: the current procedural part, drawn at template
+  // scale with its joints on the template's joint points, for the Body Part
+  // Studio to show faintly under the artist's drawing.
+  function drawPartGuide(ctx, id, part, fighterLike) {
+    const spec = partSpec(id);
+    const d = spec.dims;
+    const s = spec[part];
+    const k = BodyArt.ART_SCALE;
+    const info = CharacterHeads.getInfo ? CharacterHeads.getInfo(id) : null;
+    const colors = bodyColors(fighterLike, info, null);
+    const shoulderY = -d.H * d.shoulderFrac, hipY = -d.H * d.hipFrac;
+    const J = torsoJoints(d, shoulderY, hipY);
+    // Map game-space joints (A, B) onto the template's (a, b), then draw.
+    const onto = (A, B, fn) => {
+      const gameAng = Math.atan2(B.y - A.y, B.x - A.x);
+      const artAng = Math.atan2(s.b.y - s.a.y, s.b.x - s.a.x);
+      ctx.save();
+      ctx.translate(s.a.x, s.a.y);
+      ctx.rotate(artAng - gameAng);
+      ctx.scale(k, k);
+      ctx.translate(-A.x, -A.y);
+      fn();
+      ctx.restore();
+    };
+    // A straight limb hanging down, to cut single bones from.
+    const straight = (dims, profile, l1, l2) => {
+      const A = { x: 0, y: 0 }, B = { x: 0, y: l1 }, C = { x: 0, y: l1 + l2 };
+      return { A, B, C, S: limbSamples(A, B, C, profile, d.H * dims.bulk) };
+    };
+    const arm = straight(d.arm, ARM_PROFILE, d.arm.upper, d.arm.fore);
+    const leg = straight(d.leg, LEG_PROFILE, d.leg.thigh, d.leg.shin);
+    const flatSeg = (len) => [{ x: 0, y: 0 }, { x: len, y: 0 }];
+    switch (part) {
+      case 'torso':
+        return onto(J.torso[0], J.torso[1], () => {
+          partTorso(ctx, d, shoulderY, hipY, colors);
+          torsoCostume(ctx, d, id, shoulderY, hipY, colors, false);
+          partSash(ctx, d, hipY, colors);
+        });
+      case 'neck': return onto(J.neck[0], J.neck[1], () => partNeck(ctx, J.neck[0], J.neck[1], d, colors));
+      case 'head': return onto(J.head[0], J.head[1], () => partHead(ctx, id, J.head[0], d, colors, info));
+      case 'upperArm': return onto(arm.A, arm.B, () => { const lit = paintLimb(ctx, arm.S, 0, 1, true, true, colors.skin); armDefinition(ctx, arm.S, colors.skin, lit); });
+      case 'forearm': return onto(arm.B, arm.C, () => { paintLimb(ctx, arm.S, 1, 2, true, true, colors.skin); bracer(ctx, arm.S, 1.42, 1.95, colors); });
+      case 'fist': { const [A, B] = flatSeg(d.arm.fist * 1.4); return onto(A, B, () => partFistAt(ctx, A, B, d.arm.fist, colors, d.profile, colors.accent)); }
+      case 'thigh': return onto(leg.A, leg.B, () => paintLimb(ctx, leg.S, 0, 1, true, true, colors.pants, 1.04));
+      case 'shin': return onto(leg.B, leg.C, () => legShin(ctx, leg.S, colors, true));
+      case 'shoe': { const [A, B] = flatSeg(d.leg.foot * 1.4); return onto(A, B, () => partShoeAt(ctx, A, B, d.leg.foot, colors)); }
+      default: return undefined;
+    }
   }
 
   // ---- HUD ----
@@ -1292,6 +1962,9 @@ const Renderer = (() => {
     drawStage,
     buildBackdropCanvas,
     drawFighter,
+    partSpec,
+    drawPartGuide,
+    bodyProfile: getBodyProfile,
     drawPlayerMarker,
     drawProjectiles,
     drawHUD,

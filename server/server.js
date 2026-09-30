@@ -148,6 +148,7 @@ function buildDelta(room) {
   const f1 = diffObj(prev && prev.f && prev.f[1], full.f[1]);
   if (f0 || f1) { out.f = [f0 || {}, f1 || {}]; any = true; }
   if (!prev || !sameVal(prev.pr, full.pr)) { out.pr = full.pr; any = true; }
+  if (!prev || !sameVal(prev.bl, full.bl)) { out.bl = full.bl; any = true; }
   if (full.fx.length) { out.fx = full.fx; any = true; }
   return any ? out : null;
 }
@@ -255,7 +256,7 @@ function onMessage(ws, msg) {
     room.lastSent = null; // next snapshot is a full one
     Game.startMatch(msg.p1, msg.p2, (winner) => {
       broadcast(room, { t: 'matchEnd', winner });
-    });
+    }, { ball: msg.ball });
     room.running = true;
     broadcast(room, { t: 'start', p1: msg.p1, p2: msg.p2 });
   }

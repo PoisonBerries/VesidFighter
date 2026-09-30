@@ -471,7 +471,7 @@ test('Artur\'s kick is a low attack: nobody ducks it', () => {
 // Runs a real fight frame by frame: the target holds block (crouched), the
 // attacker throws one basic attack. Returns the HP the target lost.
 function crouchBlockedDamage(sim, attackerId, targetId, targetBlocks) {
-  sim.Game.startMatch(attackerId, targetId, () => {});
+  sim.Game.startMatch(attackerId, targetId, () => {}, { ball: 'off' }); // full damage numbers
   for (let i = 0; i < 200; i++) sim.Game.update(sim.FIXED_STEP);
   sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 560 }] });
   const before = sim.Game.getSnapshot().f[1].hp;
@@ -500,3 +500,221 @@ test('through the real game loop: a crouch ducks a high punch, but Artur\'s kick
   const chip = crouchBlockedDamage(sim, 'carlos', 'john', true);
   assert.ok(Math.abs(chip - hit.damage * 0.15) < 0.01, `a normal block should let 15% through, got ${chip} of ${hit.damage}`);
 });
+
+// ---- The ball: bomb mode ----
+
+// Starts a fight with the fighters placed and a ball set up as given.
+function ballScene(sim, ball, fighters, mode) {
+  sim.Game.startMatch('ryan', 'carlos', () => {}, { ball: mode || 'bomb' });
+  for (let i = 0; i < 181; i++) sim.Game.update(sim.FIXED_STEP); // countdown over, no ball yet
+  sim.Game.applySnapshot({
+    f: fighters || [{ x: 500 }, { x: 900 }],
+    bl: Object.assign({ phase: 'live', timer: 0, vx: 0, vy: 0, spin: 0, fuse: 540, lastHit: null, grace: { p1: 0, p2: 0 }, hitstop: 0, heat: 0, live: false, liveBounces: 0, cool: 0, heldBy: null, holdT: 0, blastX: 0, blastY: 0, blastT: 0 }, ball),
+  });
+}
+
+const step = (sim, n) => { for (let i = 0; i < n; i++) sim.Game.update(sim.FIXED_STEP); };
+
+test('bomb: a ball drops in shortly after the fight starts', () => {
+  const sim = createSim();
+  sim.Game.startMatch('ryan', 'carlos', () => {}, { ball: 'bomb' });
+  step(sim, 181);
+  assert.strictEqual(sim.Game.world().ball.phase, 'waiting');
+  step(sim, 200);
+  assert.notStrictEqual(sim.Game.world().ball.phase, 'waiting');
+});
+
+test('bomb: a punch from the ground bumps it up and toward the opponent', () => {
+  const sim = createSim();
+  // Ball hanging just in front of Ryan's fist.
+  ballScene(sim, { x: 590, y: 560 - 125 });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.attack, false, true);
+  step(sim, 1);
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.attack, false, false);
+  step(sim, 12);
+  const b = sim.Game.world().ball;
+  assert.strictEqual(b.lastHit, 'p1');
+  assert.ok(b.vx > 0 && b.vy < 0, `expected up and right, got vx ${b.vx} vy ${b.vy}`);
+});
+
+test('bomb: touching it is harmless -- it just bounces off your body', () => {
+  const sim = createSim();
+  // Dropping onto p2's head: pops back up, no damage.
+  ballScene(sim, { x: 900, y: 360, vy: 4 });
+  const hp0 = sim.Game.world().p2.hp;
+  step(sim, 25);
+  let b = sim.Game.world().ball;
+  assert.strictEqual(sim.Game.world().p2.hp, hp0, 'no damage from contact');
+  assert.strictEqual(sim.Game.world().p2.state === 'hitstun', false, 'no hitstun either');
+  assert.ok(b.vy < 0 && b.y < 560 - 160, `bounced up off the head (vy ${b.vy}, y ${b.y})`);
+
+  // Flying sideways into p2: comes back the other way.
+  ballScene(sim, { x: 800, y: 480, vx: 6, vy: -2 });
+  step(sim, 15);
+  b = sim.Game.world().ball;
+  assert.ok(b.vx < 0, `bounced back off the body (vx ${b.vx})`);
+  assert.strictEqual(sim.Game.world().p2.hp, hp0);
+});
+
+test('bomb: holding toward drives a hit flatter and farther, holding away pops it up', () => {
+  const launch = (hold) => {
+    const sim = createSim();
+    ballScene(sim, { x: 590, y: 560 - 125 });
+    if (hold) sim.InputManager.setVirtual(sim.VCONTROLS.p1[hold], true, false);
+    sim.InputManager.setVirtual(sim.VCONTROLS.p1.attack, false, true);
+    step(sim, 1);
+    sim.InputManager.setVirtual(sim.VCONTROLS.p1.attack, false, false);
+    let b;
+    for (let i = 0; i < 20; i++) { step(sim, 1); b = sim.Game.world().ball; if (b.lastHit) break; }
+    return { vx: b.vx, vy: b.vy };
+  };
+  const toward = launch('right'), neutral = launch(null), away = launch('left');
+  assert.ok(toward.vx > neutral.vx && neutral.vx > away.vx && away.vx > 0, 'always toward the opponent, farther when holding toward');
+  assert.ok(away.vy < neutral.vy && neutral.vy < toward.vy, 'higher when holding away');
+});
+
+test('bomb: it explodes on the floor, hurting whoever is close, then another comes', () => {
+  const sim = createSim();
+  ballScene(sim, { x: 620, y: 520, vy: 6 });
+  const w0 = sim.Game.world();
+  const hp1 = w0.p1.hp, hp2 = w0.p2.hp;
+  step(sim, 10);
+  const w = sim.Game.world();
+  assert.strictEqual(w.ball.phase, 'waiting');
+  assert.ok(w.ball.blastT > 0, 'blast flash');
+  assert.ok(hp1 - w.p1.hp > 10, 'p1 was next to it');
+  assert.strictEqual(hp2, w.p2.hp, 'p2 was far away');
+  step(sim, 300 + 60);
+  assert.notStrictEqual(sim.Game.world().ball.phase, 'waiting', 'a new ball arrives');
+});
+
+test('bomb: the fuse runs out mid-air and it explodes anyway', () => {
+  const sim = createSim();
+  ballScene(sim, { x: 700, y: 200, vy: -1, fuse: 5 });
+  step(sim, 6);
+  assert.strictEqual(sim.Game.world().ball.phase, 'waiting');
+});
+
+test('ball: can be turned off per match', () => {
+  const sim = createSim();
+  sim.Game.startMatch('ryan', 'carlos', () => {}, { ball: false });
+  step(sim, 800);
+  assert.strictEqual(sim.Game.world().ball, null);
+});
+
+// ---- The ball: rally mode (the default) ----
+
+const punch = (sim, slot, hold) => {
+  if (hold) sim.InputManager.setVirtual(sim.VCONTROLS[slot][hold], true, false);
+  sim.InputManager.setVirtual(sim.VCONTROLS[slot].attack, false, true);
+  step(sim, 1);
+  sim.InputManager.setVirtual(sim.VCONTROLS[slot].attack, false, false);
+};
+
+test('rally: the ball is there from the start, and a loose ball keeps bouncing forever', () => {
+  const sim = createSim();
+  sim.Game.startMatch('ryan', 'carlos', () => {});
+  assert.strictEqual(sim.Game.world().ballMode, 'rally');
+  step(sim, 181 + 60);
+  assert.strictEqual(sim.Game.world().ball.phase, 'live');
+  let top = Infinity;
+  for (let i = 0; i < 900; i++) { step(sim, 1); if (i > 600) top = Math.min(top, sim.Game.world().ball.y); }
+  assert.ok(top < 560 - 100, `still bouncing to punching height after 15s (top ${top})`);
+});
+
+test('rally: every hit heats the ball up and makes it faster', () => {
+  const sim = createSim();
+  const speedAt = (heat) => {
+    ballScene(sim, { x: 590, y: 560 - 125, heat }, null, 'rally');
+    punch(sim, 'p1');
+    for (let i = 0; i < 20; i++) { step(sim, 1); if (sim.Game.world().ball.live) break; }
+    const b = sim.Game.world().ball;
+    return { heat: b.heat, speed: Math.hypot(b.vx, b.vy), live: b.live, owner: b.lastHit };
+  };
+  const cold = speedAt(0), hot = speedAt(6);
+  assert.strictEqual(cold.heat, 1);
+  assert.strictEqual(hot.heat, 7);
+  assert.ok(cold.live && cold.owner === 'p1');
+  assert.ok(hot.speed > cold.speed * 1.4, `hotter is faster (${cold.speed} -> ${hot.speed})`);
+});
+
+test('rally: a live ball hurts the other fighter, more when hotter; a loose one does not', () => {
+  const sim = createSim();
+  const lossFrom = (ball) => {
+    ballScene(sim, Object.assign({ x: 800, y: 470, vx: 12, vy: 0 }, ball), null, 'rally');
+    const hp = sim.Game.world().p2.hp;
+    step(sim, 20);
+    return hp - sim.Game.world().p2.hp;
+  };
+  const loose = lossFrom({ live: false });
+  const warm = lossFrom({ live: true, liveBounces: 2, lastHit: 'p1', heat: 2 });
+  const hot = lossFrom({ live: true, liveBounces: 2, lastHit: 'p1', heat: 9 });
+  const own = lossFrom({ live: true, liveBounces: 2, lastHit: 'p2', heat: 9 });
+  assert.strictEqual(loose, 0, 'loose ball is harmless');
+  assert.strictEqual(own, 0, 'your own shot passes through you');
+  assert.ok(warm > 5 && hot > warm * 2, `hot hits harder (warm ${warm}, hot ${hot})`);
+  assert.strictEqual(sim.Game.world().ball.heat, 9, 'own shot keeps its heat');
+});
+
+test('rally: a fresh block catches a live ball and the next attack throws it back hotter', () => {
+  const sim = createSim();
+  ballScene(sim, { x: 760, y: 470, vx: 12, vy: 0, live: true, liveBounces: 2, lastHit: 'p1', heat: 4 }, null, 'rally');
+  const hp = sim.Game.world().p2.hp;
+  sim.InputManager.setVirtual(sim.VCONTROLS.p2.block, true, false);
+  step(sim, 14);
+  let b = sim.Game.world().ball;
+  assert.strictEqual(b.heldBy, 'p2', 'caught');
+  assert.strictEqual(sim.Game.world().p2.hp, hp, 'no damage when caught');
+  sim.InputManager.setVirtual(sim.VCONTROLS.p2.block, false, false);
+  step(sim, 2);
+  punch(sim, 'p2');
+  step(sim, 2);
+  b = sim.Game.world().ball;
+  assert.strictEqual(b.heldBy, null);
+  assert.ok(b.live && b.lastHit === 'p2' && b.heat === 5 && b.vx < 0, 'thrown back at p1, one hotter');
+});
+
+test('rally: blocking too early only deflects a live ball (with chip damage)', () => {
+  const sim = createSim();
+  ballScene(sim, { x: 600, y: 490, vx: 8, vy: -2, live: true, liveBounces: 2, lastHit: 'p1', heat: 6 }, null, 'rally');
+  const hp = sim.Game.world().p2.hp;
+  sim.InputManager.setVirtual(sim.VCONTROLS.p2.block, true, false);
+  step(sim, 45); // blocking the whole way: far longer than the catch window
+  sim.InputManager.setVirtual(sim.VCONTROLS.p2.block, false, false);
+  const b = sim.Game.world().ball;
+  const lost = hp - sim.Game.world().p2.hp;
+  assert.strictEqual(b.heldBy, null, 'not caught');
+  assert.strictEqual(b.live, false, 'deflected: no longer a live shot');
+  assert.ok(lost > 0 && lost < 4, `only chip damage (${lost})`);
+});
+
+test('rally: punches on each other do half damage', () => {
+  const sim = createSim();
+  const hit = (mode) => {
+    sim.Game.startMatch('ryan', 'carlos', () => {}, { ball: mode });
+    step(sim, 181);
+    sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 560 }] });
+    const hp = sim.Game.world().p2.hp;
+    punch(sim, 'p1');
+    step(sim, 20);
+    return hp - sim.Game.world().p2.hp;
+  };
+  const full = hit('off'), rally = hit('rally');
+  assert.ok(full > 0 && Math.abs(rally - full * 0.5) < 0.01, `rally ${rally} vs ${full}`);
+});
+
+test('rally: the ball never leaves the stage, and bouncing on the floor cools it', () => {
+  const sim = createSim();
+  // Smashed hard toward the edge: it bounces off the edge instead of falling off.
+  ballScene(sim, { x: 1000, y: 300, vx: 12, vy: 2, live: true, liveBounces: 2, lastHit: 'p1', heat: 8 }, [{ x: 400 }, { x: 600 }], 'rally');
+  let minHeat = 8;
+  for (let i = 0; i < 300; i++) {
+    step(sim, 1);
+    const b = sim.Game.world().ball;
+    assert.ok(b.x >= 160 && b.x <= 1120, `left the stage at x ${b.x}`);
+    minHeat = Math.min(minHeat, b.heat);
+  }
+  assert.strictEqual(sim.Game.world().ball.phase, 'live', 'still in play');
+  assert.strictEqual(minHeat, 0, 'floor bounces and time cooled it all the way down');
+});
+

@@ -16,6 +16,9 @@ const UI = (() => {
   let cpuMode = false;
   let cpuLevel = 'normal';
   try { cpuLevel = localStorage.getItem('vf_cpu_level') || 'normal'; } catch (e) { /* storage blocked */ }
+  // Ball mode for the match (constants.js BALL_MODES). Online, player 1's choice is used.
+  let ballMode = BALL_MODE;
+  try { const m = localStorage.getItem('vf_ball_mode'); if (BALL_MODES.includes(m)) ballMode = m; } catch (e) { /* storage blocked */ }
   if (!Cpu.LEVELS[cpuLevel]) cpuLevel = 'normal';
   const LEVEL_NAMES = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
   let isPaused = false;
@@ -158,6 +161,8 @@ const UI = (() => {
     document.getElementById('btn-fight').disabled = online && !Net.isLeader();
     document.getElementById('cpu-difficulty').classList.toggle('hidden', !cpuMode);
     syncDifficulty();
+    syncBallMode();
+    for (const b of document.querySelectorAll('#ball-mode button')) b.disabled = online && !Net.isLeader();
     buildCharCards('p1-cards', 'p1');
     buildCharCards('p2-cards', 'p2');
     refreshSelect();
@@ -197,7 +202,7 @@ const UI = (() => {
     if (Net.isOnline()) {
       if (!Net.isLeader()) return; // P1 drives match start
       const mid = Net.isRollback() ? Net.newMatchId() : undefined;
-      Net.sendCtrl({ t: 'start', p1: selected.p1, p2: selected.p2, mid });
+      Net.sendCtrl({ t: 'start', p1: selected.p1, p2: selected.p2, mid, ball: ballMode });
       if (Net.isServer()) return; // wait for the server to echo 'start'
       beginMatch(mid);
       return;
@@ -209,7 +214,7 @@ const UI = (() => {
     hideAll();
     window.VF_setPaused(false);
     isPaused = false;
-    Game.startMatch(selected.p1, selected.p2, onMatchEnd);
+    Game.startMatch(selected.p1, selected.p2, onMatchEnd, { ball: ballMode });
     if (cpuMode) Cpu.start('p2', cpuLevel, Date.now() >>> 0); else Cpu.stop();
     // Direct matches: both sides simulate from this exact starting state.
     if (Net.isRollback()) Net.startRollback(matchId);
@@ -250,6 +255,16 @@ const UI = (() => {
   });
   function syncDifficulty() {
     for (const b of document.querySelectorAll('#cpu-difficulty button')) b.classList.toggle('active', b.dataset.level === cpuLevel);
+  }
+  function syncBallMode() {
+    for (const b of document.querySelectorAll('#ball-mode button')) b.classList.toggle('active', b.dataset.ball === ballMode);
+  }
+  for (const b of document.querySelectorAll('#ball-mode button')) {
+    b.addEventListener('click', () => {
+      ballMode = b.dataset.ball;
+      try { localStorage.setItem('vf_ball_mode', ballMode); } catch (e) { /* storage blocked */ }
+      syncBallMode();
+    });
   }
   for (const b of document.querySelectorAll('#cpu-difficulty button')) {
     b.addEventListener('click', () => {
@@ -345,6 +360,7 @@ const UI = (() => {
     } else if (msg.t === 'start' && (Net.isRemoteSim() || (Net.isRollback() && !Net.isLeader())) && CHARACTERS[msg.p1] && CHARACTERS[msg.p2]) {
       selected.p1 = msg.p1;
       selected.p2 = msg.p2;
+      if (BALL_MODES.includes(msg.ball)) ballMode = msg.ball;
       beginMatch(msg.mid);
     } else if (msg.t === 'select') {
       openSelect();

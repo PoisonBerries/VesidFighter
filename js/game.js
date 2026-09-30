@@ -1,6 +1,7 @@
 // Match/round flow: countdown -> fight -> round end -> (next round or match
 // end). Also owns hit-detection between the two fighters each tick, the
-// projectile list (ranged specials/ultimates), and the ultimate-meter economy.
+// projectile list (ranged specials/ultimates), the ball and the
+// ultimate-meter economy.
 
 const Game = (() => {
   let p1 = null;
@@ -11,13 +12,18 @@ const Game = (() => {
   let roundMessage = '';
   let onMatchEnd = null; // callback(winnerSlot)
   let projectiles = [];
+  let ball = null; // see "The ball" below; null when off
+  let ballMode = BALL_MODE; // 'rally' | 'bomb' | 'off' (constants.js)
 
   function aabbOverlap(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
 
-  function startMatch(char1Id, char2Id, matchEndCallback) {
+  // opts.ball: 'rally' | 'bomb' | 'off' (or false) -- defaults to BALL_MODE.
+  function startMatch(char1Id, char2Id, matchEndCallback, opts) {
     onMatchEnd = matchEndCallback;
+    const m = opts && opts.ball;
+    ballMode = m === false ? 'off' : BALL_MODES.includes(m) ? m : BALL_MODE;
     const startX1 = STAGE_LEFT_EDGE + 220;
     const startX2 = STAGE_RIGHT_EDGE - 220;
     p1 = new Fighter('p1', CHARACTERS[char1Id], startX1, 1);
@@ -42,6 +48,7 @@ const Game = (() => {
     matchState = 'countdown';
     stateTimer = 3.0;
     projectiles = [];
+    ball = ballMode === 'off' ? null : freshBall(ballMode === 'rally' ? 1 : BALL_FIRST_SPAWN);
     Effects.reset();
   }
 
@@ -122,6 +129,7 @@ const Game = (() => {
 
     resolveCombat();
     updateProjectiles();
+    updateBall();
     checkTransforms();
     Effects.update();
 
@@ -146,8 +154,11 @@ const Game = (() => {
       return;
     }
     if (roundTimeLeft <= 0) {
-      if (p1.hp > p2.hp) endRound('p1');
-      else if (p2.hp > p1.hp) endRound('p2');
+      // Time up: whoever has more of their health left (not raw HP, which
+      // would hand every timeout to the big characters).
+      const r1 = p1.hp / p1.maxHp, r2 = p2.hp / p2.maxHp;
+      if (r1 > r2) endRound('p1');
+      else if (r2 > r1) endRound('p2');
       else endRound(null);
     }
   }
@@ -197,7 +208,7 @@ const Game = (() => {
       knockdownDuration = stats.knockdownDuration;
     }
 
-    dmg *= attacker.damageMultiplier;
+    dmg *= attacker.damageMultiplier * fightDamageMul();
 
     const result = defender.applyHit({
       damage: dmg, knockback: kb, knockbackUp: kbUp, hitstun: hs,
@@ -219,6 +230,11 @@ const Game = (() => {
     }
 
     spawnImpactEffect(attacker, defender, box, hurt, result, isSpecial || isUlt);
+  }
+
+  // In rally mode the ball is the main weapon; hitting each other does less.
+  function fightDamageMul() {
+    return ballMode === 'rally' ? RALLY_FIGHT_DAMAGE : 1;
   }
 
   function reflectBack(attacker, defender, dmg, kb, kbUp, hs) {
@@ -300,7 +316,7 @@ const Game = (() => {
         knockdown = true;
       }
 
-      const dmg = p.damage * p.owner.damageMultiplier;
+      const dmg = p.damage * p.owner.damageMultiplier * fightDamageMul();
       const result = defender.applyHit({
         damage: dmg, knockback: p.knockback, knockbackUp: p.knockbackUp, hitstun: p.hitstun,
         fromFacing: p.vx >= 0 ? 1 : -1,
@@ -315,6 +331,354 @@ const Game = (() => {
       Effects.shake(6, 10);
       projectiles.splice(i, 1);
     }
+  }
+
+  // ---- The ball ----
+  // One ball shared by both fighters; any attack that connects with it
+  // launches it toward whoever the attacker faces. Holding toward the
+  // opponent drives it flatter, holding away pops it up.
+  //
+  // 'rally' mode: the ball stays in play all round and is the main weapon.
+  // Each hit makes it hotter (faster, harder hitting) and "live" for the
+  // hitter: a live ball hurts the other fighter, more the hotter it is, then
+  // goes loose and cools off. A loose ball, or your own live one, is
+  // harmless. Blocking just as a live ball arrives catches it; your next
+  // attack throws it back. Late blocks only deflect it.
+  //
+  // 'bomb' mode: the hot potato. Touching it is harmless (it bounces off
+  // you), but it explodes when its fuse runs out or it touches the floor,
+  // then another comes after a pause.
+  //
+  // Plain data, so rollback can save it. phase: 'waiting' (timer until the
+  // next one), 'appearing' (hovering, harmless), 'live'. grace: frames a
+  // fighter can't touch it. hitstop: frames it hangs frozen after a hit.
+  // heat/live/liveBounces/cool/heldBy/holdT: rally state. blast*: the last
+  // explosion (bomb mode), for the renderers' flash.
+  function freshBall(delay, blast) {
+    return {
+      phase: 'waiting', timer: delay, x: 0, y: 0, vx: 0, vy: 0, spin: 0,
+      fuse: BALL_FUSE, lastHit: null, grace: { p1: 0, p2: 0 }, hitstop: 0,
+      heat: 0, live: false, liveBounces: 0, cool: 0, heldBy: null, holdT: 0, wallHit: false,
+      blastX: blast ? blast.x : 0, blastY: blast ? blast.y : 0, blastT: blast ? 30 : 0,
+    };
+  }
+
+  // Squared distance from a point to the nearest point of a rect.
+  function distSqToRect(px, py, r) {
+    const dx = Math.max(r.x - px, 0, px - (r.x + r.w));
+    const dy = Math.max(r.y - py, 0, py - (r.y + r.h));
+    return dx * dx + dy * dy;
+  }
+
+  const overStage = (x) => x > STAGE_LEFT_EDGE && x < STAGE_RIGHT_EDGE;
+  const otherOf = (f) => (f === p1 ? p2 : p1);
+
+  // One frame of flight. Also used by the CPU (cpu.js) to predict the ball.
+  function ballStep(b, mode) {
+    if (b.hitstop > 0) { b.hitstop--; return; } // frozen for a beat on impact
+    const live = mode === 'rally' && b.live;
+    if (live) b.vy += RALLY_LIVE_GRAVITY;
+    else if (b.vy < BALL_MAX_FALL) b.vy = Math.min(BALL_MAX_FALL, b.vy + BALL_GRAVITY);
+    b.vx *= live ? 0.998 : BALL_DRAG;
+    const prevY = b.y;
+    b.x += b.vx;
+    b.y += b.vy;
+    b.spin += b.vx * 0.04;
+
+    // Invisible walls and a ceiling keep it in play: at the screen edges for
+    // the bomb, at the platform edges in rally (it never leaves the stage).
+    const keep = live ? 0.95 : 0.8;
+    const left = mode === 'rally' ? STAGE_LEFT_EDGE + BALL_RADIUS : BALL_RADIUS;
+    const right = mode === 'rally' ? STAGE_RIGHT_EDGE - BALL_RADIUS : CANVAS_WIDTH - BALL_RADIUS;
+    if (b.x < left) { b.x = left; b.vx = Math.abs(b.vx) * keep; b.wallHit = true; }
+    if (b.x > right) { b.x = right; b.vx = -Math.abs(b.vx) * keep; b.wallHit = true; }
+    if (b.y < BALL_RADIUS + 10) { b.y = BALL_RADIUS + 10; b.vy = Math.abs(b.vy) * (live ? 0.9 : 0.5); }
+
+    // Rally: the floor bounces it. A loose ball never settles (it keeps
+    // bouncing to punching height); a live one goes loose after a bounce or two.
+    if (mode === 'rally' && overStage(b.x) && b.y + BALL_RADIUS >= GROUND_Y) {
+      if (prevY + BALL_RADIUS <= GROUND_Y + 1) {
+        b.y = GROUND_Y - BALL_RADIUS;
+        b.vy = -Math.max(Math.abs(b.vy) * (live ? 0.8 : 0.7), RALLY_MIN_BOUNCE);
+        b.vx *= 0.9;
+        if (live && --b.liveBounces <= 0) b.live = false;
+        if (b.heat > 0) { b.heat = Math.max(0, b.heat - RALLY_FLOOR_HEAT); b.cool = 0; }
+      } else {
+        // Came up under the lip from the void side: the stage is a wall.
+        const leftSide = b.x < (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2;
+        b.x = leftSide ? STAGE_LEFT_EDGE : STAGE_RIGHT_EDGE;
+        b.vx = (leftSide ? -1 : 1) * Math.abs(b.vx) * 0.5;
+      }
+    }
+  }
+
+  // How a hit launches the ball: [vx away from the hitter, vy]. Rally mode
+  // keeps the direction but sets the speed from the heat.
+  function ballLaunch(grounded, aim, strong, mode, heat) {
+    const t = BALL_HITS[grounded ? 'ground' : 'air'];
+    const v = aim > 0 ? t.toward : aim < 0 ? t.away : t.neutral;
+    if (mode === 'rally') {
+      const speed = RALLY_SPEED + RALLY_SPEED_PER_HEAT * heat;
+      const len = Math.sqrt(v[0] * v[0] + v[1] * v[1]);
+      return [v[0] / len * speed, v[1] / len * speed];
+    }
+    const k = strong ? BALL_STRONG_HIT : 1;
+    return [v[0] * k, v[1] * k];
+  }
+
+  function updateBall() {
+    if (!ball) return;
+    const b = ball;
+    if (b.blastT > 0) b.blastT--;
+    if (b.grace.p1 > 0) b.grace.p1--;
+    if (b.grace.p2 > 0) b.grace.p2--;
+
+    if (b.phase === 'waiting') {
+      if (--b.timer > 0) return;
+      // Materialise above the middle (rally) or between the fighters (bomb).
+      b.phase = 'appearing';
+      b.timer = BALL_APPEAR;
+      const mid = ballMode === 'rally' ? (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2 : (p1.x + p2.x) / 2;
+      b.x = Math.max(STAGE_LEFT_EDGE + 120, Math.min(STAGE_RIGHT_EDGE - 120, mid));
+      b.y = BALL_SPAWN_Y;
+      b.vx = 0; b.vy = 0;
+      b.fuse = BALL_FUSE;
+      b.lastHit = null;
+      return;
+    }
+    if (b.phase === 'appearing') {
+      if (--b.timer > 0) return;
+      b.phase = 'live';
+    }
+
+    if (b.heldBy) { updateHeldBall(b); return; }
+
+    if (ballMode === 'bomb') b.fuse--;
+    if (ballMode === 'rally' && !b.live && b.heat > 0 && ++b.cool >= RALLY_HEAT_DECAY) {
+      b.cool = 0;
+      b.heat--; // a loose ball cools off
+    }
+    b.wallHit = false;
+    ballStep(b, ballMode);
+    if (b.wallHit && Math.abs(b.vx) > 2) Effects.spawnHitSpark(b.x + Math.sign(b.vx) * -BALL_RADIUS, b.y, '#b3a5d9', 'muzzle');
+
+    ballVsAttack(p1);
+    ballVsAttack(p2);
+    ballVsProjectiles();
+    if (ballMode === 'rally') {
+      ballVsBodyRally(p1);
+      ballVsBodyRally(p2);
+    } else {
+      ballVsBody(p1);
+      ballVsBody(p2);
+    }
+    if (ball !== b) return;
+
+    if (ballMode === 'bomb' && (b.fuse <= 0 || (overStage(b.x) && b.y + BALL_RADIUS >= GROUND_Y))) {
+      if (overStage(b.x)) b.y = Math.min(b.y, GROUND_Y - BALL_RADIUS);
+      explodeBall();
+    } else if (b.y > RING_OUT_Y + 100) {
+      // Fell into the void: gone, no blast.
+      ball = freshBall(ballMode === 'rally' ? RALLY_RESPAWN : BALL_RESPAWN);
+    }
+  }
+
+  function ballVsAttack(f) {
+    const b = ball;
+    if (b.grace[f.slot] > 0) return;
+    // An attack that already hit the opponent is spent (getHitbox is null);
+    // hitting the ball doesn't spend it, so one swing can do both.
+    const box = f.getHitbox();
+    if (!box || distSqToRect(b.x, b.y, box) > BALL_HIT_RADIUS * BALL_HIT_RADIUS) return;
+    launchBall(f, f.state !== 'attack');
+  }
+
+  function launchBall(f, strong) {
+    const b = ball;
+    if (ballMode === 'rally') {
+      b.heat = Math.min(RALLY_MAX_HEAT, b.heat + (strong ? 2 : 1));
+      b.live = true;
+      b.liveBounces = RALLY_LIVE_BOUNCES;
+      b.cool = 0;
+      b.hitstop = 3 + Math.round(b.heat * 0.6); // hotter hits hang longer
+    } else {
+      b.hitstop = BALL_HITSTOP;
+    }
+    const [vx, vy] = ballLaunch(f.grounded, f.aim, strong, ballMode, b.heat);
+    b.vx = f.facing * vx;
+    b.vy = vy;
+    b.lastHit = f.slot;
+    b.grace[f.slot] = 14 + b.hitstop;
+    b.grace[otherOf(f).slot] = 0;
+    Effects.spawnHitSpark(b.x, b.y, '#fff3b0', 'ball:' + b.heat);
+    Effects.spawnHitSpark(b.x, b.y, ballColor(b), 'muzzle');
+    Effects.shake(4 + b.heat * 0.6, 7);
+  }
+
+  // Owen's plasma and Ryan's soundwave knock it away too (and are used up).
+  function ballVsProjectiles() {
+    const b = ball;
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      const pbox = { x: p.x - p.w / 2, y: p.y - p.h / 2, w: p.w, h: p.h };
+      if (distSqToRect(b.x, b.y, pbox) > BALL_RADIUS * BALL_RADIUS) continue;
+      const [vx, vy] = ballLaunch(true, 0, false, ballMode, b.heat);
+      b.vx = (p.vx >= 0 ? 1 : -1) * vx;
+      b.vy = vy;
+      b.lastHit = p.owner.slot;
+      if (ballMode === 'rally') { b.live = true; b.liveBounces = RALLY_LIVE_BOUNCES; b.cool = 0; }
+      Effects.spawnHitSpark(b.x, b.y, p.color, 'ball:' + b.heat);
+      projectiles.splice(i, 1);
+    }
+  }
+
+  // Running into it (or it landing on you) doesn't hurt: it bounces off
+  // your body, keeping some of its speed, plus a bit of your movement.
+  function ballVsBody(f) {
+    const b = ball;
+    if (f.state === 'ko' || b.grace[f.slot] > 0) return;
+    const r = f.getHurtbox();
+    if (distSqToRect(b.x, b.y, r) > BALL_RADIUS * BALL_RADIUS) return;
+
+    // Surface normal at the closest point of the body (straight out if the
+    // ball's centre is already inside it).
+    const cx = Math.max(r.x, Math.min(r.x + r.w, b.x));
+    const cy = Math.max(r.y, Math.min(r.y + r.h, b.y));
+    let nx = b.x - cx, ny = b.y - cy;
+    if (nx === 0 && ny === 0) { nx = b.x >= f.x ? 1 : -1; ny = -0.5; }
+    const len = Math.sqrt(nx * nx + ny * ny);
+    nx /= len; ny /= len;
+
+    const dot = b.vx * nx + b.vy * ny;
+    if (dot < 0) {
+      b.vx = (b.vx - 2 * dot * nx) * BALL_BODY_BOUNCE;
+      b.vy = (b.vy - 2 * dot * ny) * BALL_BODY_BOUNCE;
+    }
+    b.vx += f.vx * 0.5;
+    // Always leave with some speed, and pop up off heads so it can't sit there.
+    const out = b.vx * nx + b.vy * ny;
+    if (out < 3) { b.vx += nx * (3 - out); b.vy += ny * (3 - out); }
+    if (ny < -0.7) b.vy = Math.min(b.vy, -6);
+    b.x = cx + nx * (BALL_RADIUS + 1);
+    b.y = cy + ny * (BALL_RADIUS + 1);
+    b.grace[f.slot] = 8;
+    Effects.spawnHitSpark(b.x, b.y, '#d8cfee', 'ball:0');
+  }
+
+  // Rally: a live ball from the other fighter hits (or is caught); anything
+  // else just bounces off harmlessly.
+  function ballVsBodyRally(f) {
+    const b = ball;
+    if (f.state === 'ko' || b.grace[f.slot] > 0) return;
+    if (!b.live) { ballVsBody(f); return; }
+    if (b.lastHit === f.slot) return; // your own shot passes through you
+
+    const r2 = BALL_RADIUS * BALL_RADIUS;
+    // A fresh block catches it -- judged against the standing body, so
+    // crouching into the block can't let it sail overhead.
+    const standing = { x: f.x - f.width / 2, y: f.y - f.height, w: f.width, h: f.height };
+    if (f.blocking && f.blockFrames <= RALLY_CATCH_WINDOW && distSqToRect(b.x, b.y, standing) <= r2) {
+      catchBall(f);
+      return;
+    }
+    if (distSqToRect(b.x, b.y, f.getHurtbox()) > r2) return;
+
+    if (f.invulnerableTimer > 0) {
+      // Dodged or phased: it flies through.
+      if (f._dodging) f._dodgeSuccess = true;
+      b.grace[f.slot] = 20;
+      return;
+    }
+    if (f.reflectTimer > 0) {
+      // Nathan's Rubber Guard fires it straight back, hotter.
+      f.noteImpact('reflected', b.vx >= 0 ? 1 : -1, 0.9);
+      b.heat = Math.min(RALLY_MAX_HEAT, b.heat + 1);
+      b.vx = -b.vx * 1.1;
+      b.vy = Math.min(b.vy, -3);
+      b.lastHit = f.slot;
+      b.liveBounces = RALLY_LIVE_BOUNCES;
+      b.grace[f.slot] = 20;
+      Effects.spawnHitSpark(b.x, b.y, '#ff3b3b');
+      return;
+    }
+
+    const owner = otherOf(f);
+    const heat = b.heat;
+    const dir = b.vx >= 0 ? 1 : -1;
+    const result = f.applyHit({
+      damage: (RALLY_DAMAGE + RALLY_DAMAGE_PER_HEAT * heat) * owner.damageMultiplier,
+      knockback: 5 + heat * 1.2, knockbackUp: 5 + heat * 0.6, hitstun: 16 + heat * 2,
+      fromFacing: dir,
+    });
+    b.grace[f.slot] = 20;
+    b.live = false;
+    b.vx = -dir * 2.5;
+    b.vy = -8;
+    grantUltCharge(owner, f, heat >= 5);
+    if (result === 'blocked') {
+      // Blocked late: it's deflected (the heat survives, the shot doesn't).
+      Effects.spawnHitSpark(b.x, b.y, '#9fd8ff');
+      return;
+    }
+    b.heat = 0;
+    b.hitstop = 3 + Math.round(heat * 0.5);
+    Effects.spawnHitSpark(b.x, b.y, '#ffe066');
+    Effects.spawnHitSpark(b.x, b.y, ballColor({ heat }), 'muzzle');
+    Effects.shake(6 + heat, 8 + heat);
+  }
+
+  function catchBall(f) {
+    const b = ball;
+    b.heldBy = f.slot;
+    b.holdT = RALLY_HOLD;
+    b.live = false;
+    b.vx = 0; b.vy = 0;
+    b.lastHit = f.slot;
+    Effects.spawnHitSpark(b.x, b.y, '#9fd8ff'); // block sound
+  }
+
+  // Held in front of the catcher. Their next attack (or running out of time)
+  // throws it; getting hit drops it.
+  function updateHeldBall(b) {
+    const f = b.heldBy === 'p1' ? p1 : p2;
+    if (f.state === 'hitstun' || f.state === 'knockdown' || f.state === 'ko') {
+      b.heldBy = null;
+      b.vx = 0; b.vy = -5;
+      b.grace[f.slot] = 20;
+      return;
+    }
+    b.x = f.x + f.facing * (f.width / 2 + BALL_RADIUS - 6);
+    b.y = f.y - f.height * 0.62;
+    b.holdT--;
+    const swinging = f.state === 'attack' || f.state === 'special' || f.state === 'ultimate';
+    if (swinging || b.holdT <= 0) {
+      b.heldBy = null;
+      launchBall(f, swinging && f.state !== 'attack');
+    }
+  }
+
+  function explodeBall() {
+    const b = ball;
+    for (const f of [p1, p2]) {
+      if (f.state === 'ko') continue;
+      const d2 = distSqToRect(b.x, b.y, f.getHurtbox());
+      if (d2 > BALL_BLAST_RADIUS * BALL_BLAST_RADIUS) continue;
+      const k = 1 - 0.4 * Math.sqrt(d2) / BALL_BLAST_RADIUS; // 1 at the centre, 0.6 at the edge
+      const result = f.applyHit({
+        damage: BALL_BLAST_DAMAGE * k, knockback: 14 * k, knockbackUp: 10 * k, hitstun: 28,
+        blockDamageMul: 0.4, blockKnockbackMul: 0.6, fromFacing: f.x >= b.x ? 1 : -1,
+      });
+      const other = f === p1 ? p2 : p1;
+      if ((result === 'hit' || result === 'blocked') && b.lastHit === other.slot) grantUltCharge(other, f, true);
+    }
+    Effects.spawnHitSpark(b.x, b.y, '#ff8a3d', 'boom');
+    // Extra rings of sparks; 'muzzle' keeps them silent (one boom is enough).
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      Effects.spawnHitSpark(b.x + Math.cos(a) * 60, b.y + Math.sin(a) * 45, i % 2 ? '#ffe066' : '#ff5a36', 'muzzle');
+    }
+    Effects.shake(16, 22);
+    ball = freshBall(BALL_RESPAWN, { x: b.x, y: b.y });
   }
 
   // Countdown beeps and the FIGHT! cue, keyed off what's on screen so they
@@ -343,7 +707,7 @@ const Game = (() => {
     // transparent overlay for the HUD only.
     if (window.Renderer3D && Renderer3D.isActive()) {
       ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-      Renderer3D.render(p1 && p2 ? { p1, p2, projectiles } : null);
+      Renderer3D.render(p1 && p2 ? { p1, p2, projectiles, ball: visibleBall(), ballMode } : null);
       if (p1 && p2) drawOverlay(ctx);
       return;
     }
@@ -363,11 +727,84 @@ const Game = (() => {
     AbilityFX.drawFront(ctx, p2);
     AbilityFX.drawTimed(ctx);
     Renderer.drawProjectiles(ctx, projectiles);
+    drawBall2D(ctx, visibleBall());
     Effects.draw(ctx);
 
     ctx.restore();
 
     drawOverlay(ctx);
+  }
+
+  // The ball freezes with the round, so it's only shown mid-fight.
+  function visibleBall() {
+    return matchState === 'fight' ? ball : null;
+  }
+
+  // How close the ball is to going off, 0 (fresh) to 1 (about to blow), and
+  // whether its warning light is lit this frame (blinks faster as it burns).
+  function ballDanger(b) {
+    const heat = 1 - Math.max(0, b.fuse) / BALL_FUSE;
+    const period = Math.max(6, Math.round(50 * (1 - heat)));
+    return { heat, lit: b.fuse % period < period / 2 };
+  }
+
+  // Rally ball colour by heat: pale rubber, through yellow, orange and red,
+  // to magenta and finally white-hot.
+  const HEAT_COLORS = ['#e9e4f5', '#fff0b3', '#ffd84d', '#ffb52e', '#ff901f', '#ff6a14', '#ff4512', '#ff2a24', '#ff1f5a', '#ff3de0', '#ffffff'];
+  function ballColor(b) {
+    return HEAT_COLORS[Math.max(0, Math.min(HEAT_COLORS.length - 1, b.heat))];
+  }
+
+  // Fallback 2D look (the 3D view has its own mesh, see renderer3d.js).
+  function drawBall2D(ctx, b) {
+    if (b && ballMode === 'rally') {
+      if (b.phase === 'waiting') return;
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      if (b.phase === 'appearing') ctx.globalAlpha = 1 - b.timer / BALL_APPEAR;
+      ctx.fillStyle = ballColor(b);
+      ctx.strokeStyle = b.live || b.heldBy ? PLAYER_COLORS[b.lastHit] : '#6b5f8f';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(0, 0, BALL_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    drawBomb2D(ctx, b);
+  }
+
+  function drawBomb2D(ctx, b) {
+    if (!b) return;
+    if (b.blastT > 0) {
+      const t = 1 - b.blastT / 30;
+      ctx.save();
+      ctx.globalAlpha = 1 - t;
+      ctx.fillStyle = '#ffb347';
+      ctx.beginPath();
+      ctx.arc(b.blastX, b.blastY, BALL_BLAST_RADIUS * (0.4 + 0.6 * t), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    if (b.phase === 'waiting') return;
+    const d = ballDanger(b);
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    if (b.phase === 'appearing') ctx.globalAlpha = 1 - b.timer / BALL_APPEAR;
+    ctx.fillStyle = d.lit ? '#ff3b3b' : '#2b2440';
+    ctx.strokeStyle = '#fff3b0';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, BALL_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Fuse ring: how much time is left.
+    ctx.strokeStyle = '#ffb347';
+    ctx.beginPath();
+    ctx.arc(0, 0, BALL_RADIUS + 7, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - d.heat));
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawOverlay(ctx) {
@@ -403,6 +840,7 @@ const Game = (() => {
       m: matchState, st: stateTimer, rt: roundTimeLeft, rm: roundMessage,
       f: p1 && p2 ? [serializeFighter(p1), serializeFighter(p2)] : null,
       pr: projectiles.map(p => Object.assign({}, p, { owner: p.owner.slot })),
+      bl: ball,
       fx: Effects.drainEvents(),
     };
   }
@@ -418,6 +856,7 @@ const Game = (() => {
       Object.assign(p2, s.f[1]);
     }
     if (s.pr) projectiles = s.pr.map(p => Object.assign(p, { owner: p.owner === 'p1' ? p1 : p2 }));
+    if (s.bl !== undefined) ball = s.bl;
     Effects.replayEvents(s.fx);
   }
 
@@ -430,6 +869,7 @@ const Game = (() => {
       m: matchState, st: stateTimer, rt: roundTimeLeft, rm: roundMessage,
       f: p1 && p2 ? [JSON.parse(JSON.stringify(serializeFighter(p1))), JSON.parse(JSON.stringify(serializeFighter(p2)))] : null,
       pr: projectiles.map((p) => Object.assign({}, p, { owner: p.owner.slot })),
+      bl: ball ? JSON.parse(JSON.stringify(ball)) : null,
     };
   }
 
@@ -444,6 +884,7 @@ const Game = (() => {
       });
     }
     projectiles = s.pr.map((p) => Object.assign({}, p, { owner: p.owner === 'p1' ? p1 : p2 }));
+    ball = s.bl ? JSON.parse(JSON.stringify(s.bl)) : null;
   }
 
   function getState() {
@@ -452,7 +893,7 @@ const Game = (() => {
 
   // Read-only view of the live match, for the CPU opponent (cpu.js).
   function world() {
-    return { p1, p2, projectiles, matchState };
+    return { p1, p2, projectiles, ball, ballMode, matchState };
   }
 
   // Freeze the sim (e.g. opponent disconnected mid-match).
@@ -460,5 +901,11 @@ const Game = (() => {
     matchState = 'idle';
   }
 
-  return { startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, saveState, loadState, world, stop };
+  // Ball physics for the CPU's predictions (same code the game runs).
+  const ballPhysics = {
+    step: (b) => ballStep(b, ballMode),
+    launch: (grounded, aim, strong, heat) => ballLaunch(grounded, aim, strong, ballMode, heat),
+  };
+
+  return { startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, saveState, loadState, world, stop, ballDanger, ballColor, ballPhysics };
 })();

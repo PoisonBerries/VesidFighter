@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Body Part Studio - Vesid Fighter</title>
+  <style>
+    :root { --bg: #140d22; --panel: #211636; --line: #3b2a5c; --text: #efe7ff; --dim: #a898c8; --accent: #ffd166; --pivot: #ff3d9a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, sans-serif; }
+    header { padding: 16px 20px 8px; }
+    h1 { margin: 0 0 4px; font-size: 22px; color: var(--accent); }
+    .sub { color: var(--dim); margin: 0; max-width: 900px; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 20px; }
+    .tabs button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+    .tabs button.on { background: var(--accent); color: #1a1026; border-color: var(--accent); font-weight: 600; }
+    .tabs .count { opacity: 0.7; font-size: 12px; margin-left: 4px; }
+    main { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 16px; padding: 8px 20px 24px; align-items: start; }
+    @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+    .preview canvas { width: 100%; height: auto; display: block; background: radial-gradient(circle at 50% 70%, #3a2860, #1b1230); border-radius: 8px; }
+    .pose-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+    .pose-row #pause { min-width: 72px; }
+    .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+    .chips button { background: #2a1d46; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; font-size: 12px; cursor: pointer; }
+    .chips button.on { background: #45307a; color: var(--text); border-color: var(--accent); }
+    .preview .row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    button.btn { background: #34245a; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
+    button.btn:hover { background: #45307a; }
+    button.btn.primary { background: var(--accent); color: #1a1026; border-color: var(--accent); font-weight: 600; }
+    .parts { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+    .part h3 { margin: 0 0 2px; font-size: 15px; }
+    .part .status { font-size: 12px; margin-bottom: 6px; }
+    .status.saved { color: #7dffa8; } .status.preview { color: var(--accent); } .status.proc { color: var(--dim); }
+    .part .tpl { background: repeating-conic-gradient(#2a1f40 0% 25%, #221836 0% 50%) 50% / 16px 16px; border-radius: 6px; display: flex; align-items: center; justify-content: center; height: 150px; margin-bottom: 6px; }
+    .part .tpl canvas { max-width: 100%; max-height: 146px; }
+    .part .hint { color: var(--dim); font-size: 12px; min-height: 34px; margin-bottom: 6px; }
+    .part .size { color: var(--dim); font-size: 11px; margin-bottom: 6px; overflow-wrap: anywhere; }
+    .part .row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .part input[type=file] { display: none; }
+    .left { display: flex; flex-direction: column; gap: 16px; }
+    .shape h2 { font-size: 16px; margin: 0 0 4px; color: var(--accent); }
+    .shape .unsaved { color: var(--dim); font-size: 12px; font-weight: normal; }
+    .shape .note { color: var(--dim); font-size: 12px; margin: 4px 0 10px; }
+    .slider { display: grid; grid-template-columns: 110px 1fr 42px; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 13px; }
+    .slider input { width: 100%; accent-color: var(--accent); }
+    .slider output { color: var(--dim); font-variant-numeric: tabular-nums; text-align: right; }
+    .slider-group { color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin: 10px 0 4px; opacity: 0.8; }
+    .anims { margin-top: 10px; display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; font-size: 12px; }
+    .anims .head { grid-column: 1 / -1; color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.8; }
+    .anims select { background: #2a1d46; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font-size: 12px; }
+    .how { margin: 0 20px 28px; }
+    .how h2 { font-size: 16px; margin: 0 0 6px; color: var(--accent); }
+    .how ol { margin: 0; padding-left: 20px; }
+    .how li { margin-bottom: 4px; }
+    code { background: #0e0918; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+    .pivot { color: var(--pivot); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Body Part Studio</h1>
+    <p class="sub">Every fighter is built from ten parts. Draw any of them over its template and the game uses your drawing in place of the built-in shape, following all the existing animation. Parts you haven't drawn yet stay as they are, so you can go one limb at a time.</p>
+  </header>
+  <nav class="tabs" id="tabs"></nav>
+  <main>
+    <div class="left">
+      <section class="card preview">
+        <canvas id="preview" width="360" height="420"></canvas>
+        <div class="pose-row">
+          <button class="btn" id="pause">Pause</button>
+          <div class="chips" id="pose-chips"></div>
+        </div>
+        <div class="anims" id="anims"></div>
+        <div class="row">
+          <button class="btn primary" id="dl-all">Download all templates</button>
+          <button class="btn" id="clear-all">Clear previews</button>
+        </div>
+      </section>
+      <section class="card shape">
+        <h2>Body shape <span class="unsaved" id="unsaved" hidden>(unsaved)</span></h2>
+        <p class="note">Set this character's proportions first: the templates follow them. Looks only; hitboxes don't change.</p>
+        <div id="sliders"></div>
+        <div class="row">
+          <button class="btn primary" id="shape-dl">Download body.json</button>
+          <button class="btn" id="shape-reset">Reset</button>
+        </div>
+        <p class="note">To keep it: save as <code id="shape-path"></code>, then run <code>python3 tools/update-parts.py</code>.</p>
+      </section>
+    </div>
+    <section class="parts" id="parts"></section>
+  </main>
+  <section class="card how">
+    <h2>How to draw a part</h2>
+    <ol>
+      <li><b>Download its template</b> and open it in any art app (Procreate, Krita, Photoshop...). Keep the image size.</li>
+      <li>The faint figure is today's built-in part, as a guide. The two <span class="pivot">pink crosses</span> are the joints the part hangs between (the hint under each part says which). <b>Keep your drawing's joints on those crosses</b>; the shape around them is yours: bigger arms, different clothes, anything.</li>
+      <li>Draw on a <b>new layer</b> over the template, then hide the template layer and export a <b>PNG with a transparent background</b>.</li>
+      <li>Everything faces <b>right</b> (the game mirrors it). Limbs hang straight down; fists and shoes point right. One drawing is used for both the front and the back arm/leg (the back one is shaded automatically).</li>
+      <li>Check it here with <b>Try my drawing</b>: it shows up on the moving fighter straight away (nothing is saved).</li>
+      <li>To put it in the game: save it as <code>assets/parts/&lt;character&gt;/&lt;part&gt;.png</code> (the exact file name is shown on each part), then run <code>python3 tools/update-parts.py</code> and commit.</li>
+    </ol>
+  </section>
+
+  <script src="js/constants.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/characters.js"></script>
+  <script src="js/characterHeads.js"></script>
+  <script src="js/effects.js"></script>
+  <script src="js/fighter.js"></script>
+  <script src="js/mocap.js"></script>
+  <script src="js/animator.js"></script>
+  <script src="js/bodyArt.js"></script>
+  <script src="js/renderer.js"></script>
+  <script>
+  (() => {
+    const HINTS = {
+      head: 'Bottom cross = chin, top cross = top of the head. Face looking right (or straight ahead).',
+      neck: 'Bottom cross = base of the neck, top cross = under the chin.',
+      torso: 'Top cross = base of the neck, bottom cross = the belt line. Chest facing right; shoulders go at the top corners.',
+      upperArm: 'Top cross = shoulder, bottom cross = elbow. Arm hanging straight down (add a sleeve if the outfit has one).',
+      forearm: 'Top cross = elbow, bottom cross = wrist.',
+      fist: 'Left cross = wrist, right cross = knuckles. A closed fist pointing right.',
+      thigh: 'Top cross = hip joint, bottom cross = knee.',
+      shin: 'Top cross = knee, bottom cross = ankle.',
+      shoe: 'Left cross = ankle, right cross = toe tip. Pointing right, sole along the bottom.',
+    };
+    const NAMES = { head: 'Head', neck: 'Neck', torso: 'Torso', upperArm: 'Upper arm', forearm: 'Forearm', fist: 'Fist', thigh: 'Thigh', shin: 'Shin', shoe: 'Shoe' };
+
+    let current = CHARACTER_LIST[0].id;
+    const previews = {}; // id -> part -> true
+
+    // ---- Templates ----
+    function templateCanvas(id, part, withPivots) {
+      const s = Renderer.partSpec(id)[part];
+      const c = document.createElement('canvas');
+      c.width = s.w; c.height = s.h;
+      const g = c.getContext('2d');
+      g.save();
+      g.globalAlpha = 0.4;
+      Renderer.drawPartGuide(g, id, part, new Fighter('p1', CHARACTERS[id], 0, 1));
+      g.restore();
+      if (withPivots) {
+        // Joint crosses, and a thin line between them.
+        g.strokeStyle = 'rgba(255,61,154,0.55)';
+        g.lineWidth = 1;
+        g.setLineDash([4, 4]);
+        g.beginPath(); g.moveTo(s.a.x, s.a.y); g.lineTo(s.b.x, s.b.y); g.stroke();
+        g.setLineDash([]);
+        g.strokeStyle = '#ff3d9a';
+        g.lineWidth = 2;
+        const r = Math.max(6, Math.min(s.w, s.h) * 0.06);
+        for (const p of [s.a, s.b]) {
+          g.beginPath();
+          g.moveTo(p.x - r, p.y); g.lineTo(p.x + r, p.y);
+          g.moveTo(p.x, p.y - r); g.lineTo(p.x, p.y + r);
+          g.stroke();
+        }
+      }
+      return c;
+    }
+
+    function download(id, part) {
+      const a = document.createElement('a');
+      a.download = `${id}-${part}-template.png`;
+      a.href = templateCanvas(id, part, true).toDataURL('image/png');
+      a.click();
+    }
+
+    // ---- UI ----
+    function renderTabs() {
+      const tabs = document.getElementById('tabs');
+      tabs.innerHTML = '';
+      for (const c of CHARACTER_LIST) {
+        const b = document.createElement('button');
+        const drawn = BodyArt.PARTS.filter((p) => BodyArt.hasSaved(c.id, p)).length;
+        b.innerHTML = `${c.name}<span class="count">${drawn}/${BodyArt.PARTS.length}</span>`;
+        b.className = c.id === current ? 'on' : '';
+        b.onclick = () => { current = c.id; renderTabs(); renderShape(); renderParts(); renderAnims(); };
+        tabs.appendChild(b);
+      }
+    }
+
+    function renderParts() {
+      const root = document.getElementById('parts');
+      root.innerHTML = '';
+      const spec = Renderer.partSpec(current);
+      for (const part of BodyArt.PARTS) {
+        const card = document.createElement('div');
+        card.className = 'card part';
+        const isPreview = previews[current] && previews[current][part];
+        const saved = BodyArt.hasSaved(current, part);
+        const status = isPreview ? ['preview', 'Previewing your drawing'] : saved ? ['saved', 'Drawn (in the game)'] : ['proc', 'Built-in shape'];
+        card.innerHTML = `
+          <h3>${NAMES[part]}</h3>
+          <div class="status ${status[0]}">${status[1]}</div>
+          <div class="tpl"></div>
+          <div class="size">${spec[part].w} x ${spec[part].h} px &middot; <code>assets/parts/${current}/${part}.png</code></div>
+          <div class="hint">${HINTS[part]}</div>
+          <div class="row">
+            <button class="btn" data-act="dl">Download template</button>
+            <button class="btn" data-act="try">Try my drawing</button>
+            ${isPreview ? '<button class="btn" data-act="clear">Clear</button>' : ''}
+            <input type="file" accept="image/png,image/*">
+          </div>`;
+        card.querySelector('.tpl').appendChild(templateCanvas(current, part, true));
+        const input = card.querySelector('input');
+        card.querySelector('[data-act=dl]').onclick = () => download(current, part);
+        card.querySelector('[data-act=try]').onclick = () => input.click();
+        const clear = card.querySelector('[data-act=clear]');
+        if (clear) clear.onclick = () => { BodyArt.setOverride(current, part, null); delete previews[current][part]; renderParts(); };
+        input.onchange = () => {
+          const file = input.files[0];
+          if (!file) return;
+          const img = new Image();
+          img.onload = () => {
+            BodyArt.setOverride(current, part, img);
+            (previews[current] = previews[current] || {})[part] = true;
+            const s = Renderer.partSpec(current)[part];
+            if (Math.abs(img.naturalWidth / img.naturalHeight - s.w / s.h) > 0.02) {
+              alert(`Heads up: this image is ${img.naturalWidth}x${img.naturalHeight}, but the template is ${s.w}x${s.h}. Keep the template's size (or at least its proportions) so the joints line up.`);
+            }
+            renderParts();
+          };
+          img.src = URL.createObjectURL(file);
+        };
+        root.appendChild(card);
+      }
+    }
+
+    // ---- Body shape ----
+    const SHAPE = [
+      ['Head & neck'],
+      ['headScale', 'Head size', 0.7, 1.4],
+      ['neckLength', 'Neck length', 0.4, 2],
+      ['neckWidth', 'Neck width', 0.6, 1.6],
+      ['Torso'],
+      ['torsoLength', 'Torso length', 0.8, 1.25],
+      ['shoulders', 'Shoulders / chest', 0.7, 1.5],
+      ['waist', 'Waist', 0.7, 1.6],
+      ['hips', 'Hips', 0.7, 1.5],
+      ['Arms'],
+      ['armScale', 'Arm length', 0.8, 1.4],
+      ['armBulk', 'Arm thickness', 0.6, 1.7],
+      ['handScale', 'Hand size', 0.7, 1.5],
+      ['Legs'],
+      ['legLength', 'Leg length', 0.85, 1.15],
+      ['legBulk', 'Leg thickness', 0.6, 1.6],
+      ['footScale', 'Foot size', 0.7, 1.5],
+      ['stanceMul', 'Stance width', 0.6, 1.5],
+    ];
+    const shapeKeys = SHAPE.filter((r) => r.length > 1).map((r) => r[0]);
+    const edits = {}; // id -> values being edited
+    let refreshTimer = null;
+
+    function currentShape(id) {
+      const p = Renderer.bodyProfile(id);
+      const out = {};
+      for (const k of shapeKeys) out[k] = Math.round(p[k] * 100) / 100;
+      return out;
+    }
+
+    function renderShape() {
+      const root = document.getElementById('sliders');
+      root.innerHTML = '';
+      const values = currentShape(current);
+      document.getElementById('shape-path').textContent = `assets/parts/${current}/body.json`;
+      document.getElementById('unsaved').hidden = !edits[current];
+      for (const row of SHAPE) {
+        if (row.length === 1) {
+          const g = document.createElement('div');
+          g.className = 'slider-group';
+          g.textContent = row[0];
+          root.appendChild(g);
+          continue;
+        }
+        const [key, label, min, max] = row;
+        const el = document.createElement('label');
+        el.className = 'slider';
+        el.innerHTML = `<span>${label}</span><input type="range" min="${min}" max="${max}" step="0.01" value="${values[key]}"><output>${values[key].toFixed(2)}</output>`;
+        const input = el.querySelector('input'), out = el.querySelector('output');
+        input.oninput = () => {
+          const v = Number(input.value);
+          out.textContent = v.toFixed(2);
+          edits[current] = { ...currentShape(current), ...(edits[current] || {}), [key]: v };
+          BodyArt.setBuild(current, edits[current]);
+          document.getElementById('unsaved').hidden = false;
+          // Templates follow the shape; rebuild them once the slider settles.
+          clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(renderParts, 250);
+        };
+        root.appendChild(el);
+      }
+    }
+
+    document.getElementById('shape-reset').onclick = () => {
+      delete edits[current];
+      BodyArt.setBuild(current, null);
+      renderShape();
+      renderParts();
+    };
+    document.getElementById('shape-dl').onclick = () => {
+      const blob = new Blob([JSON.stringify(currentShape(current), null, 2) + '\n'], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.download = 'body.json';
+      a.href = URL.createObjectURL(blob);
+      a.click();
+    };
+
+    document.getElementById('dl-all').onclick = () => {
+      BodyArt.PARTS.forEach((p, i) => setTimeout(() => download(current, p), i * 250));
+    };
+    document.getElementById('clear-all').onclick = () => {
+      for (const id of Object.keys(previews)) for (const p of Object.keys(previews[id])) BodyArt.setOverride(id, p, null);
+      for (const k of Object.keys(previews)) delete previews[k];
+      renderParts();
+    };
+
+    // ---- Live preview: cycles through the main poses ----
+    // Pause freezes the preview's clock (the animation reads
+    // performance.now), so the fighter holds perfectly still while shape and
+    // drawing changes still redraw. This page only.
+    const realNow = performance.now.bind(performance);
+    let clockOffset = 0, frozenAt = null;
+    performance.now = () => (frozenAt !== null ? frozenAt : realNow() - clockOffset);
+
+    const canvas = document.getElementById('preview');
+    const ctx = canvas.getContext('2d');
+    const POSES = [['idle', 120, 'Idle'], ['walk', 120, 'Walk'], ['attack', 60, 'Punch'], ['block', 80, 'Block'], ['jump', 70, 'Jump'], ['hitstun', 45, 'Hit'], ['victory', 150, 'Victory']];
+    let fighter = null, forId = null, poseIdx = 0, poseT = 0;
+    let paused = false;
+    let only = null;   // a pose index to loop/hold, or null to cycle through all
+    let snapNext = false;
+
+    function setPose(i) {
+      poseIdx = i % POSES.length;
+      poseT = 0;
+      const f = fighter;
+      f.state = POSES[poseIdx][0];
+      f.actionTimer = 0;
+      f.blocking = f.state === 'block';
+      f.grounded = true; f.y = GROUND_Y; f.vy = 0; f.vx = 0;
+      if (f.state === 'jump') { f.grounded = false; f.vy = -12; }
+      if (f.state === 'hitstun') f.stunFrames = 30;
+    }
+
+    // A representative moment of a pose, for holding it still.
+    function showMoment(i) {
+      setPose(i);
+      const f = fighter;
+      if (f.state === 'attack') f.actionTimer = f.character.attack.startup + 2;
+      if (f.state === 'walk') { f.walkCycle = 1.2; f.vx = 4; }
+      if (f.state === 'jump') { f.vy = -3; f.y = GROUND_Y - f.height * 0.4; }
+      if (f.state === 'hitstun') f.actionTimer = 6;
+      snapNext = true;
+    }
+
+    function renderChips() {
+      const root = document.getElementById('pose-chips');
+      root.innerHTML = '';
+      const add = (label, idx) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.className = only === idx ? 'on' : '';
+        b.onclick = () => {
+          only = idx;
+          if (idx === null) setPose(0);
+          else if (paused) showMoment(idx);
+          else setPose(idx);
+          renderChips();
+        };
+        root.appendChild(b);
+      };
+      add('All', null);
+      POSES.forEach((p, i) => add(p[2], i));
+    }
+
+    document.getElementById('pause').onclick = () => {
+      paused = !paused;
+      if (paused) frozenAt = realNow() - clockOffset;
+      else { clockOffset = realNow() - frozenAt; frozenAt = null; }
+      document.getElementById('pause').textContent = paused ? 'Play' : 'Pause';
+    };
+
+    function frame() {
+      if (forId !== current) {
+        fighter = new Fighter('p1', CHARACTERS[current], 0, 1);
+        forId = current;
+        if (only !== null) { if (paused) showMoment(only); else setPose(only); } else setPose(0);
+      }
+      const f = fighter;
+      if (!paused) {
+        poseT++;
+        f.actionTimer++;
+        if (f.state === 'walk') { f.walkCycle += 0.2; f.vx = 4; }
+        if (f.state === 'jump') {
+          f.vy += GRAVITY; f.y += f.vy;
+          if (f.y >= GROUND_Y) { f.y = GROUND_Y; f.vy = 0; f.grounded = true; f.state = 'idle'; }
+        }
+        if (poseT > POSES[poseIdx][1]) setPose(only !== null ? only : poseIdx + 1);
+      }
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Floor line.
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.beginPath(); ctx.moveTo(0, canvas.height - 40); ctx.lineTo(canvas.width, canvas.height - 40); ctx.stroke();
+      const scale = Math.min(1.9, (canvas.height - 70) / (f.height * 1.15));
+      ctx.setTransform(scale, 0, 0, scale, canvas.width / 2, canvas.height - 40);
+      ctx.translate(-f.x, -GROUND_Y);
+      // Jumping to a pose while paused snaps straight into it.
+      Renderer.drawFighter(ctx, f, { card: true, settle: snapNext });
+      snapNext = false;
+      requestAnimationFrame(frame);
+    }
+
+    // ---- Animations: try motion-capture clips on this character ----
+    const MOVE_NAMES = { attack: 'Punch', hitstun: 'Hit', idle: 'Idle', walk: 'Walk', block: 'Block', victory: 'Victory' };
+    const tried = {}; // state -> '' (as assigned) | 'builtin' | clip id
+    function renderAnims() {
+      const root = document.getElementById('anims');
+      root.innerHTML = '<div class="head">Animations (preview only)</div>';
+      for (const state of Mocap.STATES) {
+        const assigned = Mocap.assigned(current, state);
+        const label = document.createElement('span');
+        label.textContent = MOVE_NAMES[state];
+        const sel = document.createElement('select');
+        const opt = (value, text) => { const o = document.createElement('option'); o.value = value; o.textContent = text; sel.appendChild(o); };
+        opt('', 'As assigned: ' + (assigned || 'built-in'));
+        opt('builtin', 'Built-in animation');
+        for (const id of Mocap.list()) opt(id, id);
+        sel.value = tried[state] || '';
+        sel.onchange = () => {
+          tried[state] = sel.value;
+          Mocap.setPreview(state, sel.value === '' ? undefined : sel.value === 'builtin' ? null : sel.value);
+          if (paused) { const i = POSES.findIndex((p) => p[0] === state); if (i >= 0) showMoment(i); }
+        };
+        root.appendChild(label);
+        root.appendChild(sel);
+      }
+    }
+
+    renderChips();
+    renderAnims();
+    setTimeout(renderAnims, 1200); // the clip list arrives after the page loads
+    renderTabs();
+    renderShape();
+    renderParts();
+    requestAnimationFrame(frame);
+    // Saved drawings arrive with the manifest; refresh the counts when they do.
+    setTimeout(() => { renderTabs(); renderShape(); renderParts(); }, 800);
+  })();
+  </script>
+</body>
+</html>

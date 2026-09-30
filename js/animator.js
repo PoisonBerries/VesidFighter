@@ -58,8 +58,9 @@ const Animator = (() => {
       case 'recoil': return [P(-26, -4, -6), P(-14, -16, 6)];
       case 'limp': return [P(-10, 28, 4), P(12, 30, -4)];
       case 'flail': return [P(-24, -18, -8), P(20, -30, 8)];
-      default: // 'swing' -- idle/walk
-        return [P(-8 - s * 0.75, 26 - Math.abs(s) * 0.15, E), P(8 + s * 0.75, 26 - Math.abs(s) * 0.15, -E)];
+      default: // 'swing' -- idle/walk: a fighting guard, rear fist by the chin and
+        // lead fist out front, bobbing a little with the stride/breathing.
+        return [P(22 - s * 0.25, -8 + Math.abs(s) * 0.12, E), P(34 + s * 0.25, 2 - Math.abs(s) * 0.1, -E)];
     }
   }
 
@@ -466,11 +467,59 @@ const Animator = (() => {
     if (T.rot !== 0 && Math.abs(T.rot) > 0.5) T.float = 0;
 
     if (!T.arms) T.arms = armsFor(T.armPose, { R, E: T.E, s: T.s });
+    applyClip(T, fighter, now);
     // Long-armed characters (Nathan): every arm pose reaches proportionally further.
     if (profile.armScale !== 1) {
-      T.arms = T.arms.map((a) => ({ ...a, x: a.x * profile.armScale, y: a.y * profile.armScale }));
+      T.arms = T.arms.map((a) => ({
+        ...a, x: a.x * profile.armScale, y: a.y * profile.armScale,
+        ...(a.ex !== undefined ? { ex: a.ex * profile.armScale, ey: a.ey * profile.armScale } : {}),
+      }));
     }
     return T;
+  }
+
+  // ---- Motion-capture clips (mocap.js) ------------------------------------
+  // When moves.json gives this character a clip for the current move, the
+  // clip drives the pose: hands and feet become the targets, with the real
+  // elbow and knee positions as hints for which way each limb bends. Time is
+  // stretched so the clip's strike lands in the move's active frames.
+  function clipTime(clip, fighter, now) {
+    const t = fighter.actionTimer;
+    switch (fighter.state) {
+      case 'attack': {
+        const a = fighter.character.attack;
+        const hit = a.startup + a.active * 0.5;
+        const total = a.startup + a.active + a.recovery;
+        return t <= hit ? clip.impact * (t / hit) : clip.impact + (1 - clip.impact) * Math.min(1, (t - hit) / Math.max(1, total - hit));
+      }
+      case 'hitstun':
+        return Math.min(1, t / Math.max(10, fighter.stunFrames || 10));
+      case 'block':
+        return clip.impact; // hold the guard at its fullest
+      case 'walk':
+        return ((fighter.walkCycle / (Math.PI * 2)) % 1 + 1) % 1;
+      default: // idle, victory: loop in real time
+        return ((now / 1000) / Math.max(0.1, clip.duration)) % 1;
+    }
+  }
+
+  function applyClip(T, fighter, now) {
+    if (typeof Mocap === 'undefined') return;
+    const clip = Mocap.clipFor(fighter.character.id, fighter.state);
+    if (!clip) return;
+    const f = Mocap.sample(clip, clipTime(clip, fighter, now));
+    const H = fighter.height;
+    T.crouch = f.c;
+    T.lean = f.l;
+    T.fA = F(f.f[0][0] * H, f.f[0][1] * H);
+    T.fB = F(f.f[1][0] * H, f.f[1][1] * H);
+    T.knees = [F(f.k[0][0] * H, f.k[0][1] * H), F(f.k[1][0] * H, f.k[1][1] * H)];
+    T.footPoint = Math.max(0, Math.min(1, -f.f[1][1] * 4));
+    T.arms = [0, 1].map((i) => ({
+      ...P(f.h[i][0] * H, f.h[i][1] * H, 0, 1), ex: f.e[i][0] * H, ey: f.e[i][1] * H,
+    }));
+    T.rot = 0;
+    T.rate = 70;
   }
 
   // ---- Per-fighter state & integration ---------------------------------
@@ -508,6 +557,11 @@ const Animator = (() => {
       const a = c.arms[i], b = T.arms[i];
       a.x += (b.x - a.x) * k; a.y += (b.y - a.y) * k; a.bend += (b.bend - a.bend) * k;
       a.hand += (b.hand - a.hand) * k; a.orb += (b.orb - a.orb) * k;
+      // Elbow hints (mocap clips): where the real elbow was, to pick the bend.
+      if (b.ex !== undefined) {
+        a.ex = a.ex === undefined ? b.ex : a.ex + (b.ex - a.ex) * k;
+        a.ey = a.ey === undefined ? b.ey : a.ey + (b.ey - a.ey) * k;
+      } else { delete a.ex; delete a.ey; }
     }
   }
 
@@ -643,7 +697,9 @@ const Animator = (() => {
 
     const T = computeTargets(fighter, profile, an, now);
 
-    if (!an.c) an.c = seedChannels(T);
+    // A settled still (planner ghosts, the studio jumping to a pose) takes
+    // the target pose exactly instead of easing toward it.
+    if (!an.c || settle) an.c = seedChannels(T);
     const k = 1 - Math.exp(-T.rate * dt);
     smoothInto(an.c, T, k);
 
@@ -683,7 +739,7 @@ const Animator = (() => {
 
     return {
       crouch: c.crouch, lean: c.lean, float: c.float, footPoint: c.footPoint,
-      fA: c.fA, fB: c.fB, arms: c.arms,
+      fA: c.fA, fB: c.fB, arms: c.arms, knees: T.knees || null,
       rot, ball: c.ball, pv, wh: wh + an.hop + c.lift, lift: an.hop + c.lift,
       stretch: an.str,
     };

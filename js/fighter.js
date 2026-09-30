@@ -20,6 +20,8 @@ class Fighter {
     this.vx = 0;
     this.vy = 0;
     this.facing = facing; // 1 = facing right, -1 = facing left
+    this.aim = 0; // held direction relative to facing (see _handleInput)
+    this.blockFrames = 0; // how long block has been held (a fresh block catches the ball)
     this.grounded = true;
     this.jumpsUsed = 0;
     this.doubleJumpFlipTimer = 0;
@@ -486,6 +488,9 @@ class Fighter {
       right: InputManager.isDown(controls.right),
       block: InputManager.isDown(controls.block),
     };
+    // Held direction relative to facing, read even mid-attack: it aims the
+    // hot potato (game.js) -- toward for a long hit, away for a short lob.
+    this.aim = held.left === held.right ? 0 : (held.right ? 1 : -1) * this.facing;
     const pressed = {
       jump: InputManager.isPressed(controls.jump),
       attack: InputManager.isPressed(controls.attack),
@@ -508,6 +513,7 @@ class Fighter {
       // player up to move/attack again. Still allows a slow crouch-walk
       // rather than fully rooting the player in place.
       if (held.block && this.grounded) {
+        this.blockFrames = this.blocking ? this.blockFrames + 1 : 1;
         this.blocking = true;
         this.state = 'block';
         let crouchDir = 0;
@@ -522,6 +528,7 @@ class Fighter {
       }
     }
     this.blocking = false;
+    this.blockFrames = 0;
 
     if (!phased) {
       if (pressed.ultimate && this.ultCharge >= ULT_METER_MAX) {

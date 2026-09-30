@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>mocap sampler</title>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }</script>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+// Used by tools/convert-mocap.js (headless): loads an FBX clip and samples
+// the world positions of the main joints at `fps` frames per second.
+window.sampleClip = async (url, fps = 30) => {
+  const obj = await new FBXLoader().loadAsync(url);
+  const clip = obj.animations[0];
+  const bones = [];
+  obj.traverse((o) => { if (o.isBone) bones.push(o.name); });
+  const mixer = new THREE.AnimationMixer(obj);
+  mixer.clipAction(clip).play();
+  const pick = (re) => { let b = null; obj.traverse((o) => { if (!b && o.isBone && re.test(o.name)) b = o; }); return b; };
+  const J = {
+    hips: pick(/Hips$/), head: pick(/Head$/), neck: pick(/Neck$/),
+    lShoulder: pick(/LeftArm$/), lElbow: pick(/LeftForeArm$/), lHand: pick(/LeftHand$/),
+    rShoulder: pick(/RightArm$/), rElbow: pick(/RightForeArm$/), rHand: pick(/RightHand$/),
+    lHip: pick(/LeftUpLeg$/), lKnee: pick(/LeftLeg$/), lFoot: pick(/LeftFoot$/),
+    rHip: pick(/RightUpLeg$/), rKnee: pick(/RightLeg$/), rFoot: pick(/RightFoot$/),
+  };
+  const frames = [];
+  const n = Math.max(2, Math.round(clip.duration * fps));
+  const v = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    mixer.setTime((i / (n - 1)) * clip.duration);
+    obj.updateMatrixWorld(true);
+    const f = {};
+    for (const [k, b] of Object.entries(J)) { if (b) { b.getWorldPosition(v); f[k] = [v.x, v.y, v.z]; } }
+    frames.push(f);
+  }
+  return { name: clip.name, duration: clip.duration, boneCount: bones.length, bones: bones.slice(0, 8), missing: Object.keys(J).filter((k) => !J[k]), frames };
+};
+window.samplerReady = true;
+</script></body></html>

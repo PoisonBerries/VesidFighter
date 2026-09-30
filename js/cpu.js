@@ -4,12 +4,14 @@
 // no special moves outside its character's kit.
 //
 // It plays like a person rather than a machine:
-//  - It sees the opponent through a reaction delay (about 13 frames at
+//  - It sees the opponent through a reaction delay (about half a second at
 //    Normal): it can't block an attack before a human could have noticed it.
 //  - It keeps a preferred spacing for its character, punishes moves that
 //    whiff, blocks (crouches under) attacks it sees coming, avoids getting
 //    pinned at the edge and recovers when knocked off the stage.
 //  - It uses each character's special/ultimate where that move is good.
+//  - It plays the ball: hits it at you, catches or dodges your shots
+//    (rally), and gets clear of a bomb that's about to blow.
 //  - Difficulty changes reaction time, how often it blocks and punishes, and
 //    how often it just makes a mistake.
 //
@@ -21,9 +23,11 @@ const Cpu = (() => {
     // reaction: frames of delay before it sees what you do. anticipate: how
     // well it predicts where a moving opponent will be (0-1). aim: how far
     // off (px) its sense of range can be, so it swings early/late sometimes.
-    easy: { reaction: 32, block: 0.12, punish: 0.1, iq: 0.3, mistake: 0.38, aggression: 0.3, spacing: 0.35, anticipate: 0.3, aim: 45, replan: [18, 36] },
-    normal: { reaction: 18, block: 0.45, punish: 0.4, iq: 0.65, mistake: 0.14, aggression: 0.45, spacing: 0.7, anticipate: 0.6, aim: 25, replan: [10, 22] },
-    hard: { reaction: 12, block: 0.7, punish: 0.7, iq: 0.85, mistake: 0.06, aggression: 0.55, spacing: 0.9, anticipate: 0.8, aim: 12, replan: [7, 15] },
+    // pressGap: minimum frames between button presses (no chaining attacks).
+    // idle: chance each new plan is to just stand there for a moment.
+    easy: { reaction: 45, block: 0.05, punish: 0.05, iq: 0.15, mistake: 0.55, aggression: 0.2, spacing: 0.2, anticipate: 0.1, aim: 70, replan: [24, 48], pressGap: 22, idle: 0.4 },
+    normal: { reaction: 34, block: 0.1, punish: 0.1, iq: 0.3, mistake: 0.38, aggression: 0.25, spacing: 0.4, anticipate: 0.3, aim: 50, replan: [18, 36], pressGap: 20, idle: 0.3 },
+    hard: { reaction: 28, block: 0.2, punish: 0.2, iq: 0.45, mistake: 0.25, aggression: 0.3, spacing: 0.55, anticipate: 0.45, aim: 36, replan: [14, 28], pressGap: 16, idle: 0.2 },
   };
 
   function rng(seed) {
@@ -62,6 +66,10 @@ const Cpu = (() => {
     let holdSpecial = 0;   // frames left to keep the special held (Owen's charge)
     let lastPress = -99;   // no button mashing: at most one press every few frames
     let oppAttacks = [];   // ticks when we saw the opponent start an attack (to read spamming)
+    let ballKey = '';      // the ball's current flight, to decide once per flight...
+    let ballWill = false;  // ...whether we'll deal with it properly this time
+    let ballCatch = false; // ...and whether we'd try to catch it (rally)
+    let ballAim = 0, ballAimUntil = 0; // direction to keep holding through a swing at it
     let tick = 0;
     const B = Rollback.BIT;
 
@@ -121,9 +129,145 @@ const Cpu = (() => {
       return null;
     }
 
+    // A copy of the ball stepped `n` frames ahead with the game's own physics.
+    function ballAfter(b, n) {
+      const s = { x: b.x, y: b.y, vx: b.vx, vy: b.vy, spin: 0, hitstop: b.hitstop || 0, live: b.live, liveBounces: b.liveBounces };
+      for (let i = 0; i < n; i++) Game.ballPhysics.step(s);
+      return s;
+    }
+
+    const distSqToRect = (px, py, r) => {
+      const dx = Math.max(r.x - px, 0, px - (r.x + r.w));
+      const dy = Math.max(r.y - py, 0, py - (r.y + r.h));
+      return dx * dx + dy * dy;
+    };
+
+    // Which way to hold (toward 1 / neutral 0 / away -1) so a hit from `from`
+    // does the most damage: rally aims the shot through them, bomb drops it
+    // on them.
+    function bestAim(me, o, from, rally) {
+      if (!chance(L.iq)) return 0;
+      const target = { x: o.x, y: o.y - o.height / 2 };
+      let best = Infinity, pick = 0;
+      for (const aim of [0, 1, -1]) {
+        const [vx, vy] = Game.ballPhysics.launch(me.grounded, aim, false, (from.heat || 0) + 1);
+        const b = { x: from.x, y: from.y, vx: me.facing * vx, vy, hitstop: 0, live: true, liveBounces: RALLY_LIVE_BOUNCES, spin: 0 };
+        let score = Infinity;
+        for (let n = 0; n < 90; n++) {
+          Game.ballPhysics.step(b);
+          if (rally) {
+            const d = Math.hypot(b.x - target.x, b.y - target.y);
+            if (d < score) score = d;
+          } else if (b.y + BALL_RADIUS >= GROUND_Y) {
+            score = Math.abs(b.x - o.x);
+            break;
+          }
+        }
+        if (score < best) { best = score; pick = aim; }
+      }
+      return pick;
+    }
+
+    // The ball. Returns input bits, or null to carry on as usual.
+    function playBall(me, o, ball, c, press, safeX) {
+      if (!ball || ball.phase !== 'live') return null;
+      const rally = Game.world().ballMode === 'rally';
+      // Decide once per flight (each hit starts a new one) whether we read it
+      // right, and whether we'd try to catch it.
+      const key = (ball.lastHit || '-') + (ball.vy < 0 ? 'u' : 'd') + (ball.live ? 'L' : '') + (ball.heldBy || '');
+      if (key !== ballKey) {
+        ballKey = key;
+        // Rally: the ball is the game, so every level goes for it (skill shows
+        // in aim and catching); bomb: it's a hazard only smarter CPUs play.
+        ballWill = (Game.world().ballMode === 'rally' || chance(L.iq)) && !chance(L.mistake);
+        ballCatch = chance(L.block);
+      }
+
+      const walk = (target) => {
+        if (Math.abs(target - me.x) < 10 || !safeX(target)) return 0;
+        return target < me.x ? B.left : B.right;
+      };
+
+      // Holding a caught ball: a short wind-up, then throw it at them.
+      if (ball.heldBy === me.slot) {
+        if (RALLY_HOLD - ball.holdT < 10) return 0;
+        ballAim = bestAim(me, o, ball, true);
+        ballAimUntil = tick + c.attack.startup + 2;
+        return press(B.attack) | aimBits(me);
+      }
+      if (ball.heldBy) return null;
+      if (!ballWill) return null;
+
+      // Bomb about to go off nearby: get out of the blast.
+      const dx = ball.x - me.x;
+      if (!rally && ball.fuse < 75 && Math.abs(dx) < BALL_BLAST_RADIUS + 70) {
+        const run = walk(me.x - Math.sign(dx || 1) * 200);
+        return run || walk(me.x + Math.sign(dx || 1) * 400); // cornered: run past it
+      }
+
+      // Swing now if the punch would be out when the ball gets there.
+      const a = c.attack;
+      const bottom = a.high === false ? 0 : me.height * HIGH_ATTACK_BOTTOM;
+      const cx = me.x + me.facing * a.offset;
+      const box = { x: cx - (me.facing === 1 ? 0 : a.width), y: me.y - bottom - a.height, w: a.width, h: a.height };
+      if (me.grounded) {
+        for (const n of [a.startup + 1, a.startup + a.active]) {
+          const p = ballAfter(ball, n);
+          if (distSqToRect(p.x, p.y, box) < BALL_HIT_RADIUS * BALL_HIT_RADIUS * 0.7) {
+            ballAim = bestAim(me, o, Object.assign(p, { heat: ball.heat }), rally);
+            ballAimUntil = tick + a.startup + a.active + 2;
+            return press(B.attack) | aimBits(me);
+          }
+        }
+      }
+
+      // Rally: a live shot of theirs coming at us -- catch it, or get out of the way.
+      if (rally && ball.live && ball.lastHit !== me.slot) {
+        const body = { x: me.x - me.width / 2, y: me.y - me.height, w: me.width, h: me.height };
+        let arrive = -1;
+        for (let n = 1; n <= 40; n++) {
+          const p = ballAfter(ball, n);
+          if (distSqToRect(p.x, p.y, body) <= BALL_RADIUS * BALL_RADIUS) { arrive = n; break; }
+        }
+        if (arrive > 0) {
+          if (ballCatch && me.grounded && arrive <= RALLY_CATCH_WINDOW - 3) return B.block;
+          if (!ballCatch && me.grounded && arrive <= 14) return press(B.jump, true) | (dx > 0 ? B.left : B.right);
+          return ballCatch ? 0 : null;
+        }
+        return null;
+      }
+      if (!me.grounded) return null;
+
+      if (rally) {
+        // A loose ball: go get it, unless they're much nearer it.
+        if (ball.live) return null;
+        const soon = ballAfter(ball, 15);
+        if (Math.abs(soon.x - me.x) > Math.abs(soon.x - o.x) + 220) return null;
+        return walk(soon.x - me.facing * (a.offset + a.width * 0.45));
+      }
+
+      if (ball.vy <= 0 && ball.y < me.y - me.height * 1.6) return null; // still rising, far above
+      // Bomb: where will it come down to punch height? Is it ours to take?
+      const hitY = me.y - bottom - a.height * 0.5;
+      let land = null;
+      for (let n = 1; n < 150; n += 2) {
+        const p = ballAfter(ball, n);
+        if (p.vy > 0 && p.y >= hitY) { land = { x: p.x, n }; break; }
+      }
+      if (!land) return null;
+      if (Math.abs(land.x - me.x) > 340 || Math.abs(land.x - me.x) > Math.abs(land.x - o.x) + 40) return null;
+      // Stand so it drops just in front of us.
+      return walk(land.x - me.facing * (a.offset + a.width * 0.45));
+    }
+
+    function aimBits(me) {
+      if (!ballAim) return 0;
+      return ballAim * me.facing > 0 ? B.right : B.left;
+    }
+
     let opp = null;
 
-    function think(me, other, projectiles, matchState) {
+    function think(me, other, projectiles, matchState, ball) {
       tick++;
       opp = other;
       history.push(viewOf(other));
@@ -152,7 +296,8 @@ const Cpu = (() => {
       const away = dir < 0 ? B.right : B.left;
       const toCenter = me.x < MID ? B.right : B.left;
       const canAct = !ACTING.has(me.state) && me.state !== 'hitstun' && me.state !== 'knockdown' && me.state !== 'ko';
-      const press = (bit) => { if (tick - lastPress < 4) return 0; lastPress = tick; return bit; };
+      // Recovering (getting back on the stage) isn't held back by pressGap.
+      const press = (bit, urgent) => { if (tick - lastPress < (urgent ? 4 : L.pressGap)) return 0; lastPress = tick; return bit; };
       const oppHalf = o.width / 2;
       const myReach = reachOf(c.attack.offset, c.attack.width, oppHalf) - 8;
       const specialReady = me.specialCooldownTimer <= 0;
@@ -169,10 +314,11 @@ const Cpu = (() => {
       if (!me.grounded && (overVoid || me.y > GROUND_Y)) {
         let b = toCenter;
         const jumpsLeft = me.jumpsUsed < c.maxJumps;
-        if (me.vy > 0 && jumpsLeft && me.y > GROUND_Y - 150) b |= press(B.jump);
+        if (me.vy > 0 && jumpsLeft && me.y > GROUND_Y - 150) b |= press(B.jump, true);
         if (c.hover && me.vy > -1) b |= B.jumpHeld;
         return b;
       }
+      if (ACTING.has(me.state) && tick < ballAimUntil) return aimBits(me);
       if (!canAct) return 0;
 
       // Where would we land from here? Never ride a jump off the stage.
@@ -207,6 +353,9 @@ const Cpu = (() => {
         }
         if (shot && me.grounded && chance(L.block * 0.6)) return press(B.jump) | toward;
       }
+
+      const ballBits = playBall(me, o, ball, c, press, safeX);
+      if (ballBits !== null && (ballBits !== 0 || (ball && ball.heldBy === me.slot))) return ballBits;
 
       // They keep swinging up close: crouch under the next one (punches go
       // over a crouch) and punish the whiff below.
@@ -321,6 +470,7 @@ const Cpu = (() => {
     }
 
     function choosePlan(me, o, dist, myReach) {
+      if (chance(L.idle)) return { kind: 'idle' };
       const cornered = (me.x < STAGE_LEFT_EDGE + 110 && o.x > me.x) || (me.x > STAGE_RIGHT_EDGE - 110 && o.x < me.x);
       if (cornered && chance(0.5)) return { kind: 'escape' };
       if (o.crouching && dist < myReach + 40 && me.character.attack.high !== false && chance(0.7)) return { kind: 'bait' };
@@ -359,7 +509,7 @@ const Cpu = (() => {
     Rollback.applyInput(humanSlot, Rollback.inputBits());
     const w = Game.world();
     const bits = w.p1 && w.p2
-      ? brain.think(cpuSlot === 'p1' ? w.p1 : w.p2, cpuSlot === 'p1' ? w.p2 : w.p1, w.projectiles, w.matchState)
+      ? brain.think(cpuSlot === 'p1' ? w.p1 : w.p2, cpuSlot === 'p1' ? w.p2 : w.p1, w.projectiles, w.matchState, w.ball)
       : 0;
     Rollback.applyInput(cpuSlot, bits);
     Game.update(FIXED_STEP);

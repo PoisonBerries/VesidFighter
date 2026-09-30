@@ -465,6 +465,154 @@ if (webglAvailable()) {
     fxTex.needsUpdate = true;
   }
 
+  // ---- The ball (game.js) ----
+  // A real sphere, so it spins and catches the light. Its shadow on the
+  // platform marks where it's coming down. Rally: coloured by heat, its band
+  // shows whose shot it is, and a live ball leaves a trail. Bomb: a dark
+  // bomb whose light blinks faster as the fuse burns, and a red ring shows
+  // the blast radius once the fuse is nearly gone.
+  const ballGroup = new THREE.Group();
+  scene.add(ballGroup);
+  const ballMat = new THREE.MeshStandardMaterial({ color: '#2b2440', roughness: 0.35, metalness: 0.3, emissive: '#ff2a2a', emissiveIntensity: 0 });
+  const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_RADIUS * S, 28, 20), ballMat);
+  ballMesh.castShadow = true;
+  // A pale band around it so the spin reads.
+  const bandMat = new THREE.MeshStandardMaterial({ color: '#fff3b0', emissive: '#ffb347', emissiveIntensity: 0.4, roughness: 0.5 });
+  const band = new THREE.Mesh(new THREE.TorusGeometry(BALL_RADIUS * S * 1.001, BALL_RADIUS * S * 0.12, 8, 32), bandMat);
+  band.rotation.y = Math.PI / 2;
+  ballMesh.add(band);
+  ballGroup.add(ballMesh);
+  // Fuse spark on top, and a halo that glows with the warning light.
+  const sparkMat = new THREE.SpriteMaterial({ map: glowTexture('rgba(255,230,150,1)', 'rgba(255,140,60,0)'), blending: THREE.AdditiveBlending, depthWrite: false });
+  const spark = new THREE.Sprite(sparkMat);
+  ballGroup.add(spark);
+  const whiteGlow = glowTexture('rgba(255,255,255,0.9)', 'rgba(255,255,255,0)');
+  const haloMat = new THREE.SpriteMaterial({ map: whiteGlow, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+  const halo = new THREE.Sprite(haloMat);
+  ballGroup.add(halo);
+
+  // Rally trail: glowing puffs at the ball's recent positions while it's live.
+  const TRAIL = 10;
+  const trail = [];
+  const trailPos = [];
+  for (let i = 0; i < TRAIL; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: whiteGlow, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    sp.visible = false;
+    scene.add(sp);
+    trail.push(sp);
+  }
+
+  const ballShadow = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 24),
+    new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.4, depthWrite: false }),
+  );
+  ballShadow.rotation.x = -Math.PI / 2;
+  ballShadow.renderOrder = 1;
+  scene.add(ballShadow);
+  const dangerRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.93, 1, 48),
+    new THREE.MeshBasicMaterial({ color: '#ff3b3b', transparent: true, depthWrite: false }),
+  );
+  dangerRing.rotation.x = -Math.PI / 2;
+  dangerRing.renderOrder = 1;
+  scene.add(dangerRing);
+
+  // Explosion: a hot flash that swells and fades, plus a burst of light.
+  const blastMat = new THREE.SpriteMaterial({ map: glowTexture('rgba(255,240,200,1)', 'rgba(255,110,40,0)'), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+  const blast = new THREE.Sprite(blastMat);
+  scene.add(blast);
+  const blastLight = new THREE.PointLight('#ff9a4a', 0, 9, 1.5);
+  scene.add(blastLight);
+
+  const heatColor = new THREE.Color();
+
+  function updateBall(b, mode, now) {
+    const live = !!b && b.phase !== 'waiting';
+    ballGroup.visible = live;
+    ballShadow.visible = false;
+    dangerRing.visible = false;
+    const trailOn = live && mode === 'rally' && b.live && b.hitstop === 0;
+    if (!trailOn) trailPos.length = 0;
+    else {
+      trailPos.unshift([toX(b.x), toY(b.y)]);
+      if (trailPos.length > TRAIL) trailPos.pop();
+    }
+    trail.forEach((sp, i) => {
+      sp.visible = trailOn && i > 0 && i < trailPos.length;
+      if (!sp.visible) return;
+      const k = 1 - i / TRAIL;
+      sp.position.set(trailPos[i][0], trailPos[i][1], -0.02);
+      sp.scale.setScalar(BALL_RADIUS * S * 2.2 * (0.4 + 0.6 * k) * (1 + b.heat * 0.08));
+      sp.material.color.set(Game.ballColor(b));
+      sp.material.opacity = 0.55 * k;
+    });
+
+    const blastK = b && b.blastT > 0 ? 1 - b.blastT / 30 : 1;
+    blast.visible = blastK < 1;
+    blastLight.intensity = blastK < 1 ? 60 * (1 - blastK) : 0;
+    if (blast.visible) {
+      blast.position.set(toX(b.blastX), toY(b.blastY), 0.2);
+      blast.scale.setScalar(BALL_BLAST_RADIUS * S * 2 * (0.5 + 0.9 * blastK));
+      blastMat.opacity = 1 - blastK * blastK;
+      blastLight.position.set(toX(b.blastX), toY(b.blastY) + 0.5, 1);
+    }
+    if (!live) return;
+
+    const appear = b.phase === 'appearing' ? 1 - b.timer / BALL_APPEAR : 1;
+    ballGroup.position.set(toX(b.x), toY(b.y), 0);
+    ballGroup.scale.setScalar(Math.max(0.01, appear) * (b.hitstop > 0 ? 1.25 : 1)); // swells on impact
+    ballMesh.rotation.z = -b.spin;
+    let d = { heat: 0 };
+    if (mode === 'rally') {
+      const h = b.heat / RALLY_MAX_HEAT;
+      heatColor.set(Game.ballColor(b));
+      ballMat.color.copy(heatColor);
+      ballMat.emissive.copy(heatColor);
+      ballMat.emissiveIntensity = 0.05 + h * 1.4;
+      ballMat.metalness = 0.1;
+      const owned = b.live || b.heldBy;
+      bandMat.color.set(owned ? PLAYER_COLORS[b.lastHit] : '#6b5f8f');
+      bandMat.emissive.set(owned ? PLAYER_COLORS[b.lastHit] : '#000000');
+      bandMat.emissiveIntensity = owned ? 0.8 : 0;
+      haloMat.color.copy(heatColor);
+      halo.scale.setScalar(BALL_RADIUS * S * (2.2 + 3 * h));
+      haloMat.opacity = h > 0 ? 0.2 + 0.6 * h : 0;
+      spark.visible = false;
+    } else {
+      d = Game.ballDanger(b);
+      ballMat.color.set('#2b2440');
+      ballMat.emissive.set('#ff2a2a');
+      ballMat.metalness = 0.3;
+      ballMat.emissiveIntensity = d.lit ? 0.2 + d.heat * 1.6 : 0.03 + d.heat * 0.25;
+      bandMat.color.set('#fff3b0');
+      bandMat.emissive.set('#ffb347');
+      bandMat.emissiveIntensity = 0.4;
+      haloMat.color.set('#ff4632');
+      halo.scale.setScalar(BALL_RADIUS * S * (3 + 2 * d.heat));
+      haloMat.opacity = d.lit ? 0.35 + 0.6 * d.heat : 0.08;
+      spark.visible = true;
+      spark.position.set(0, BALL_RADIUS * S * 1.15, 0);
+      spark.scale.setScalar(BALL_RADIUS * S * (1.1 + 0.4 * Math.sin(now / 40)));
+    }
+
+    // Shadow straight below while it's over the platform: that's where it lands.
+    const overStage = b.x > STAGE_LEFT_EDGE && b.x < STAGE_RIGHT_EDGE;
+    if (overStage && b.phase === 'live') {
+      const h = Math.max(0, GROUND_Y - b.y) * S;
+      const k = Math.max(0.35, 1 - h / 6);
+      ballShadow.visible = true;
+      ballShadow.position.set(toX(b.x), 0.005, 0);
+      ballShadow.scale.set(BALL_RADIUS * S * 1.3 * k, BALL_RADIUS * S * 0.6 * k, 1);
+      ballShadow.material.opacity = 0.5 * k;
+      if (d.heat > 0.6) {
+        dangerRing.visible = true;
+        dangerRing.position.set(toX(b.x), 0.007, 0);
+        dangerRing.scale.set(BALL_BLAST_RADIUS * S, BALL_BLAST_RADIUS * S * 0.45, 1);
+        dangerRing.material.opacity = (d.lit ? 0.9 : 0.35) * Math.min(1, (d.heat - 0.6) * 4);
+      }
+    }
+  }
+
   // ---- Camera ----
   const camTarget = new THREE.Vector3(0, 1.4, 0);
   const camPos = new THREE.Vector3(0, 3, 13);
@@ -485,6 +633,19 @@ if (webglAvailable()) {
       dist = THREE.MathUtils.clamp(dist, 7, 16);
       tx = THREE.MathUtils.clamp((ax + bx) / 2, -3.2, 3.2);
       ty = Math.max((ay + by) / 2 + tallest * 0.55, 0.9);
+      // Pull back to keep a high ball in shot (below the HUD, which covers
+      // the top of the screen), holding the floor in place.
+      const ball = state.ball;
+      if (ball && ball.phase !== 'waiting') {
+        const halfH = dist * tanV;
+        const need = toY(ball.y) + BALL_RADIUS * S * 2;
+        if (need > ty + halfH * 0.7) {
+          const bottom = ty - halfH;
+          const h = Math.min((need - bottom) / 1.7, 16 * tanV);
+          ty = bottom + h;
+          dist = h / tanV;
+        }
+      }
     } else {
       // Menus: slow drift over the empty stage.
       tx = Math.sin(t * 0.00012) * 1.5;
@@ -513,7 +674,9 @@ if (webglAvailable()) {
       updateCard(cards.p1, state.p1, dt);
       updateCard(cards.p2, state.p2, dt);
       updateFx(state);
+      updateBall(state.ball, state.ballMode, now);
     } else {
+      updateBall(null, null, now);
       for (const c of Object.values(cards)) { c.mesh.visible = false; c.blob.visible = false; c.ring.visible = false; }
       fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
       fxTex.needsUpdate = true;
