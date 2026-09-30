@@ -547,6 +547,22 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // Ripples spreading across the floor where Sam swims.
+  function drawRipple(ctx, e, t) {
+    ctx.save();
+    for (let i = 0; i < 2; i++) {
+      const tt = clamp((t - i * 0.18) / 0.82, 0, 1);
+      if (tt <= 0 || tt >= 1) continue;
+      const rx = 16 + 46 * easeOutCubic(tt);
+      ctx.strokeStyle = `rgba(190,240,255,${(1 - tt) * 0.8})`;
+      ctx.lineWidth = 3 * (1 - tt) + 1;
+      ctx.beginPath();
+      ctx.ellipse(e.x, e.y + 1, rx, rx * 0.17, 0, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawTimed(ctx) {
     if (!timed.length) return;
     const now = performance.now();

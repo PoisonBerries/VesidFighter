@@ -228,6 +228,9 @@ test('every character is drawn, and survives attack/special/ultimate/jump/block/
       tap('KeyW', 30);                                        // jump
       T.key('KeyW', true); T.step(70); T.key('KeyW', false); T.step(60); // held jump (Carlos hovers)
       T.key('KeyS', true); T.step(15); T.key('KeyS', false);  // block
+      // Crouch and move (Sam swims, Artur rolls), then run into a crouch (Sam slides) -- with rendering on.
+      T.key('KeyS', true); T.key('KeyD', true); T.step(40); T.key('KeyD', false); T.step(10); T.key('KeyS', false);
+      T.key('KeyD', true); T.step(14); T.key('KeyD', false); T.key('KeyS', true); T.step(45); T.key('KeyS', false); T.step(10);
       tap('KeyG', 100);                                       // special
       Game.applySnapshot({ f: [{ ultCharge: 100 }, {}] });
       tap('KeyH', 140);                                       // ultimate
