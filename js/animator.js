@@ -336,11 +336,14 @@ const Animator = (() => {
   }
 
   // Crouch-roll (Artur): a curled ball turning with the distance covered.
+  // A ninja tumble: knees hauled up to the chest, arms wrapped in, chin
+  // tucked (the head tilt is applied after the clip step, which resets it).
   function rollPose(T, an) {
-    T.crouch = 0.4; T.lean = 10; T.armPose = 'tuckedDive'; T.arms = null;
+    T.crouch = 0.5; T.lean = 16; T.armPose = 'tuckedDive';
+    T.arms = [P(2, 20, -8, 0), P(14, 26, 8, 0)];
     T.ball = 1; T.spin = an.rollAngle || 0;
-    T.fA = F(-4, -12); T.fB = F(10, -18);
-    T.rate = 45;
+    T.fA = F(0, -22); T.fB = F(14, -28);
+    T.rate = 50;
   }
 
   function computeTargets(fighter, profile, an, now) {
@@ -520,6 +523,7 @@ const Animator = (() => {
     if (rollFinish) rollPose(T, an);
     if (!T.arms) T.arms = armsFor(T.armPose, { R, E: T.E, s: T.s });
     applyClip(T, fighter, an, now, rollFinish);
+    if (fighter.rolling || rollFinish) T.headTilt = 38; // chin tucked into the chest
     // Long-armed characters (Nathan): every arm pose reaches proportionally further.
     if (profile.armScale !== 1 && !T.clip) {
       T.arms = T.arms.map((a) => ({
@@ -984,7 +988,7 @@ const Animator = (() => {
     // A crouch-roll turns in step with the distance covered (one turn per
     // ball circumference); it folds into the body angle when the roll stops.
     if (fighter.rolling) {
-      an.rollAngle = (an.rollAngle || 0) + (fighter.vx * fighter.facing) / (0.3 * fighter.height) * f;
+      an.rollAngle = (an.rollAngle || 0) + (fighter.vx * fighter.facing) / (0.2 * fighter.height) * f; // a stylised, quick tumble
       an.rollDir = Math.sign(fighter.vx * fighter.facing) || an.rollDir || 1;
     } else if (an.rollAngle) {
       // The roll stopped mid-turn: finish the rotation to the next whole turn

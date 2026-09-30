@@ -1133,7 +1133,45 @@ const AbilityFX = (() => {
     }
   }
 
+  // Artur's crouch-roll: thin arcs spinning around the tight ball and streaks
+  // trailing along the floor, like a ninja's rolling dash.
+  function drawNinjaRoll(ctx, f) {
+    const H = f.height, now = performance.now(), dir = f.facing;
+    const cx = f.x, cy = f.y - H * 0.26, R = H * 0.3;
+    const accent = f.displayAccent;
+    ctx.save();
+    ctx.lineCap = 'round';
+    const ang = dir * now / 48;
+    for (let k = 0; k < 2; k++) {
+      const a0 = ang + k * Math.PI;
+      ctx.strokeStyle = rgba(accent, 0.55);
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 1.15, a0, a0 + 1.05);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 1.15, a0 + 0.25, a0 + 1.05);
+      ctx.stroke();
+    }
+    for (let k = 0; k < 3; k++) {
+      const y = f.y - 10 - k * 15, x0 = cx - dir * R * 1.1, len = 46 + k * 24;
+      const g = ctx.createLinearGradient(x0, 0, x0 - dir * len, 0);
+      g.addColorStop(0, 'rgba(255,255,255,0.55)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x0 - dir * len, y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawFront(ctx, f) {
+    if (f.rolling && f.grounded) drawNinjaRoll(ctx, f);
     if (f.character.phaseStep && (f.state === 'hitstun' || f.state === 'knockdown') && f.phaseCooldown <= 0 && f.y <= GROUND_Y + 1 && f.hp > 0) drawPhaseHint(ctx, f);
     if (f.hovering) drawHoverJets(ctx, f);
     if (f.character.hover) drawHoverMeter(ctx, f);
@@ -1345,14 +1383,16 @@ const AbilityFX = (() => {
       }
     }
 
-    // Dust kicked up by a crouch-roll along the floor.
+    // Smoke poof as the roll starts, then dust kicked up along the floor.
+    if (f.rolling && !m.rolling) Effects.spawnDust(f.x, GROUND_Y, 9, 3.4);
     if (f.rolling && f.grounded) {
       const nowMs = performance.now();
-      if (nowMs - (m.lastRollDust || 0) > 60) {
+      if (nowMs - (m.lastRollDust || 0) > 42) {
         m.lastRollDust = nowMs;
-        Effects.spawnDust(f.x - f.facing * 18, GROUND_Y, 1, 1.8);
+        Effects.spawnDust(f.x - f.facing * 18, GROUND_Y, 2, 2.2);
       }
     }
+    m.rolling = !!f.rolling;
 
     // Scorched dust kicked up by hover thrusters near the floor.
     if (f.hovering && GROUND_Y - f.y < 150) {
