@@ -88,6 +88,8 @@ const Renderer = (() => {
     const customImg = SpriteManager.getImage(fighter.slot, pose)
       || SpriteManager.getImage(fighter.slot, 'idle');
 
+    const rig = Animator.update(fighter, getBodyProfile(fighter.character.id));
+
     const auraColor = getAuraColor(fighter);
     if (auraColor) drawAura(ctx, fighter, auraColor);
     if (fighter.poisonTicksLeft > 0) {
@@ -99,42 +101,29 @@ const Renderer = (() => {
     }
 
     // Ground contact shadow, drawn in world space (not the fighter's own
-    // translated/rotated space) so it stays flat on the platform and
-    // shrinks/fades with height instead of following a jumping character
-    // straight up.
-    const heightAboveGround = Math.max(0, GROUND_Y - fighter.y);
+    // translated/rotated space) so it stays flat on the platform. It
+    // shrinks/fades with height, and stretches out when the body lies down.
+    const heightAboveGround = Math.max(0, GROUND_Y - fighter.y) + rig.lift;
     const shadowScale = Math.max(0.35, 1 - heightAboveGround / 220);
+    const lying = Math.abs(Math.sin(rig.rot)) * (1 - Math.min(1, rig.ball));
     ctx.save();
     ctx.globalAlpha = 0.32 * shadowScale;
     ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.ellipse(fighter.x, GROUND_Y + 3, fighter.width * 0.34 * shadowScale, 7 * shadowScale, 0, 0, Math.PI * 2);
+    ctx.ellipse(fighter.x, GROUND_Y + 3, fighter.width * 0.34 * shadowScale * (1 + 1.1 * lying), 7 * shadowScale, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
     ctx.save();
     ctx.translate(fighter.x, fighter.y);
-
-    if (fighter.state === 'ko' || fighter.state === 'knockdown') {
-      ctx.rotate(fighter.facing * Math.PI / 2 * (fighter.state === 'ko' ? 1 : 0.82));
-    }
-
-    // A roll/spin ability rotates the whole sprite, but drawPlaceholder
-    // draws it standing upright with y=0 at the FEET -- rotating around
-    // that point swings the head down through the ground and flings the
-    // legs straight up into the air every half-turn (looks like he's being
-    // flung around, not rolling). Pivoting around the body's vertical
-    // center instead keeps the whole silhouette inside a band above the
-    // ground, the way an actual tumbling roll would look.
-    const spin = getSpinRadians(fighter);
-    if (spin) {
-      const pivotY = -fighter.height * 0.5;
-      ctx.translate(0, pivotY);
-      ctx.rotate(spin);
-      ctx.translate(0, -pivotY);
-    }
-
     ctx.scale(fighter.facing, 1);
+
+    // Whole-body transform, in facing-relative space (positive angle =
+    // head toward the opponent): rotate about the body's pivot, placed at
+    // the height that keeps the silhouette resting on the floor.
+    ctx.translate(0, -rig.wh);
+    ctx.rotate(rig.rot);
+    ctx.translate(0, rig.pv);
 
     if (fighter.isPhased) ctx.globalAlpha = 0.35;
 
@@ -155,9 +144,12 @@ const Renderer = (() => {
     else if (fighter.poisonTicksLeft > 0) tint = { color: '#78c85a', alpha: 0.3 };
 
     if (customImg) {
+      // Uploaded sprites can't bend, so they get the same squash/stretch
+      // the procedural body uses for crouching and landing.
+      ctx.scale(1 + rig.crouch * 0.15, 1 - rig.crouch * 0.5);
       drawCustomSprite(ctx, customImg, fighter);
     } else {
-      drawPlaceholder(ctx, fighter, pose, tint);
+      drawPlaceholder(ctx, fighter, rig, tint);
     }
 
     ctx.globalAlpha = 1;
@@ -327,29 +319,35 @@ const Renderer = (() => {
     ctx.stroke();
   }
 
-  // Hip -> knee -> foot, each bone a tapered capsule; the shin renders in a
-  // shaded tone (reads as a boot/sleeve) and the foot is a small flattened
-  // ellipse so it plants naturally on the ground.
-  // footY defaults to 0 (planted on the ground); a raised foot (e.g. a kick)
-  // can pass a negative footY to lift it, in which case the foot ellipse
-  // orients along the shin's own direction instead of the standing-flat
-  // angle that looks right for a planted foot.
-  function drawLeg(ctx, hipX, hipY, footX, kneeForward, thickness, color, footColor, footY) {
-    footY = footY || 0;
-    const kneeX = (hipX + footX) / 2 + kneeForward;
-    const kneeY = (hipY + footY) / 2;
+  // Hip -> knee -> foot with a two-bone solve: both bones keep the same
+  // fixed length, and the knee bends forward (or up, for a kick) by however
+  // much the hip-to-foot distance requires. That's what keeps legs from
+  // stretching and squashing as feet lift, plant and kick.
+  // pointAmt (0-1) aims the foot along the shin (a kick) instead of flat
+  // on the ground; a lifted foot also tips toe-down.
+  function drawLeg(ctx, hipX, hipY, footX, footY, legLen, thickness, color, footColor, pointAmt) {
+    let dx = footX - hipX, dy = footY - hipY;
+    let d = Math.hypot(dx, dy) || 0.001;
+    const maxD = legLen * 2 * 0.999;
+    if (d > maxD) {
+      dx *= maxD / d; dy *= maxD / d;
+      footX = hipX + dx; footY = hipY + dy;
+      d = maxD;
+    }
+    const bend = Math.sqrt(Math.max(0, legLen * legLen - (d / 2) * (d / 2)));
+    const kneeX = hipX + dx / 2 + (dy / d) * bend;
+    const kneeY = hipY + dy / 2 - (dx / d) * bend;
     const rHip = thickness * 0.66, rKnee = thickness * 0.48, rFoot = thickness * 0.4;
     fillCapsule(ctx, hipX, hipY, kneeX, kneeY, rHip, rKnee, color);
     fillCapsule(ctx, kneeX, kneeY, footX, footY, rKnee, rFoot, footColor);
     fillJoint(ctx, kneeX, kneeY, rKnee * 0.92, color);
-    const footDir = footX >= hipX ? 1 : -1;
+    const lifted = Math.min(1, Math.max(0, -footY / 25));
+    const shinAngle = Math.atan2(footY - kneeY, footX - kneeX);
+    const flat = 0.15 + lifted * 0.55;
+    const angle = flat + (shinAngle - flat) * (pointAmt || 0);
     ctx.save();
-    ctx.translate(footX + footDir * rFoot * 0.5, footY + 1);
-    if (footY === 0) {
-      ctx.rotate(footDir > 0 ? 0.15 : -0.15);
-    } else {
-      ctx.rotate(Math.atan2(footY - kneeY, footX - kneeX));
-    }
+    ctx.translate(footX + rFoot * 0.5, footY + 1);
+    ctx.rotate(angle);
     ctx.beginPath();
     ctx.ellipse(0, 0, rFoot * 1.5, rFoot * 0.72, 0, 0, Math.PI * 2);
     ctx.fillStyle = footColor;
@@ -607,87 +605,10 @@ const Renderer = (() => {
     }
   }
 
-  // A full-body barrel-roll spin, used for the two moves that are explicitly
-  // about spinning/rolling (John's Momentum Roll and Big Silb Roll). Wraps
-  // the *entire* figure (including legs, and even a custom uploaded sprite)
-  // rather than just the upper-body lean the other poses use.
-  function getSpinRadians(fighter) {
-    const def = fighter.state === 'special' ? fighter.character.special
-      : fighter.state === 'ultimate' ? fighter.character.ultimate : null;
-    if (!def) return 0;
-    const t = fighter.actionTimer;
-    if (def.type === 'lunge' && t > def.startup && t <= def.startup + def.active) {
-      return ((t - def.startup) / def.active) * Math.PI * 4; // two full spins
-    }
-    if (def.type === 'growRoll') {
-      const a = fighter._ability;
-      if (a && a.tGrowEnd !== undefined && t > a.tGrowEnd && t <= a.tRollEnd) {
-        return ((t - a.tGrowEnd) / (a.tRollEnd - a.tGrowEnd)) * Math.PI * 4;
-      }
-    }
-    return 0;
-  }
-
-  // Picks a pose that actually looks like the special/ultimate being
-  // performed, keyed off the ability's `type` (shared across whichever
-  // characters use that type) plus its live sub-phase where it matters
-  // (e.g. Keenan mid-dodge vs mid-counter). Reads fighter._ability directly
-  // -- an intentional, low-risk coupling to fighter.js's internal timing so
-  // the visual always matches the mechanic exactly.
-  function choreographAbility(def, fighter) {
-    if (!def) return {};
-    const a = fighter._ability || {};
-    const t = fighter.actionTimer;
-    switch (def.type) {
-      case 'lunge':
-        // Windup pose (fist cocked forward) during startup/recovery, but
-        // tuck in tight during the actual dash -- the body spins through
-        // two full rotations right then, and a wide standing pose with an
-        // arm stuck out just windmills; a tucked pose reads as an actual
-        // rolling body the way growRoll's does.
-        if (t > def.startup && t <= def.startup + def.active) {
-          return { lean: 14, armPose: 'tuckedDive', crouchAmount: 0.12, kneeForward: 20 };
-        }
-        return { lean: 12, elbowBend: 4, armPose: 'forward' };
-      case 'multiHit': {
-        const idx = def.hits.findIndex((w) => t > w.start && t <= w.end);
-        const upcoming = def.hits.findIndex((w) => t <= w.start);
-        return { lean: 8, elbowBend: 6, armPose: idx === 1 ? 'slash2' : 'slash1', crouchAmount: upcoming === 0 ? 0.05 : 0 };
-      }
-      case 'slam':
-        return a.hasLanded
-          ? { crouchAmount: 0.05, armPose: 'slamDown', lean: 6 }
-          : { armPose: 'raisedFists', lean: -4 };
-      case 'dive':
-        if (def.angle === 'down') return { armPose: 'tuckedDive', kneeForward: 22, crouchAmount: a.diving ? 0.1 : 0 };
-        return a.diving ? { lean: 30, armPose: 'tackle', elbowBend: 2 } : { lean: 14, armPose: 'tackle', elbowBend: 4 };
-      case 'growRoll':
-        return (a.tGrowEnd !== undefined && t > a.tGrowEnd && t <= a.tRollEnd)
-          ? { lean: 18, armPose: 'tuckedDive' }
-          : { lean: 6, armPose: 'up' };
-      case 'counterDodge':
-        if (a.phase === 'counter') return { lean: 16, armPose: 'forward', elbowBend: 3 };
-        if (a.phase === 'dodge') return { lean: -18, crouchAmount: 0.12, armPose: 'guard' };
-        return { lean: -6, crouchAmount: 0.05, armPose: 'guard' };
-      case 'projectileCharge':
-        return { lean: 4, armPose: 'aim' };
-      case 'soundwaveProjectile':
-        return { lean: 6, armPose: a.fired ? 'shoutOut' : 'shoutIn' };
-      case 'nuke':
-        return a.fired ? { lean: 10, armPose: 'thrust' } : { lean: -4, armPose: 'channelUp' };
-      case 'reflectStance':
-        return { crouchAmount: 0.08, armPose: 'crossedGuard' };
-      case 'buff':
-        return { lean: -6, armPose: 'powerUp' };
-      case 'poisonBurst':
-        return { lean: -22, stride: 20, armPose: 'balance' };
-      default:
-        return {};
-    }
-  }
-
   // ---- Procedural placeholder figure (used until real sprites are uploaded) ----
-  function drawPlaceholder(ctx, fighter, pose, tint) {
+  // All motion comes from the rig Animator.update() built for this frame;
+  // this only turns those numbers into shapes.
+  function drawPlaceholder(ctx, fighter, rig, tint) {
     let color = fighter.displayColor;
     let accent = fighter.displayAccent;
     if (tint) {
@@ -699,125 +620,8 @@ const Renderer = (() => {
     const id = fighter.character.id;
     const bulk = fighter.transformed ? 1.18 : 1;
 
-    let stride = 9 * profile.stanceMul;   // how far apart the feet are
-    let kneeForward = 10;                  // how much the knees bow forward
-    let crouchAmount = profile.idleCrouch; // 0 = standing tall, ~0.25 = deep crouch
-    let lean = 0;                          // upper-body lean, pivoting at the hip
-    let elbowBend = 8;
-    let armPose = 'swing';    // swing | forward | crossed | up | ...(see arm switch below)
-    let armSwing = Math.sin(performance.now() / 400) * 3 * (profile.dancer ? 1.7 : 1); // idle sway
-
-    switch (pose) {
-      case 'walk': {
-        const cyc = fighter.walkCycle;
-        stride = (20 + Math.sin(cyc) * 15) * profile.stanceMul;
-        kneeForward = 12 + Math.abs(Math.cos(cyc)) * 14;
-        armSwing = Math.sin(cyc) * 22 * (profile.dancer ? 1.3 : 1);
-        break;
-      }
-      case 'jump':
-        stride = -8;
-        kneeForward = 22;
-        crouchAmount = 0.06;
-        armPose = 'up';
-        break;
-      case 'attack':
-        if (id === 'artur') {
-          // Froggy front kick instead of a punch -- arms just balance.
-          stride = 10 * profile.stanceMul;
-          armPose = 'balance';
-        } else if (id === 'john' || id === 'robert') {
-          // Big wind-up haymaker: wider brace, deeper forward lean.
-          stride = 22 * profile.stanceMul;
-          kneeForward = 20;
-          lean = 15;
-          elbowBend = 8;
-          armPose = 'forward';
-        } else {
-          stride = 16 * profile.stanceMul;
-          kneeForward = 16;
-          lean = 9;
-          elbowBend = 6;
-          armPose = 'forward';
-        }
-        break;
-      case 'special': {
-        // currentPose() collapses both 'special' and 'ultimate' fighter
-        // states to this one pose name -- read fighter.state to know which
-        // ability def is actually live.
-        const def = fighter.state === 'ultimate' ? fighter.character.ultimate : fighter.character.special;
-        const chore = choreographAbility(def, fighter);
-        stride = chore.stride ?? (18 * profile.stanceMul);
-        kneeForward = chore.kneeForward ?? 16;
-        crouchAmount = chore.crouchAmount ?? crouchAmount;
-        lean = chore.lean ?? 0;
-        elbowBend = chore.elbowBend ?? elbowBend;
-        armPose = chore.armPose ?? 'forward';
-        break;
-      }
-      case 'block': {
-        crouchAmount = 0.24;
-        lean = 6;
-        armPose = 'crossed';
-        // Still crouched and guarding either way; legs cycle through a low
-        // duck-walk when there's actually crouch-movement to animate.
-        if (Math.abs(fighter.vx) > 0.4) {
-          const cyc = fighter.walkCycle;
-          stride = (16 + Math.sin(cyc) * 10) * profile.stanceMul;
-          kneeForward = 22 + Math.abs(Math.cos(cyc)) * 12;
-        } else {
-          kneeForward = 26;
-          stride = 15 * profile.stanceMul;
-        }
-        break;
-      }
-      case 'knockdown':
-        crouchAmount = 0.1;
-        kneeForward = 28;
-        stride = 24;
-        armSwing = 34;
-        break;
-      case 'hit': {
-        // Heavier characters barely budge; light ones stagger hard --
-        // makes contact feel different depending on who's eating the hit.
-        const stagger = profile.staggerMul * (fighter.transformed ? 0.6 : 1);
-        lean = -16 * stagger;
-        kneeForward = 18;
-        stride = 16 * Math.max(0.7, stagger);
-        armSwing = 28 * stagger;
-        break;
-      }
-      case 'victory':
-        kneeForward = 6;
-        armPose = 'up';
-        break;
-      default:
-        break; // idle -- defaults above already give a subtle sway
-    }
-
-    // Smooth the continuous body parameters toward their new target every
-    // frame instead of snapping to them, so pose changes (idle -> walk ->
-    // attack -> block, etc) ease into each other. Persisted on the fighter
-    // instance itself (reset each round in game.js) so it survives frames.
-    if (!fighter._visualPose) {
-      fighter._visualPose = { stride, kneeForward, crouchAmount, lean, elbowBend };
-    }
-    const vp = fighter._visualPose;
-    const smoothRate = 0.4;
-    vp.stride += (stride - vp.stride) * smoothRate;
-    vp.kneeForward += (kneeForward - vp.kneeForward) * smoothRate;
-    vp.crouchAmount += (crouchAmount - vp.crouchAmount) * smoothRate;
-    vp.lean += (lean - vp.lean) * smoothRate;
-    vp.elbowBend += (elbowBend - vp.elbowBend) * smoothRate;
-    ({ stride, kneeForward, crouchAmount, lean, elbowBend } = vp);
-
-    // Carlos hovers -- never quite touches the ground while upright. Lifts
-    // the *whole* body including his feet (not just the torso/head), so
-    // there's an actual visible gap between him and the platform instead of
-    // just a subtly taller-looking torso.
-    const floatY = (profile.floaty && pose !== 'knockdown' && pose !== 'ko') ? -12 : 0;
-
-    const crouchScale = 1 - crouchAmount;
+    const crouchScale = 1 - rig.crouch;
+    const floatY = rig.float;
     const hipY = -H * 0.38 * crouchScale + floatY;
     const shoulderY = -H * 0.72 * crouchScale + floatY;
     const headY = -H * 0.86 * crouchScale + floatY;
@@ -826,31 +630,22 @@ const Renderer = (() => {
     const limbThickness = 15 * profile.limbWidth * bulk;
     const sleeveColor = shadeColor(color, -22);
     const bootColor = shadeColor(color, -30);
-    const arm = (shX, shY2, handX, handY, bend) =>
-      drawArm(ctx, shX, shY2, handX, handY, bend, limbThickness, color, sleeveColor);
-    const leg = (hipX, hY, footX, kneeFwd, footY) =>
-      drawLeg(ctx, hipX, hY, footX, kneeFwd, limbThickness, color, bootColor, footY);
+    const legLen = H * 0.2; // fixed bone length: legs bend instead of stretching
+    const leg = (foot, point) => {
+      const hipX = Math.max(-7, Math.min(7, foot.x * 0.3));
+      drawLeg(ctx, hipX, hipY, foot.x, floatY + foot.y, legLen, limbThickness, color, bootColor, point);
+    };
 
     drawBackAccessory(ctx, id, floatY);
 
-    // Legs are drawn in world space -- feet planted at y=0 (or y=floatY for
-    // a hovering character) -- so leaning the torso below doesn't lift them
-    // further or distort their shape.
-    if (id === 'artur' && pose === 'attack') {
-      // Froggy front kick: support leg plants centered, kicking leg drives
-      // up and out toward the opponent instead of staying on the ground.
-      leg(-stride * 0.15, hipY, -stride * 0.55, kneeForward * 0.6);
-      leg(stride * 0.2, hipY, stride * 3.6, 6, hipY * 0.65);
-    } else {
-      leg(-stride * 0.3, hipY, -stride, kneeForward, floatY);
-      leg(stride * 0.3, hipY, stride, kneeForward, floatY);
-    }
+    // Legs are drawn before the torso lean is applied, so an attack's
+    // forward lean pivots from the hip without warping them.
+    leg(rig.fA, 0);
+    leg(rig.fB, rig.footPoint);
 
     ctx.save();
-    // Lean the upper body (torso/arms/head) from the hip joint, not the
-    // feet, so an attack's forward lean doesn't warp the legs.
     ctx.translate(0, hipY);
-    ctx.rotate(lean * Math.PI / 180);
+    ctx.rotate(rig.lean * Math.PI / 180);
     ctx.translate(0, -hipY);
 
     // Torso -- a filled body with a natural waist taper instead of a rigid
@@ -893,116 +688,27 @@ const Renderer = (() => {
 
     drawTorsoCostume(ctx, id, hipY, shoulderY, color, accent, fighter.transformed);
 
-    // Arms -- see choreographAbility()/the pose switch above for how each
-    // character's kit maps onto these.
+    // Arms: back arm first, then the front/striking arm. Hands and the
+    // charge orb fade with their blend weights so they never pop in.
     const shY = shoulderY + 6;
-    const reach = 46 + profile.reachBoost;
-    switch (armPose) {
-      case 'forward':
-        arm(0, shY, -18, shY + 20, -elbowBend);
-        arm(0, shY, reach, shY - 4, elbowBend);
-        drawHand(ctx, reach, shY - 4, profile, accent);
-        break;
-      case 'crossed':
-        arm(0, shY, 22, shY + 18, -elbowBend);
-        arm(0, shY, -6, shY + 30, elbowBend);
-        break;
-      case 'crossedGuard': // Nathan's Rubber Guard -- tight symmetric brace
-        arm(0, shY, 16, shY + 8, -10);
-        arm(0, shY, -16, shY + 8, 10);
-        break;
-      case 'up':
-        arm(0, shY, -16, shoulderY - 26, -elbowBend);
-        arm(0, shY, 16, shoulderY - 26, elbowBend);
-        break;
-      case 'powerUp': { // Overgrowth / Encore cast -- triumphant raised fists
-        const hy = shoulderY - 30;
-        arm(0, shY, -24, hy, -elbowBend);
-        arm(0, shY, 24, hy, elbowBend);
-        drawHand(ctx, -24, hy, profile, accent);
-        drawHand(ctx, 24, hy, profile, accent);
-        break;
+    for (const a of rig.arms) {
+      const hx = a.x, hy = shY + a.y;
+      drawArm(ctx, 0, shY, hx, hy, a.bend, limbThickness, color, sleeveColor);
+      if (a.hand > 0.02) {
+        ctx.save();
+        ctx.globalAlpha *= Math.min(1, a.hand);
+        drawHand(ctx, hx, hy, profile, accent);
+        ctx.restore();
       }
-      case 'guard': // Keenan's Foresight -- hands up, ready to react
-        arm(0, shY, -10, shY - 14, -6);
-        arm(0, shY, 10, shY - 14, 6);
-        break;
-      case 'aim': { // Owen charging a plasma bolt -- one hand out, glowing
-        arm(0, shY, -14, shY + 22, elbowBend);
-        const hx = reach + 2, hy = shY - 6;
-        arm(0, shY, hx, hy, -elbowBend);
+      if (a.orb > 0.02) {
+        ctx.save();
+        ctx.globalAlpha *= Math.min(1, a.orb);
         ctx.fillStyle = accent;
         ctx.beginPath();
-        ctx.arc(hx, hy, 7, 0, Math.PI * 2);
+        ctx.arc(hx, hy, 7 * a.orb, 0, Math.PI * 2);
         ctx.fill();
-        break;
+        ctx.restore();
       }
-      case 'shoutIn': // Ryan winding up Soundwave
-        arm(0, shY, -12, shY + 10, elbowBend);
-        arm(0, shY, 12, shY + 10, -elbowBend);
-        break;
-      case 'shoutOut': // Ryan releasing it -- both hands thrust out
-        arm(0, shY, reach - 6, shY - 2, elbowBend);
-        arm(0, shY, (reach - 6) * 0.7, shY + 10, -elbowBend);
-        break;
-      case 'channelUp': // Owen's Plasma Nuke, channeling
-        arm(0, shY, -20, shoulderY - 20, -6);
-        arm(0, shY, 20, shoulderY - 20, 6);
-        break;
-      case 'thrust': // Owen's Plasma Nuke, released
-        arm(0, shY, reach - 2, shY - 10, 4);
-        arm(0, shY, reach - 6, shY + 8, -4);
-        break;
-      case 'slash1': { // Carlos's Double Slash, first claw swipe
-        const hx = reach - 6, hy = shY - 22;
-        arm(0, shY, hx, hy, elbowBend);
-        arm(0, shY, -16, shY + 18, -elbowBend);
-        drawHand(ctx, hx, hy, profile, accent);
-        break;
-      }
-      case 'slash2': { // second swipe, opposite diagonal
-        const hx = reach - 6, hy = shY + 22;
-        arm(0, shY, hx, hy, -elbowBend);
-        arm(0, shY, -16, shY - 10, elbowBend);
-        drawHand(ctx, hx, hy, profile, accent);
-        break;
-      }
-      case 'raisedFists': { // Robert winding up Double Fist Slam
-        const hy = shoulderY - 30;
-        arm(0, shY, -18, hy, -elbowBend);
-        arm(0, shY, 18, hy, elbowBend);
-        drawHand(ctx, -18, hy, profile, accent);
-        drawHand(ctx, 18, hy, profile, accent);
-        break;
-      }
-      case 'slamDown': { // ...and bringing both fists down
-        const hy = shY + 34;
-        arm(0, shY, -22, hy, -elbowBend);
-        arm(0, shY, 22, hy, elbowBend);
-        drawHand(ctx, -22, hy, profile, accent);
-        drawHand(ctx, 22, hy, profile, accent);
-        break;
-      }
-      case 'tackle': { // Carlos's Rending Dive / Robert's Body Slam
-        const h1x = reach, h1y = shY - 6, h2x = reach - 6, h2y = shY + 4;
-        arm(0, shY, h1x, h1y, elbowBend * 0.5);
-        arm(0, shY, h2x, h2y, -elbowBend * 0.5);
-        drawHand(ctx, h1x, h1y, profile, accent);
-        drawHand(ctx, h2x, h2y, profile, accent);
-        break;
-      }
-      case 'tuckedDive': // Sam's dives / John's Big Silb Roll
-        arm(0, shY, -16, shY + 8, elbowBend);
-        arm(0, shY, 16, shY + 8, -elbowBend);
-        break;
-      case 'balance': // Artur's Poison Fart -- arms out for balance
-        arm(0, shY, -30, shY - 2, -6);
-        arm(0, shY, 30, shY - 2, 6);
-        break;
-      default: // 'swing' -- idle/walk/hit/knockdown
-        arm(0, shY, -14 + armSwing * 0.3, shY + 26, elbowBend);
-        arm(0, shY, 14 - armSwing * 0.3, shY + 26, -elbowBend);
-        break;
     }
 
     drawHeadAccessory(ctx, id, headY, headR, color);

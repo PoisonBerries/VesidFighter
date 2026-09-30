@@ -45,6 +45,25 @@ const Effects = (() => {
     });
   }
 
+  // Low, fast-fading puff kicked up where a fighter lands or slides. Local
+  // only (each peer spawns its own from the animation), so not recorded.
+  function spawnDust(x, y, count, power) {
+    for (let i = 0; i < count; i++) {
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      particles.push({
+        x: x + (Math.random() * 2 - 1) * 14,
+        y: y - 2,
+        vx: dir * (0.5 + Math.random() * (power || 1.5)),
+        vy: -(0.3 + Math.random() * 1.1),
+        life: 14 + Math.random() * 10,
+        maxLife: 24,
+        color: '#d8cfee',
+        size: 2 + Math.random() * 3,
+        noGravity: true,
+      });
+    }
+  }
+
   function shake(magnitude, frames) {
     if (recording) events.push(['s', magnitude, frames]);
     shakeMagnitude = Math.max(shakeMagnitude, magnitude);
@@ -107,5 +126,5 @@ const Effects = (() => {
     }
   }
 
-  return { setRecording, drainEvents, replayEvents, spawnHitSpark, spawnAuraPuff, shake, update, getShakeOffset, draw, reset };
+  return { setRecording, drainEvents, replayEvents, spawnHitSpark, spawnAuraPuff, spawnDust, shake, update, getShakeOffset, draw, reset };
 })();
