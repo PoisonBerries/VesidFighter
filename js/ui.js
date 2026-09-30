@@ -125,6 +125,13 @@ const UI = (() => {
           <div class="ability-desc">Hold jump in the air to hang in place on the thrusters for a moment. Refills on landing.</div>
         </div>
       </div>` : ''}
+      ${char.hoverDive ? `<div class="ability-row">
+        ${controls ? `<span class="key-badge">${keyLabel(controls.attack)}</span>` : ''}
+        <div>
+          <div class="ability-name">Claw Dive</div>
+          <div class="ability-desc">Attack while hovering: spin into a forward claw dive (hold jump in the air to hover first).</div>
+        </div>
+      </div>` : ''}
       ${char.phaseStep ? `<div class="ability-row">
         ${controls ? `<span class="key-badge">${keyLabel(controls.jump)}+${keyLabel(controls.block)}</span>` : ''}
         <div>

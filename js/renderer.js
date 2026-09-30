@@ -407,6 +407,9 @@ const Renderer = (() => {
       const s = rig.stretch;
       ctx.transform(1 + 0.25 * Math.abs(s), 0, -s * 0.45, 1 - 0.1 * Math.abs(s), 0, 0);
     }
+    if (rig.axialSpin !== null && rig.axialSpin !== undefined) {
+      ctx.scale(Math.max(0.3, Math.abs(Math.cos(rig.axialSpin))), 1); // drill-spin (see Animator)
+    }
     if (rig.vstretch && Math.abs(rig.vstretch - 1) > 0.004) {
       // Squash and stretch (elastic bodies): taller and thinner rising, squat landing.
       ctx.scale(1 / Math.sqrt(rig.vstretch), rig.vstretch);

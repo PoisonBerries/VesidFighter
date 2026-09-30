@@ -443,6 +443,27 @@ const Animator = (() => {
         break;
       }
 
+      case 'hoverdive': { // Carlos: claws out, then a spinning nose-down dive
+        const ab = fighter._ability || {};
+        if (ab.diving) {
+          T.rot = 2.1; T.rotW = 26; T.rotZ = 0.85; // head leading, down along the dive
+          T.crouch = -0.02; T.armPose = 'diveReach';
+          T.fA = F(-4, 0); T.fB = F(6, -4);
+          T.rate = 60;
+        } else if (ab.ended) {
+          T.rot = 0; T.rotW = 12;
+          T.crouch = 0.25; T.lean = 12; T.armPose = 'swing';
+          T.fA = F(-16, 0); T.fB = F(12, 0);
+          T.rate = 34;
+        } else {
+          T.rot = 0.3; T.rotW = 22; // coiling in the air, claws coming round
+          T.crouch = 0.14; T.lean = 10; T.armPose = 'diveReach';
+          T.fA = F(-6, -10); T.fB = F(10, -14);
+          T.rate = 50;
+        }
+        break;
+      }
+
       case 'phasestep': { // Keenan slipping through the opponent: a low, fast, leaning dash
         const ps = fighter.character.phaseStep;
         const u = clamp(t / ps.dashFrames, 0, 1);
@@ -985,6 +1006,8 @@ const Animator = (() => {
     const down = st === 'knockdown' || st === 'ko';
     const airborne = !fighter.grounded;
     an.walkDist = (an.walkDist || 0) + Math.abs(fighter.vx) * f; // drives walk clips
+    // Spinning about its own long axis (the claw dive): seen from the side, the body's width swells and shrinks.
+    an.axial = st === 'hoverdive' && fighter._ability && fighter._ability.diving ? (an.axial || 0) + 0.75 * f : 0;
     // A crouch-roll turns in step with the distance covered (one turn per
     // ball circumference); it folds into the body angle when the roll stops.
     if (fighter.rolling) {
@@ -1031,6 +1054,7 @@ const Animator = (() => {
           const def = st === 'ultimate' ? fighter.character.ultimate : fighter.character.special;
           Sfx.ability(def.type, st === 'ultimate', an.pan, def);
         } else if (st === 'phasestep') Sfx.phasestep(an.pan);
+        else if (st === 'hoverdive') Sfx.drill(an.pan);
         else if (st === 'ko') Sfx.ko(an.pan);
         else if (st === 'victory') Sfx.victory();
       }
@@ -1134,6 +1158,7 @@ const Animator = (() => {
       rot, ball: c.ball, pv, wh: wh + an.hop + c.lift, lift: an.hop + c.lift,
       stretch: an.str,
       vstretch: an.vs || 1,
+      axialSpin: an.axial ? an.axial : null,
     };
   }
 

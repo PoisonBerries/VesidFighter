@@ -1170,7 +1170,45 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // Carlos's claw dive: stacked whirling rings and streaks trailing behind
+  // the direction of travel, so the body reads as a drill of claws.
+  function drawClawDrill(ctx, f) {
+    const now = performance.now(), H = f.height, dir = f.facing;
+    const d = f.character.hoverDive;
+    const ang = Math.atan2(d.vy, dir * d.vx);           // the direction of travel
+    const bx = f.x, by = f.y - H * 0.5;
+    const ux = Math.cos(ang), uy = Math.sin(ang);        // forward
+    const accent = f.displayAccent;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 5; i++) {
+      const back = 26 + i * 24, cx = bx - ux * back, cy = by - uy * back;
+      const wob = Math.sin(now / 40 + i * 1.7) * 6;
+      ctx.strokeStyle = i % 2 ? `rgba(255,255,255,${0.55 - i * 0.08})` : rgba(accent, 0.7 - i * 0.1);
+      ctx.lineWidth = 4 - i * 0.5;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 10 + i * 4 + wob * 0.3, 30 + i * 5, ang, 0, TAU);
+      ctx.stroke();
+    }
+    for (let k = -1; k <= 1; k++) {
+      const off = k * 15;
+      const sx = bx - uy * off * -1, sy = by + ux * off * -1;
+      const g = ctx.createLinearGradient(sx, sy, sx - ux * 150, sy - uy * 150);
+      g.addColorStop(0, rgba(accent, 0.6));
+      g.addColorStop(1, rgba(accent, 0));
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx - ux * 150, sy - uy * 150);
+      ctx.stroke();
+    }
+    glow(ctx, bx + ux * 26, by + uy * 26, H * 0.36, accent, 0.4);
+    ctx.restore();
+  }
+
   function drawFront(ctx, f) {
+    if (f.state === 'hoverdive' && f._ability && f._ability.diving && f.character.hoverDive) drawClawDrill(ctx, f);
     if (f.rolling && f.grounded) drawNinjaRoll(ctx, f);
     if (f.character.phaseStep && (f.state === 'hitstun' || f.state === 'knockdown') && f.phaseCooldown <= 0 && f.y <= GROUND_Y + 1 && f.hp > 0) drawPhaseHint(ctx, f);
     if (f.hovering) drawHoverJets(ctx, f);

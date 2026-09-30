@@ -964,3 +964,69 @@ test('Phase Step never carries Keenan off the stage, and is not available below 
   assert.notStrictEqual(g.f.state, 'phasestep', 'no Phase Step once knocked below the platform');
   sim.InputManager.setVirtual(C.jump, false, false); sim.InputManager.setVirtual(C.block, false, false);
 });
+
+// ---- Carlos's hover claw dive ----
+test('Carlos: attack while hovering is a forward, downward claw dive; every other attack is unchanged', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  const snap = () => sim.Game.getSnapshot().f;
+  sim.Game.startMatch('carlos', 'sam', () => {}, { ball: 'off' }); // full damage numbers
+  for (let i = 0; i < 200; i++) sim.Game.update(sim.FIXED_STEP);
+  sim.Game.applySnapshot({ f: [{ x: 400 }, { x: 640 }] });
+
+  // Jump and hold it: hover.
+  sim.InputManager.setVirtual(C.jump, true, true);
+  sim.Game.update(sim.FIXED_STEP);
+  sim.InputManager.setVirtual(C.jump, true, false);
+  let hovered = false;
+  for (let i = 0; i < 80 && !hovered; i++) { sim.Game.update(sim.FIXED_STEP); hovered = snap()[0].hovering; }
+  assert.ok(hovered, 'Carlos should be hovering');
+  const before = snap()[0], hp0 = snap()[1].hp;
+  const d = sim.CHARACTERS.carlos.hoverDive;
+
+  // Attack while hovering.
+  sim.InputManager.setVirtual(C.attack, false, true);
+  sim.Game.update(sim.FIXED_STEP);
+  sim.InputManager.setVirtual(C.attack, false, false);
+  sim.InputManager.setVirtual(C.jump, false, false);
+  assert.strictEqual(snap()[0].state, 'hoverdive');
+  assert.strictEqual(snap()[0].hovering, false);
+  assert.strictEqual(snap()[0].hoverLeft, 0, 'no hovering again until he lands');
+  // A short wind-up in place (no forward drift), then the dive.
+  const startX = snap()[0].x;
+  for (let i = 0; i < d.startup - 1; i++) sim.Game.update(sim.FIXED_STEP);
+  assert.ok(Math.abs(snap()[0].x - startX) < 1, 'holds position through the wind-up');
+  // Distance moved per frame while diving (the snapshot's velocities are post-friction).
+  let maxDx = 0, maxDy = 0, frames = 0, prev = snap()[0];
+  while (snap()[0].state === 'hoverdive' && frames++ < 120) {
+    sim.Game.update(sim.FIXED_STEP);
+    const s = snap()[0];
+    if (s.state === 'hoverdive' && s._ability && s._ability.diving) { maxDx = Math.max(maxDx, s.x - prev.x); maxDy = Math.max(maxDy, s.y - prev.y); }
+    prev = s;
+  }
+  assert.ok(maxDx >= d.vx - 0.5, `dives forward (${maxDx.toFixed(1)} per frame)`);
+  assert.ok(maxDy >= d.vy - 0.5, `and down (${maxDy.toFixed(1)} per frame)`);
+  const lost = hp0 - snap()[1].hp;
+  assert.ok(Math.abs(lost - d.damage) < 0.01, `one hit of ${d.damage} (took ${lost})`);
+  assert.ok(['idle', 'fall', 'jump'].includes(snap()[0].state), `control returns (state ${snap()[0].state})`);
+  // He lands and the hover refills.
+  for (let i = 0; i < 90 && !snap()[0].grounded; i++) sim.Game.update(sim.FIXED_STEP);
+  sim.Game.update(sim.FIXED_STEP);
+  assert.strictEqual(snap()[0].hoverLeft, sim.CHARACTERS.carlos.hover.frames);
+
+  // Not hovering (on the ground, or in the air without holding jump): a normal attack.
+  const { f, foe } = startFighter(sim, 'carlos', 400);
+  sim.InputManager.setVirtual(C.attack, false, true);
+  f.update(C, foe);
+  assert.strictEqual(f.state, 'attack', 'a grounded attack is the ordinary attack');
+  sim.InputManager.setVirtual(C.attack, false, false);
+  // Other characters never dive, even holding jump in the air.
+  for (const c of sim.CHARACTER_LIST.filter((c) => !c.hoverDive)) {
+    const x = startFighter(sim, c.id, 400);
+    x.f.grounded = false; x.f.y = sim.GROUND_Y - 100; x.f.hovering = true; // even if flagged hovering
+    sim.InputManager.setVirtual(C.attack, false, true);
+    x.f.update(C, x.foe);
+    assert.notStrictEqual(x.f.state, 'hoverdive', `${c.id} has no claw dive`);
+    sim.InputManager.setVirtual(C.attack, false, false);
+  }
+});

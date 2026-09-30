@@ -84,6 +84,10 @@ const Cpu = (() => {
     // How dangerous is what the opponent is doing (as perceived)? Returns
     // { frames, low, kind } for an attack about to land on us, or null.
     function threatFrom(me, o) {
+      if (o.state === 'hoverdive') { // Carlos's claw dive: forward and down
+        const dd = me.x - o.x;
+        return Math.sign(dd) === o.facing && Math.abs(dd) < 300 ? { frames: 5, kind: 'dash' } : null;
+      }
       if (!ACTING.has(o.state)) return null;
       const oc = CHARACTERS[opp.character.id];
       const dx = me.x - o.x;

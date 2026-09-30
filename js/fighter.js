@@ -177,6 +177,11 @@ class Fighter {
     }
     if (this.state === 'special') return this._abilityHitbox(this.character.special);
     if (this.state === 'ultimate') return this._abilityHitbox(this.character.ultimate);
+    if (this.state === 'hoverdive') {
+      const d = this.character.hoverDive;
+      // Claws out all round the body while diving; once it has connected it's over.
+      return this._ability.diving && !this.attackHasHit ? this._forwardBox(d.offset, d.width, d.height, 0) : null;
+    }
     return null;
   }
 
@@ -513,6 +518,47 @@ class Fighter {
     }
   }
 
+  _startHoverDive() {
+    this.state = 'hoverdive';
+    this.actionTimer = 0;
+    this.attackHasHit = false;
+    this.facingLocked = true;
+    this.hovering = false;
+    this.hoverLeft = 0; // no re-hovering until he lands
+    this.vx = 0;
+    this.vy = 0;
+    this._ability = { hitFlags: [], diving: false, ended: false };
+  }
+
+  _updateHoverDive() {
+    const d = this.character.hoverDive;
+    const a = this._ability;
+    if (!a.diving && !a.ended) {
+      this.vx = 0;
+      this.vy = -GRAVITY * (this.character.gravityMul || 1); // hang in place through the wind-up
+      if (this.actionTimer > d.startup) { a.diving = true; a.diveStart = this.actionTimer; }
+      return;
+    }
+    if (a.diving) {
+      this.vx = this.facing * d.vx;
+      this.vy = d.vy;
+      const landed = this.grounded && this.actionTimer > a.diveStart + 1;
+      if (landed || this.attackHasHit || this.actionTimer - a.diveStart >= d.maxFrames) {
+        a.diving = false;
+        a.ended = true;
+        a.recoveryTimer = d.recovery;
+        if (this.attackHasHit && !this.grounded) { this.vx = -this.facing * 3; this.vy = -5; } // bounces off the hit
+      }
+      return;
+    }
+    // Recovery: slide out or drop, open to a counter-attack.
+    this._decelerate();
+    if (--a.recoveryTimer <= 0) {
+      this.state = this.grounded ? 'idle' : 'fall';
+      this.facingLocked = false;
+    }
+  }
+
   // Keenan's escape: from hitstun/knockdown, dash through the opponent and
   // end up behind them, untouchable for the dash. Returns whether it fired.
   _tryPhaseStep(opp) {
@@ -575,7 +621,7 @@ class Fighter {
       if (comboEdge) this._tryPhaseStep(opponent);
       return; // no other input while stunned or downed
     }
-    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep') {
+    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep' || this.state === 'hoverdive') {
       return; // committed to the action until it finishes
     }
 
@@ -618,6 +664,11 @@ class Fighter {
 
     if (!this.isPhased) {
       if (pressed.attack) {
+        // Attacking while hovering (Carlos) is a spinning claw dive instead.
+        if (this.hovering && this.character.hoverDive && !this.grounded) {
+          this._startHoverDive();
+          return;
+        }
         this.startAttack();
         return;
       }
@@ -703,6 +754,7 @@ class Fighter {
     }
 
     if (this.state === 'phasestep') this._updatePhaseStep();
+    if (this.state === 'hoverdive') this._updateHoverDive();
     if (this.state === 'special') this._updateAbilityState(this.character.special);
     if (this.state === 'ultimate') this._updateAbilityState(this.character.ultimate);
 
@@ -1037,6 +1089,7 @@ class Fighter {
       case 'special': return 'special';
       case 'ultimate': return 'special';
       case 'phasestep': return 'special';
+      case 'hoverdive': return 'special';
       case 'hitstun': return 'hit';
       case 'knockdown': return 'knockdown';
       case 'ko': return 'ko';

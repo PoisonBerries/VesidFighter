@@ -124,6 +124,15 @@ const CHARACTERS = {
     // mostly finished) to hang in place on the thrusters for a short time.
     // Refills on landing.
     hover: { frames: 45, maxRiseSpeed: 3 },
+    // Attack while hovering: a brief wind-up, then a spinning claw dive
+    // forward and down (a drill of claws, in the spirit of Meta Knight's
+    // Drill Rush). Ends on a hit or when he touches down; he can't hover
+    // again until he lands.
+    hoverDive: {
+      startup: 5, vx: 13, vy: 8, maxFrames: 34, recovery: 14,
+      offset: 8, width: 110, height: 110,
+      damage: 15, knockback: 10, knockbackUp: 4, hitstun: 18,
+    },
     maxHp: 115,
     attack: {
       damage: 16, offset: 28, width: 78, height: 100,

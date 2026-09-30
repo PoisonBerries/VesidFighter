@@ -197,6 +197,7 @@ const Game = (() => {
     const isUlt = attacker.state === 'ultimate';
     const isSpecial = attacker.state === 'special';
     let stats = attacker.state === 'attack' ? attacker.character.attack
+      : attacker.state === 'hoverdive' ? attacker.character.hoverDive
       : (isUlt ? attacker.character.ultimate : attacker.character.special);
 
     let dmg = stats.damage, kb = stats.knockback, kbUp = stats.knockbackUp, hs = stats.hitstun;
