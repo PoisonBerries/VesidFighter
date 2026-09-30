@@ -8,7 +8,7 @@
 //   moveSpeed:    4.6 low, 5.0-5.6 medium, 6.4-6.6 high
 //   attackSpeed:  total basic-attack frames (startup+active+recovery), lower
 //                 is faster -- 16-19 fast, 24-27 normal, 29-32 slow, 38 slowest
-//   maxHp:        78-80 low, 100 medium, 108-122 high
+//   maxHp:        90-92 low, 115 medium, 124-140 high
 //   attack dmg:   6-7 low, 8-11 normal, 14-16 high
 //
 // Attack speed and damage are meant to trade off against each other, and
@@ -29,7 +29,7 @@ const CHARACTERS = {
     moveSpeed: 5.6,
     jumpForce: 15,
     maxJumps: 1,
-    maxHp: 78,
+    maxHp: 90,
     attack: {
       damage: 6, offset: 24, width: 60, height: 82,
       startup: 5, active: 3, recovery: 8,
@@ -68,7 +68,7 @@ const CHARACTERS = {
     jumpForce: 15,
     maxJumps: 2,
     doubleJumpFlip: true,
-    maxHp: 100,
+    maxHp: 115,
     attack: {
       damage: 9, offset: 26, width: 70, height: 90,
       startup: 7, active: 4, recovery: 13,
@@ -106,7 +106,11 @@ const CHARACTERS = {
     jumpForce: 14,
     maxJumps: 1,
     gravityMul: 0.82, // hovers -- floatier than everyone else
-    maxHp: 100,
+    // Instead of a double jump: hold jump in the air (once the rise has
+    // mostly finished) to hang in place on the thrusters for a short time.
+    // Refills on landing.
+    hover: { frames: 45, maxRiseSpeed: 3 },
+    maxHp: 115,
     attack: {
       damage: 16, offset: 28, width: 78, height: 100,
       startup: 12, active: 5, recovery: 21,
@@ -149,7 +153,8 @@ const CHARACTERS = {
     moveSpeed: 5.4,
     jumpForce: 15,
     maxJumps: 1,
-    maxHp: 122,
+    elastic: true, // rubber body: visually stretches and snaps back when hit, blocked or reflecting
+    maxHp: 140,
     attack: {
       damage: 10, offset: 30, width: 76, height: 96,
       startup: 8, active: 4, recovery: 15,
@@ -186,7 +191,7 @@ const CHARACTERS = {
     moveSpeed: 4.6,
     jumpForce: 14,
     maxJumps: 1,
-    maxHp: 78,
+    maxHp: 90,
     attack: {
       damage: 8, offset: 26, width: 66, height: 88,
       startup: 8, active: 4, recovery: 17,
@@ -227,10 +232,10 @@ const CHARACTERS = {
     moveSpeed: 5.6,
     jumpForce: 15,
     maxJumps: 1,
-    maxHp: 100,
+    maxHp: 115,
     transform: {
       hpThreshold: 0.5,
-      bonusHp: 50,
+      bonusHp: 58,
       sizeMul: 1.3,
       spdMul: 0.75,
       dmgMul: 1.5,
@@ -273,7 +278,7 @@ const CHARACTERS = {
     moveSpeed: 6.6,
     jumpForce: 15,
     maxJumps: 1,
-    maxHp: 80,
+    maxHp: 92,
     attack: {
       damage: 7, offset: 24, width: 64, height: 84,
       startup: 6, active: 3, recovery: 10,
@@ -312,7 +317,7 @@ const CHARACTERS = {
     jumpForce: 19,
     maxJumps: 2,
     doubleJumpFlip: true,
-    maxHp: 78,
+    maxHp: 90,
     attack: {
       damage: 7, offset: 22, width: 60, height: 80,
       startup: 6, active: 3, recovery: 9,
@@ -356,7 +361,7 @@ const CHARACTERS = {
     moveSpeed: 5.0,
     jumpForce: 13,
     maxJumps: 1,
-    maxHp: 108,
+    maxHp: 124,
     attack: {
       damage: 14, offset: 32, width: 84, height: 106,
       startup: 9, active: 5, recovery: 18,

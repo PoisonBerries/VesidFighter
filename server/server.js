@@ -61,7 +61,7 @@ function randomCode() {
 }
 
 function newInputState() {
-  return { held: [false, false, false], specialHeld: false, counts: [0, 0, 0, 0], consumed: [0, 0, 0, 0] };
+  return { held: [false, false, false], specialHeld: false, jumpHeld: false, counts: [0, 0, 0, 0], consumed: [0, 0, 0, 0] };
 }
 
 function createRoom() {
@@ -157,7 +157,7 @@ function applyInputs(room) {
       // One press per tick per button; extra presses queue for the next tick.
       let pressed = false;
       if (inp.counts[i] > inp.consumed[i]) { inp.consumed[i]++; pressed = true; }
-      const isHeld = a === 'special' ? inp.specialHeld : false;
+      const isHeld = a === 'special' ? inp.specialHeld : a === 'jump' ? inp.jumpHeld : false;
       InputManager.setVirtual(VCONTROLS[slot][a], isHeld, pressed);
     });
   }
@@ -220,6 +220,7 @@ function onMessage(ws, msg) {
     const inp = room.inputs[slot];
     inp.held = HELD.map((_, i) => !!msg.h[i]);
     inp.specialHeld = !!msg.s;
+    inp.jumpHeld = !!msg.j; // older clients don't send it: no hover, everything else unchanged
     // Counters only ever go up.
     for (let i = 0; i < 4; i++) inp.counts[i] = Math.max(inp.counts[i], Number(msg.c[i]) || 0);
     return;

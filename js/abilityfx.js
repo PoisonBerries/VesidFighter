@@ -956,7 +956,64 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // Carlos hovering: twin thruster jets from the feet, a heat glow on the
+  // floor when close to it, and a fuel bar above the head while it's in use.
+  function drawHoverJets(ctx, f) {
+    const now = performance.now();
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const dx of [-9, 9]) {
+      const x = f.x + dx, y = f.y - 2;
+      const L = 38 + Math.sin(now / 35 + dx) * 8 + Math.random() * 5;
+      const g = ctx.createLinearGradient(0, y, 0, y + L);
+      g.addColorStop(0, 'rgba(255,255,255,0.95)');
+      g.addColorStop(0.25, 'rgba(255,196,80,0.85)');
+      g.addColorStop(1, 'rgba(255,110,20,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(x - 7, y);
+      ctx.quadraticCurveTo(x - 5, y + L * 0.6, x, y + L);
+      ctx.quadraticCurveTo(x + 5, y + L * 0.6, x + 7, y);
+      ctx.closePath();
+      ctx.fill();
+      glow(ctx, x, y + 4, 16, '#ffb238', 0.6);
+    }
+    const h = GROUND_Y - f.y;
+    if (h < 170) {
+      const k = 1 - h / 170;
+      const g = ctx.createRadialGradient(f.x, GROUND_Y, 0, f.x, GROUND_Y, 70);
+      g.addColorStop(0, `rgba(255,190,90,${0.5 * k})`);
+      g.addColorStop(1, 'rgba(255,190,90,0)');
+      ctx.save();
+      ctx.translate(f.x, GROUND_Y);
+      ctx.scale(1, 0.2);
+      ctx.translate(-f.x, -GROUND_Y);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(f.x, GROUND_Y, 70, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function drawHoverMeter(ctx, f) {
+    const hv = f.character.hover;
+    if (!hv || f.grounded) return;
+    const frac = clamp(f.hoverLeft / hv.frames, 0, 1);
+    if (frac >= 1) return;
+    const cx = f.x, y = Math.max(140, f.y - f.height - 48) + 26, w = 46, h = 6;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(cx - w / 2 - 1, y - 1, w + 2, h + 2);
+    ctx.fillStyle = frac > 0.3 ? '#ffb238' : '#ff5a3c';
+    ctx.fillRect(cx - w / 2, y, w * frac, h);
+    ctx.restore();
+  }
+
   function drawFront(ctx, f) {
+    if (f.hovering) drawHoverJets(ctx, f);
+    if (f.character.hover) drawHoverMeter(ctx, f);
     if (f.reflectTimer > 0) drawReflectDome(ctx, f);
     if (f.isPhased) drawPhaseGlitch(ctx, f);
     if (f.buffTimer > 0) drawBuffAura(ctx, f);
@@ -1147,6 +1204,15 @@ const AbilityFX = (() => {
           }
           break;
         default: break;
+      }
+    }
+
+    // Scorched dust kicked up by hover thrusters near the floor.
+    if (f.hovering && GROUND_Y - f.y < 150) {
+      const nowMs = performance.now();
+      if (nowMs - (m.lastHoverDust || 0) > 55) {
+        m.lastHoverDust = nowMs;
+        Effects.spawnDust(f.x, GROUND_Y, 1, 2.6);
       }
     }
 

@@ -5,8 +5,14 @@
 // until the first click or keypress.
 
 const Sfx = (() => {
-  const STORE_KEY = 'vf_audio_v1';
-  const settings = { music: 0.5, sfx: 0.7, muted: false };
+  // v2: new defaults (louder effects, quieter music). Bumping the key drops
+  // volumes saved under the old defaults so everyone gets the new mix once.
+  const STORE_KEY = 'vf_audio_v2';
+  const settings = { music: 0.25, sfx: 0.8, muted: false };
+  // The effects slider spans 0..SFX_BOOST times the raw synth level, so its
+  // top end (and the default) sit well above what 100% used to be. A
+  // compressor on the effects bus keeps the loud end from clipping.
+  const SFX_BOOST = 2.5;
   try { Object.assign(settings, JSON.parse(localStorage.getItem(STORE_KEY) || '{}')); } catch (e) { /* private mode */ }
   function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(settings)); } catch (e) { /* ignore */ } }
 
@@ -19,7 +25,14 @@ const Sfx = (() => {
         ac = new (window.AudioContext || window.webkitAudioContext)();
       } catch (e) { return false; }
       sfxBus = ac.createGain();
-      sfxBus.connect(ac.destination);
+      const limiter = ac.createDynamicsCompressor();
+      limiter.threshold.value = -14;
+      limiter.knee.value = 12;
+      limiter.ratio.value = 6;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.2;
+      sfxBus.connect(limiter);
+      limiter.connect(ac.destination);
       applyVolumes();
       noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
       const d = noiseBuf.getChannelData(0);
@@ -30,7 +43,7 @@ const Sfx = (() => {
   }
 
   function applyVolumes() {
-    if (sfxBus) sfxBus.gain.value = settings.muted ? 0 : settings.sfx;
+    if (sfxBus) sfxBus.gain.value = settings.muted ? 0 : settings.sfx * SFX_BOOST;
     Music.applyVolume();
   }
 
@@ -142,6 +155,15 @@ const Sfx = (() => {
       [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone({ type: 'triangle', f0: f, dur: 0.28, vol: 0.2, delay: i * 0.11 }));
       tone({ type: 'triangle', f0: 1046.5, dur: 0.6, vol: 0.18, delay: 0.5 });
     },
+    hover(pan) {
+      noise({ filter: 'lowpass', f0: 1100, f1: 380, q: 0.7, dur: 0.32, vol: 0.24, attack: 0.04, pan });
+      tone({ type: 'sawtooth', f0: 85, f1: 120, dur: 0.3, vol: 0.1, attack: 0.05, pan });
+    },
+    boing(pan) {
+      tone({ f0: 240, f1: 620, dur: 0.16, vol: 0.28, pan });
+      tone({ f0: 620, f1: 260, dur: 0.22, vol: 0.22, delay: 0.14, pan });
+      tone({ f0: 300, f1: 420, dur: 0.16, vol: 0.12, delay: 0.32, pan });
+    },
     tick() { tone({ type: 'square', f0: 520, dur: 0.11, vol: 0.13 }); },
     go() {
       tone({ type: 'square', f0: 780, dur: 0.32, vol: 0.16 });
@@ -219,6 +241,8 @@ const Sfx = (() => {
 
   const api = {
     swing: (pan) => play('swing', pan),
+    hover: (pan) => play('hover', pan),
+    boing: (pan) => play('boing', pan),
     jump: (n, pan) => play('jump', n, pan),
     land: (impactAmt, pan) => play('land', impactAmt, pan),
     thud: (pan) => play('thud', pan),
@@ -231,7 +255,7 @@ const Sfx = (() => {
     transform: () => play('transform'),
     ability(type, isUlt, pan) { if (ensure() && gate('ability', 40)) ability(type, isUlt, pan); },
     impact,
-    settings, save, applyVolumes, ensure,
+    settings, save, applyVolumes, ensure, sfxBoost: SFX_BOOST,
     toggleMute() { settings.muted = !settings.muted; save(); applyVolumes(); return settings.muted; },
   };
 

@@ -401,6 +401,12 @@ const Renderer = (() => {
     ctx.translate(0, -rig.wh);
     ctx.rotate(rig.rot);
     ctx.translate(0, rig.pv);
+    if (rig.stretch) {
+      // Rubber stretch (Nathan): the upper body is pulled sideways with the
+      // feet anchored, and widens/squashes a little to keep its volume.
+      const s = rig.stretch;
+      ctx.transform(1 + 0.25 * Math.abs(s), 0, -s * 0.45, 1 - 0.1 * Math.abs(s), 0, 0);
+    }
 
     if (fighter.isPhased) ctx.globalAlpha = 0.35;
 
@@ -638,17 +644,17 @@ const Renderer = (() => {
   // ---- Per-character build: differentiates silhouette/stance beyond just
   // sizeScale, so e.g. Carlos reads as a hovering claw-fighter and Robert
   // reads as stocky at a glance.
-  const DEFAULT_BODY_PROFILE = { limbWidth: 1, headScale: 1, stanceMul: 1, idleCrouch: 0, floaty: false, clawHands: false, dancer: false, reachBoost: 0, staggerMul: 1 };
+  const DEFAULT_BODY_PROFILE = { limbWidth: 1, headScale: 1, stanceMul: 1, idleCrouch: 0, floaty: false, clawHands: false, dancer: false, reachBoost: 0, staggerMul: 1, torsoWidth: 1, armScale: 1 };
   const BODY_PROFILES = {
     keenan: { limbWidth: 0.82, headScale: 1.05, stanceMul: 0.9, staggerMul: 1.25 },
     artur: { limbWidth: 1.0, stanceMul: 1.3, idleCrouch: 0.14 }, // squat frog stance
     carlos: { limbWidth: 1.05, headScale: 0.95, floaty: true, clawHands: true, staggerMul: 0.85 },
-    nathan: { limbWidth: 0.78, headScale: 0.95, reachBoost: 26, staggerMul: 1.2 }, // stretchy long reach
+    nathan: { limbWidth: 0.78, headScale: 0.95, reachBoost: 26, armScale: 1.25, staggerMul: 1.2 }, // stretchy long arms and reach
     owen: { limbWidth: 0.85, stanceMul: 0.95, staggerMul: 1.2 },
     robert: { limbWidth: 1.3, headScale: 0.95, stanceMul: 1.2, staggerMul: 0.6 },
     ryan: { limbWidth: 0.78, dancer: true, staggerMul: 1.3 },
     sam: { limbWidth: 0.85, headScale: 1.05, stanceMul: 0.85, staggerMul: 1.3 },
-    john: { limbWidth: 1.4, headScale: 0.9, stanceMul: 1.3, staggerMul: 0.5 },
+    john: { limbWidth: 1.4, headScale: 0.9, stanceMul: 1.3, torsoWidth: 1.45, staggerMul: 0.5 }, // broad, thicc frame
   };
   function getBodyProfile(id) {
     return { ...DEFAULT_BODY_PROFILE, ...(BODY_PROFILES[id] || {}) };
@@ -898,7 +904,7 @@ const Renderer = (() => {
     const bootColor = shadeColor(color, -30);
     const legLen = H * 0.2; // fixed bone length: legs bend instead of stretching
     const leg = (foot, point) => {
-      const hipX = Math.max(-7, Math.min(7, foot.x * 0.3));
+      const hipX = Math.max(-7 * profile.torsoWidth, Math.min(7 * profile.torsoWidth, foot.x * 0.3));
       drawLeg(ctx, hipX, hipY, foot.x, floatY + foot.y, legLen, limbThickness, color, bootColor, point);
     };
 
@@ -913,6 +919,11 @@ const Renderer = (() => {
     ctx.translate(0, hipY);
     ctx.rotate(rig.lean * Math.PI / 180);
     ctx.translate(0, -hipY);
+
+    // The torso block (torso, neck, costume) is stretched sideways for broad
+    // characters; the head and limbs are drawn at normal width around it.
+    ctx.save();
+    ctx.scale(profile.torsoWidth, 1);
 
     // Torso -- a filled body with a natural waist taper instead of a rigid
     // straight-sided trapezoid, shaded like the limbs for consistent volume.
@@ -953,6 +964,7 @@ const Renderer = (() => {
     ctx.stroke();
 
     drawTorsoCostume(ctx, id, hipY, shoulderY, color, accent, fighter.transformed);
+    ctx.restore();
 
     // Arms: back arm first, then the front/striking arm. Hands and the
     // charge orb fade with their blend weights so they never pop in.

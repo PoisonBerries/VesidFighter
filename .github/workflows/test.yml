@@ -2,16 +2,35 @@ name: tests
 on:
   push:
   pull_request:
+  workflow_dispatch:   # "Run workflow" button: runs everything, including the 3D test
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Does this change affect the 3D view?
+        id: view3d
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE" "${{ github.sha }}" | node tools/needs-3d.js --stdin; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
       - run: npm test
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+      - name: 3D view test (only when relevant)
+        if: steps.view3d.outputs.run == 'true'
+        run: npm run test:3d
         env:
           CHROME_PATH: /usr/bin/google-chrome

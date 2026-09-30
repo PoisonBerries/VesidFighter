@@ -282,6 +282,7 @@ const Game = (() => {
       }
 
       if (defender.reflectTimer > 0) {
+        defender.noteImpact('reflected', p.vx >= 0 ? 1 : -1, 0.9);
         p.vx = -p.vx;
         p.owner = defender;
         Effects.spawnHitSpark(p.x, p.y, '#ff3b3b');

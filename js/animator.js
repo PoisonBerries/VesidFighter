@@ -18,6 +18,7 @@
 const Animator = (() => {
   const TAU = Math.PI * 2;
   const LYING = -1.52; // body angle (rad) when lying on its back
+  const STRETCH_W = 15, STRETCH_Z = 0.3; // rubber-stretch spring: fast, underdamped (a couple of wobbles)
   const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
   const lerp = (a, b, t) => a + (b - a) * t;
   const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
@@ -328,6 +329,13 @@ const Animator = (() => {
         T.lean = lerp(4, 0, k);
         T.rate = 34;
         T.arms = lerpArms(armsFor('up', { R, E: 8, s: 0 }), armsFor('reach', { R, E: 8, s: 0 }), k);
+        if (fighter.hovering) { // hanging on the thrusters: legs dangle, arms out for balance
+          T.crouch = 0; T.lean = 0;
+          T.fA = F(-7, -5); T.fB = F(8, -3);
+          T.arms = armsFor('reach', { R, E: 8, s: 0 });
+          T.float = profile.floaty ? -20 : -8;
+          T.rate = 30;
+        }
         if (fighter.doubleJumpFlipTimer > 0 && fighter.character.doubleJumpFlip) {
           const u = 1 - fighter.doubleJumpFlipTimer / 24;
           T.spin = TAU * easeInOutSine(u);
@@ -458,6 +466,10 @@ const Animator = (() => {
     if (T.rot !== 0 && Math.abs(T.rot) > 0.5) T.float = 0;
 
     if (!T.arms) T.arms = armsFor(T.armPose, { R, E: T.E, s: T.s });
+    // Long-armed characters (Nathan): every arm pose reaches proportionally further.
+    if (profile.armScale !== 1) {
+      T.arms = T.arms.map((a) => ({ ...a, x: a.x * profile.armScale, y: a.y * profile.armScale }));
+    }
     return T;
   }
 
@@ -470,7 +482,7 @@ const Animator = (() => {
       rot: 0, rotVel: 0, prevSpin: 0, toppling: false,
       hop: 0, hopV: 0,
       landT: 0, landImpact: 0, getup: 0,
-      prevAirborne: false, prevVy: 0, prevState: 'idle', prevT: 0, prevJumps: 0, pan: 0,
+      prevAirborne: false, prevVy: 0, prevState: 'idle', prevT: 0, prevJumps: 0, prevHovering: false, pan: 0, impactSeq: 0, str: 0, strV: 0,
       dustTimer: 0,
     };
   }
@@ -597,9 +609,29 @@ const Animator = (() => {
         else if (st === 'victory') Sfx.victory();
       }
       if (fighter.jumpsUsed > an.prevJumps) Sfx.jump(fighter.jumpsUsed, an.pan);
+      if (fighter.hovering && !an.prevHovering) Sfx.hover(an.pan);
       if (T0_TUMBLE(fighter, st) && !an.falling) { an.falling = true; Sfx.fall(an.pan); }
     }
     an.prevJumps = fighter.jumpsUsed;
+
+    // Rubber stretch: every hit taken, blocked or reflected by an elastic
+    // fighter kicks a spring that stretches the body along the hit, then
+    // snaps it back with a wobble.
+    if (fighter.character.elastic) {
+      if ((fighter.impactSeq || 0) > an.impactSeq) {
+        const push = (fighter.impactDir || 1) * fighter.facing; // hit direction in body space
+        an.strV += push * (fighter.impactPower || 0.7) * STRETCH_W * 0.9;
+        if (typeof Sfx !== 'undefined') Sfx.boing(an.pan);
+      }
+      an.impactSeq = fighter.impactSeq || 0;
+      const steps = Math.max(1, Math.ceil(dt / (1 / 90))), h = dt / steps;
+      for (let i = 0; i < steps; i++) {
+        an.strV += (-STRETCH_W * STRETCH_W * an.str - 2 * STRETCH_Z * STRETCH_W * an.strV) * h;
+        an.str += an.strV * h;
+      }
+      an.str = clamp(an.str, -1.4, 1.4);
+    }
+    an.prevHovering = !!fighter.hovering;
     an.prevT = fighter.actionTimer;
 
     if (an.prevState === 'knockdown' && !down && st !== 'hitstun' && Math.abs(an.rot) > 0.8) an.getup = 1;
@@ -651,6 +683,7 @@ const Animator = (() => {
       crouch: c.crouch, lean: c.lean, float: c.float, footPoint: c.footPoint,
       fA: c.fA, fB: c.fB, arms: c.arms,
       rot, ball: c.ball, pv, wh: wh + an.hop + c.lift, lift: an.hop + c.lift,
+      stretch: an.str,
     };
   }
 

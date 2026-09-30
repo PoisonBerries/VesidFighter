@@ -185,3 +185,138 @@ test('getting hit, knocked down and KO\'d all recover or settle', () => {
     assert.ok(['idle', 'walk'].includes(f.state), `${c.id} stuck in ${f.state} after knockdown`);
   }
 });
+
+test('Carlos hovers while jump is held (limited fuel, refills on landing); a tap or another character does not hover', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  const setJump = (down, pressed) => sim.InputManager.setVirtual(C.jump, down, pressed);
+  const others = () => { for (const a of ACTIONS) if (a !== 'jump') sim.InputManager.setVirtual(C[a], false, false); };
+
+  // Held jump.
+  const { f, foe } = startFighter(sim, 'carlos', 500);
+  const max = sim.CHARACTERS.carlos.hover.frames;
+  others();
+  setJump(true, true); f.update(C, foe);
+  setJump(true, false);
+  const ys = [];
+  let hoverFrames = 0, everHovered = false;
+  for (let i = 0; i < 200 && !(f.grounded && i > 5); i++) {
+    f.update(C, foe);
+    if (f.hovering) { hoverFrames++; everHovered = true; ys.push(f.y); }
+  }
+  assert.ok(everHovered, 'holding jump should start a hover');
+  assert.ok(hoverFrames <= max, `hovered ${hoverFrames} frames, more than the ${max} of fuel`);
+  assert.ok(hoverFrames >= max - 2, `should use (nearly) all its fuel while held, used ${hoverFrames}`);
+  assert.ok(Math.max(...ys) - Math.min(...ys) < 3, 'position should stay put while hovering');
+  assert.ok(f.hoverLeft === 0 || f.grounded, 'fuel should be spent (or already refilled by landing)');
+  for (let i = 0; i < 120 && !f.grounded; i++) f.update(C, foe);
+  assert.ok(f.grounded, 'should come down once the fuel runs out');
+  f.update(C, foe);
+  assert.strictEqual(f.hoverLeft, max, 'landing refills the fuel');
+
+  // A quick tap never hovers (released before the apex).
+  const t = startFighter(sim, 'carlos', 500);
+  setJump(true, true); t.f.update(C, t.foe);
+  setJump(false, false);
+  for (let i = 0; i < 100 && !(t.f.grounded && i > 5); i++) { t.f.update(C, t.foe); assert.ok(!t.f.hovering, 'a tap must not hover'); }
+
+  // Pressing jump again in the air is not a double jump.
+  const d = startFighter(sim, 'carlos', 500);
+  setJump(true, true); d.f.update(C, d.foe);
+  setJump(false, false);
+  for (let i = 0; i < 6; i++) d.f.update(C, d.foe);
+  const vyBefore = d.f.vy;
+  setJump(false, true); d.f.update(C, d.foe); setJump(false, false);
+  assert.ok(d.f.vy > vyBefore - 0.01, 'no second jump impulse');
+
+  // Characters without the hover data never hover, even holding jump.
+  for (const c of sim.CHARACTER_LIST.filter((c) => !c.hover)) {
+    const x = startFighter(sim, c.id, 500);
+    setJump(true, true); x.f.update(C, x.foe); setJump(true, false);
+    for (let i = 0; i < 90; i++) { x.f.update(C, x.foe); assert.ok(!x.f.hovering, `${c.id} should not hover`); }
+    setJump(false, false);
+  }
+});
+
+// Sets a fighter flying to the right in mid-air and returns it ready to act.
+function airborneMovingRight(sim, id) {
+  const C = sim.VCONTROLS.p1;
+  const { f, foe } = startFighter(sim, id, 300);
+  f.ultCharge = sim.ULT_METER_MAX;
+  const set = (keys, pressed = []) => { for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], keys.includes(a), pressed.includes(a)); };
+  for (let i = 0; i < 5; i++) f.update(C, foe);
+  set(['right'], ['jump']); f.update(C, foe);
+  for (let i = 0; i < 6; i++) { set(['right']); f.update(C, foe); }
+  assert.strictEqual(f.grounded, false, `${id} should be airborne`);
+  return { f, foe, C, set };
+}
+
+test('a regular attack in the air keeps horizontal momentum; on the ground it still stops', () => {
+  const sim = createSim();
+  for (const c of sim.CHARACTER_LIST) {
+    const { f, foe, C, set } = airborneMovingRight(sim, c.id);
+    set(['right'], ['attack']); f.update(C, foe);
+    set([]);
+    assert.strictEqual(f.state, 'attack');
+    const vx0 = f.vx;
+    assert.ok(vx0 > 1, `${c.id}: expected forward speed going into the attack, got ${vx0}`);
+    let frames = 0;
+    while (f.state === 'attack' && !f.grounded && frames < 30) {
+      f.update(C, foe); frames++;
+      if (f.state === 'attack' && !f.grounded) assert.ok(Math.abs(f.vx - vx0) < 1e-9, `${c.id}: air attack changed vx ${vx0} -> ${f.vx} on frame ${frames}`);
+    }
+    assert.ok(frames >= 4, `${c.id}: airborne for too few attack frames to check (${frames})`);
+
+    // Same attack from the ground: friction stops them.
+    const g = startFighter(sim, c.id, 300);
+    set(['right']);
+    for (let i = 0; i < 12; i++) g.f.update(C, g.foe);
+    set([], ['attack']); g.f.update(C, g.foe); set([]);
+    for (let i = 0; i < 12; i++) g.f.update(C, g.foe);
+    assert.ok(Math.abs(g.f.vx) < 0.5, `${c.id}: a grounded attack should still slow to a stop (vx ${g.f.vx})`);
+  }
+});
+
+test('specials in the air keep momentum too, except moves that plant the fighter (Rubber Guard)', () => {
+  const sim = createSim();
+  for (const c of sim.CHARACTER_LIST) {
+    const { f, foe, C, set } = airborneMovingRight(sim, c.id);
+    f.specialCooldownTimer = 0;
+    set(['right'], ['special']); f.update(C, foe);
+    set([]);
+    if (f.state !== 'special') continue; // e.g. a character whose special can't start here
+    const vx0 = f.vx;
+    for (let i = 0; i < 3; i++) f.update(C, foe);
+    if (c.special.type === 'reflectStance') {
+      assert.strictEqual(f.vx, 0, `${c.id}: Rubber Guard plants the fighter`);
+    } else {
+      assert.ok(f.vx > vx0 * 0.9, `${c.id}: air special ${c.special.type} lost its momentum (${vx0} -> ${f.vx})`);
+    }
+  }
+});
+
+test('hits, blocks and reflects are announced with a counter the visuals (and online clients) can watch', () => {
+  const sim = createSim();
+  const { f } = startFighter(sim, 'nathan', 500);
+  const hit = { damage: 5, knockback: 10, knockbackUp: 3, hitstun: 12, fromFacing: -1 };
+  assert.strictEqual(f.impactSeq, 0);
+  f.applyHit(hit);
+  assert.strictEqual(f.impactSeq, 1);
+  assert.strictEqual(f.impactKind, 'hit');
+  assert.strictEqual(f.impactDir, -1);
+  assert.ok(f.impactPower >= 0.5);
+
+  const b = startFighter(sim, 'nathan', 500).f;
+  b.blocking = true; b.applyHit(hit);
+  assert.strictEqual(b.impactKind, 'blocked');
+  assert.ok(b.impactPower < 0.5, 'a block is a smaller shove than a hit');
+
+  const r = startFighter(sim, 'nathan', 500).f;
+  r.reflectTimer = 30; r.applyHit(hit);
+  assert.strictEqual(r.impactKind, 'reflected');
+  assert.strictEqual(r.impactSeq, 1);
+
+  const d = startFighter(sim, 'nathan', 500).f;
+  d.invulnerableTimer = 10; d.applyHit(hit);
+  assert.strictEqual(d.impactSeq, 0, 'a dodged hit is not an impact');
+});

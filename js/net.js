@@ -247,7 +247,9 @@ const Net = (() => {
     const held = HELD.map(a => InputManager.isDown(CONTROLS.p1[a]) || InputManager.isDown(CONTROLS.p2[a]));
     const taps = TAPS.map(a => InputManager.isPressed(CONTROLS.p1[a]) || InputManager.isPressed(CONTROLS.p2[a]));
     taps.forEach((t, i) => { if (t) localTapCounts[i]++; });
-    return { held, taps };
+    // Jump is a tap for jumping but also a hold (hover), so send both.
+    const jumpHeld = InputManager.isDown(CONTROLS.p1.jump) || InputManager.isDown(CONTROLS.p2.jump);
+    return { held, taps, jumpHeld };
   }
 
   function setVirtual(slot, held, taps) {
@@ -260,6 +262,7 @@ const Net = (() => {
     checkTimeout();
     const local = sampleLocal();
     setVirtual('p1', local.held, local.taps);
+    InputManager.setVirtual(VCONTROLS.p1.jump, local.jumpHeld, local.taps[0]);
 
     // One press per tick per button; extra presses queue for the next tick.
     const remoteTaps = remoteTapCounts.map((c, i) => {
@@ -269,6 +272,7 @@ const Net = (() => {
     // Special can be a hold-to-charge, so "held" for it = still pressed on guest.
     setVirtual('p2', remoteHeld, remoteTaps);
     InputManager.setVirtual(VCONTROLS.p2.special, !!remoteHeld.specialHeld, remoteTaps[2]);
+    InputManager.setVirtual(VCONTROLS.p2.jump, !!remoteHeld.jumpHeld, remoteTaps[0]);
     InputManager.setVirtual(VCONTROLS.p1.special,
       InputManager.isDown(CONTROLS.p1.special) || InputManager.isDown(CONTROLS.p2.special), local.taps[2]);
   }
@@ -286,7 +290,7 @@ const Net = (() => {
     const local = sampleLocal();
     const specialHeld = InputManager.isDown(CONTROLS.p1.special) || InputManager.isDown(CONTROLS.p2.special);
     InputManager.endFrame();
-    sendFast({ t: 'i', h: local.held, s: specialHeld, c: localTapCounts.slice() });
+    sendFast({ t: 'i', h: local.held, s: specialHeld, j: local.jumpHeld, c: localTapCounts.slice() });
     Effects.update();
   }
 
@@ -302,6 +306,7 @@ const Net = (() => {
     if (msg.t === 'i' && isHost()) {
       remoteHeld = msg.h.slice();
       remoteHeld.specialHeld = msg.s;
+      remoteHeld.jumpHeld = !!msg.j;
       // Counters only ever go up; ignore reordered stale packets.
       for (let i = 0; i < 4; i++) remoteTapCounts[i] = Math.max(remoteTapCounts[i], msg.c[i]);
     } else if (msg.t === 's' && isGuest()) {

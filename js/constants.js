@@ -91,9 +91,9 @@ function swapPalette(hex) {
 }
 
 const ULT_METER_MAX = 100;
-const ULT_GAIN_ON_LAND_NORMAL = 7;
-const ULT_GAIN_ON_LAND_SPECIAL = 12;
-const ULT_GAIN_ON_TAKEN = 5;
+const ULT_GAIN_ON_LAND_NORMAL = 9;
+const ULT_GAIN_ON_LAND_SPECIAL = 15;
+const ULT_GAIN_ON_TAKEN = 6;
 
 // Turns a KeyboardEvent.code into the short label shown on-screen (HUD key
 // badges, the character select panel). Shared by renderer.js and ui.js.

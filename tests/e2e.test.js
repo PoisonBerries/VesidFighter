@@ -107,6 +107,7 @@ test('every character is drawn, and survives attack/special/ultimate/jump/block/
       const r = { id, state: Game.getState(), visible: [T.visible(0), T.visible(1)] };
       tap('KeyF', 40);                                        // attack
       tap('KeyW', 30);                                        // jump
+      T.key('KeyW', true); T.step(70); T.key('KeyW', false); T.step(60); // held jump (Carlos hovers)
       T.key('KeyS', true); T.step(15); T.key('KeyS', false);  // block
       tap('KeyG', 100);                                       // special
       Game.applySnapshot({ f: [{ ultCharge: 100 }, {}] });
@@ -183,11 +184,28 @@ test('sound: every effect can play without throwing, and the soundtrack playlist
   await page.close();
 });
 
+test('sound defaults: effects are boosted well past the old maximum and the music sits quieter than the effects', async () => {
+  const { page, errors } = await openGame();
+  const d = await page.evaluate(() => ({ music: Sfx.settings.music, sfx: Sfx.settings.sfx, boost: Sfx.sfxBoost, sliderMusic: +document.getElementById('vol-music').value, sliderSfx: +document.getElementById('vol-sfx').value }));
+  assert.ok(d.sfx * d.boost > 1.5, `effects default should be well above the old 100% level (got ${(d.sfx * d.boost).toFixed(2)}x)`);
+  assert.ok(d.boost > 1, 'the effects slider should reach above the old maximum');
+  assert.ok(d.music <= 0.3, `music should default quiet (got ${d.music})`);
+  assert.ok(d.music < d.sfx, 'music should sit below the effects');
+  assert.strictEqual(d.sliderMusic, Math.round(d.music * 100));
+  assert.strictEqual(d.sliderSfx, Math.round(d.sfx * 100));
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+});
+
 // ---- 3D view ----
 // A second browser with software WebGL (SwiftShader), since the main one runs
 // with the GPU disabled. The 3D view loads Three.js from a CDN; if it can't
 // load (offline) this test skips rather than fails.
-test('3D view: every character is drawn in 3D and survives their move set, and the view toggle works', async (t) => {
+// Slow (software WebGL), so it only runs on request: `npm run test:3d`, or
+// `npm run test:all`. tools/needs-3d.js decides when a change makes it worth
+// running (used by CI and before pushing).
+const RUN_3D = process.env.RUN_3D === '1';
+test('3D view: every character is drawn in 3D and survives their move set, and the view toggle works', { skip: RUN_3D ? false : 'slow: run with `npm run test:3d` (see tools/needs-3d.js)' }, async (t) => {
   browser3d = await puppeteer.launch({
     executablePath: findChrome(),
     headless: 'new',

@@ -54,6 +54,14 @@ class Fighter {
     this.reflectTimer = 0;
     this.reflectMultiplier = 1;
     this.knockdownTimer = 0;
+    this.hoverLeft = character.hover ? character.hover.frames : 0; // frames of hover fuel
+    // Announces each hit taken/blocked/reflected (a counter the visuals watch;
+    // it rides along in snapshots, so online clients see the same thing).
+    this.impactSeq = 0;
+    this.impactDir = 1;   // direction the hit pushes (attacker's facing / projectile heading)
+    this.impactPower = 0; // 0-1.3, how hard
+    this.impactKind = null;
+    this.hovering = false;
 
     // Timed buffs (Ryan/Nathan ultimates).
     this.buffTimer = 0;
@@ -222,7 +230,7 @@ class Fighter {
     this.actionTimer = 0;
     this.attackHasHit = false;
     this.facingLocked = true;
-    this.vx = 0;
+    if (this.grounded) this.vx = 0; // in the air, keep the momentum
   }
 
   startSpecial() {
@@ -254,7 +262,7 @@ class Fighter {
     this.actionTimer = 0;
     this.attackHasHit = false;
     this.facingLocked = true;
-    this.vx = 0;
+    if (this.grounded) this.vx = 0; // in the air, keep the momentum
     this._ability = { hitFlags: def.hits ? def.hits.map(() => false) : [] };
 
     switch (def.type) {
@@ -301,6 +309,13 @@ class Fighter {
     this.poisonDamagePerTick = def.poisonDamage;
   }
 
+  noteImpact(kind, dir, power) {
+    this.impactSeq++;
+    this.impactKind = kind;
+    this.impactDir = dir >= 0 ? 1 : -1;
+    this.impactPower = power;
+  }
+
   // hit: { damage, knockback, knockbackUp, hitstun, fromFacing, knockdown, knockdownDuration }
   // Returns 'dodged' | 'phased' | 'reflected' | 'blocked' | 'hit'.
   applyHit(hit) {
@@ -309,9 +324,11 @@ class Fighter {
       return this._dodging ? 'dodged' : 'phased';
     }
     if (this.reflectTimer > 0) {
+      this.noteImpact('reflected', hit.fromFacing, 0.9);
       return 'reflected';
     }
     if (this.blocking) {
+      this.noteImpact('blocked', hit.fromFacing, 0.35);
       this.hp = Math.max(0, this.hp - hit.damage * 0.15);
       this.vx = hit.fromFacing * hit.knockback * 0.25;
       this.hitFlashTimer = 6;
@@ -319,6 +336,7 @@ class Fighter {
       return 'blocked';
     }
 
+    this.noteImpact('hit', hit.fromFacing, Math.min(1.3, Math.max(0.5, hit.knockback / 12)));
     this.hp = Math.max(0, this.hp - hit.damage);
     this.vx = hit.fromFacing * hit.knockback;
     this.vy = -hit.knockbackUp;
@@ -372,6 +390,7 @@ class Fighter {
       this._handleInput(controls, opponent);
     }
     this._updateActionState();
+    this._updateHover();
     this._applyPhysics();
     this._resolveFacing(opponent);
   }
@@ -493,6 +512,46 @@ class Fighter {
     }
   }
 
+  // Hold-jump hover (characters with a `hover` block, e.g. Carlos). While
+  // held in normal air movement, gravity is cancelled and fuel drains; it
+  // refills on landing. Getting hit or starting an attack ends it.
+  _updateHover() {
+    const h = this.character.hover;
+    if (!h) return;
+    if (this.grounded) {
+      this.hoverLeft = h.frames;
+      this.hovering = false;
+      return;
+    }
+    const inAir = this.state === 'jump' || this.state === 'fall';
+    const held = this._controls && InputManager.isDown(this._controls.jump);
+    if (inAir && held && this.hoverLeft > 0 && this.vy > -h.maxRiseSpeed) {
+      this.hovering = true;
+      this.hoverLeft--;
+      this.vy = -GRAVITY * (this.character.gravityMul || 1); // cancels this frame's gravity
+    } else {
+      this.hovering = false;
+    }
+  }
+
+  // True while a committed attack/ability should carry its horizontal
+  // momentum through the air instead of braking. Regular attacks always do;
+  // specials/ultimates do unless the def opts out with `airMomentum: false`
+  // (moves that explicitly plant or redirect the fighter zero vx themselves,
+  // e.g. Rubber Guard and the straight-down dives).
+  _keepsAirMomentum() {
+    if (this.grounded) return false;
+    if (this.state === 'attack') return true;
+    const def = this.state === 'special' ? this.character.special
+      : this.state === 'ultimate' ? this.character.ultimate : null;
+    return !!def && def.airMomentum !== false;
+  }
+
+  // Ground friction for committed actions; a no-op while momentum is kept.
+  _decelerate() {
+    if (!this._keepsAirMomentum()) this.vx *= FRICTION;
+  }
+
   _updateActionState() {
     // Ryan's Encore ultimate speeds up whatever animation is currently
     // playing (his own) by advancing the action clock faster than realtime.
@@ -501,7 +560,7 @@ class Fighter {
     if (this.state === 'attack') {
       const a = this.character.attack;
       const total = a.startup + a.active + a.recovery;
-      this.vx *= FRICTION;
+      this._decelerate();
       if (this.actionTimer > total) this._endAbility();
     }
 
@@ -546,23 +605,23 @@ class Fighter {
   _updateLunge(def) {
     const total = def.startup + def.active + def.recovery;
     if (this.actionTimer <= def.startup) {
-      this.vx *= FRICTION;
+      this._decelerate();
     } else if (this.actionTimer <= def.startup + def.active) {
       this.vx = this.facing * def.dashSpeed;
     } else {
-      this.vx *= FRICTION;
+      this._decelerate();
     }
     if (this.actionTimer > total) this._endAbility();
   }
 
   _updateMultiHit(def) {
-    this.vx *= FRICTION;
+    this._decelerate();
     const lastWindow = def.hits[def.hits.length - 1];
     if (this.actionTimer > lastWindow.end + def.recovery) this._endAbility();
   }
 
   _updatePoisonBurstAction(def) {
-    this.vx *= FRICTION;
+    this._decelerate();
     const total = def.startup + def.active + def.recovery;
     if (this.actionTimer > total) this._endAbility();
   }
@@ -597,7 +656,7 @@ class Fighter {
         this.vy = -8;
         this.grounded = false;
       }
-      this.vx *= FRICTION;
+      this._decelerate();
       return;
     }
     if (!a.diving && !a.hasHitOrLanded) {
@@ -623,11 +682,11 @@ class Fighter {
         a.diving = false;
         a.hasHitOrLanded = true;
         a.recoveryTimer = def.recovery;
-        this.vx *= FRICTION;
+        this._decelerate();
       }
     } else if (a.hasHitOrLanded) {
       a.recoveryTimer--;
-      this.vx *= FRICTION;
+      this._decelerate();
       if (a.recoveryTimer <= 0) this._endAbility();
     }
   }
@@ -637,17 +696,17 @@ class Fighter {
     if (this.actionTimer <= a.tGrowEnd) {
       const t = this.actionTimer / a.tGrowEnd;
       this.buffSizeMul = 1 + (def.sizeMul - 1) * t;
-      this.vx *= FRICTION;
+      this._decelerate();
     } else if (this.actionTimer <= a.tRollEnd && !this.attackHasHit) {
       this.buffSizeMul = def.sizeMul;
       this.vx = this.facing * def.dashSpeed;
     } else if (this.actionTimer <= a.tShrinkEnd) {
       const t = Math.max(0, Math.min(1, (this.actionTimer - a.tRollEnd) / (a.tShrinkEnd - a.tRollEnd)));
       this.buffSizeMul = def.sizeMul + (1 - def.sizeMul) * t;
-      this.vx *= FRICTION;
+      this._decelerate();
     } else {
       this.buffSizeMul = 1;
-      this.vx *= FRICTION;
+      this._decelerate();
       if (this.actionTimer > a.tTotal) this._endAbility();
     }
   }
@@ -657,7 +716,7 @@ class Fighter {
     if (a.phase === 'dodge') {
       this.invulnerableTimer = Math.max(this.invulnerableTimer, 2);
       this._dodging = true;
-      this.vx *= FRICTION;
+      this._decelerate();
       if (this._dodgeSuccess) {
         a.phase = 'counter';
         this._dodgeSuccess = false;
@@ -679,10 +738,10 @@ class Fighter {
         a.phase = 'recovery';
         a.recoveryStart = this.actionTimer;
         a.recoveryLen = def.counterRecovery;
-        this.vx *= FRICTION;
+        this._decelerate();
       }
     } else if (a.phase === 'recovery') {
-      this.vx *= FRICTION;
+      this._decelerate();
       if (this.actionTimer - a.recoveryStart > a.recoveryLen) this._endAbility();
     }
   }
@@ -692,12 +751,12 @@ class Fighter {
     const CHARGE_THRESHOLD = 10;
 
     if (this.actionTimer <= def.startup) {
-      this.vx *= FRICTION;
+      this._decelerate();
       return;
     }
 
     if (a.charging) {
-      this.vx *= FRICTION;
+      this._decelerate();
       const held = InputManager.isDown(this._controls.special);
       if (held && a.chargeFrames < def.maxChargeFrames) {
         a.chargeFrames++;
@@ -711,14 +770,14 @@ class Fighter {
       return;
     }
 
-    this.vx *= FRICTION;
+    this._decelerate();
     a.recoveryTimer--;
     if (a.recoveryTimer <= 0) this._endAbility();
   }
 
   _updateInstantProjectile(def) {
     const a = this._ability;
-    this.vx *= FRICTION;
+    this._decelerate();
     if (!a.fired && this.actionTimer > def.startup) {
       Game.spawnProjectile(this, def, {
         parryKnockdown: def.parryKnockdown,
@@ -738,7 +797,7 @@ class Fighter {
 
   _updateNuke(def) {
     const a = this._ability;
-    this.vx *= FRICTION;
+    this._decelerate();
     if (!a.fired && this.actionTimer > def.channel) {
       a.fired = true;
       a.firedFrame = this.actionTimer;
@@ -769,7 +828,7 @@ class Fighter {
       if (def.atkSpeedMul) this.atkSpeedMul = def.atkSpeedMul;
       this._endAbility();
     } else {
-      this.vx *= FRICTION;
+      this._decelerate();
     }
   }
 
@@ -779,7 +838,7 @@ class Fighter {
     this.x += this.vx;
     this.y += this.vy;
 
-    if (this.state !== 'walk') {
+    if (this.state !== 'walk' && !this._keepsAirMomentum()) {
       this.vx *= FRICTION;
     }
 

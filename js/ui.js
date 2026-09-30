@@ -105,6 +105,13 @@ const UI = (() => {
           <div class="ability-desc">${char.ultimate.description}</div>
         </div>
       </div>
+      ${char.hover ? `<div class="ability-row">
+        ${controls ? `<span class="key-badge">${keyLabel(controls.jump)}</span>` : ''}
+        <div>
+          <div class="ability-name">Hover</div>
+          <div class="ability-desc">Hold jump in the air to hang in place on the thrusters for a moment. Refills on landing.</div>
+        </div>
+      </div>` : ''}
     `;
   }
 
