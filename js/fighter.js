@@ -68,6 +68,7 @@ class Fighter {
     this.hovering = false;
     this.rolling = false; // crouch-moving as a roll (characters with crouchRoll)
     this.sliding = false; // gliding along the floor on crouch momentum (characters with crouchSwim)
+    this.airAttackActive = false; // the current attack is the aerial one (characters with airAttack)
     this.phaseCooldown = 0; // frames until Phase Step (Keenan) is ready again
     this._comboHeld = false; // jump + crouch both down last frame (to catch the moment the pair is completed)
     this.phaseStepFrom = 0;
@@ -97,6 +98,12 @@ class Fighter {
 
   get width() { return FIGHTER_WIDTH * this.sizeMultiplier; }
   get height() { return FIGHTER_HEIGHT * this.sizeMultiplier; }
+
+  // The attack currently in use: the ordinary one, or the aerial one if it
+  // was started in the air (Sam's pike kick).
+  get attackDef() {
+    return this.airAttackActive ? this.character.airAttack : this.character.attack;
+  }
 
   // Blood Donor: 0 at full health up to 1 at none -- how much of the bonus applies.
   get bloodFactor() {
@@ -186,7 +193,7 @@ class Fighter {
     this._pendingHitIndex = -1;
 
     if (this.state === 'attack' && !this.attackHasHit) {
-      const a = this.character.attack;
+      const a = this.attackDef;
       if (this.actionTimer > a.startup && this.actionTimer <= a.startup + a.active) {
         // Punches are high attacks (start at chest height, so a crouch can
         // duck them); a def with `high: false`, like Artur's kick, reaches
@@ -281,6 +288,7 @@ class Fighter {
     this.actionTimer = 0;
     this.attackHasHit = false;
     this.facingLocked = true;
+    this.airAttackActive = !this.grounded && !!this.character.airAttack;
     if (this.grounded) this.vx = 0; // in the air, keep the momentum
   }
 
@@ -351,6 +359,7 @@ class Fighter {
   _endAbility() {
     this.state = this.grounded ? 'idle' : 'fall';
     this.facingLocked = false;
+    this.airAttackActive = false;
   }
 
   applyPoison(def) {
@@ -427,9 +436,12 @@ class Fighter {
     const t = this.character.transform;
     if (!t || this.transformed) return;
     if (this.hp > 0 && this.hp <= this.maxHp * t.hpThreshold) {
+      // The bonus raises the ceiling, it doesn't heal: he keeps the same
+      // percentage of the bigger pool (50% of 108 becomes 50% of 173).
+      const fraction = this.hp / this.maxHp;
       this.transformed = true;
       this.maxHp += t.bonusHp;
-      this.hp = Math.min(this.maxHp, this.hp + t.bonusHp);
+      this.hp = this.maxHp * fraction;
       this._justTransformed = true;
     }
   }
@@ -459,6 +471,7 @@ class Fighter {
     this.hovering = false;
     this.rolling = false;
     this.sliding = false;
+    this.airAttackActive = false;
     this.phaseCooldown = 0;
     this._comboHeld = false;
     this.blocking = false;
@@ -780,7 +793,7 @@ class Fighter {
     this.actionTimer += this.actionSpeed;
 
     if (this.state === 'attack') {
-      const a = this.character.attack;
+      const a = this.attackDef;
       const total = a.startup + a.active + a.recovery;
       this._decelerate();
       if (this.actionTimer > total) this._endAbility();

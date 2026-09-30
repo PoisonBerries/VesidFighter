@@ -422,11 +422,26 @@ const Animator = (() => {
       }
 
       case 'attack': {
-        const atk = fighter.character.attack;
+        const atk = fighter.attackDef;
         const ext = attackExt(t, atk);
         const heavy = id === 'john' || id === 'robert';
         T.rate = 60;
-        if (id === 'artur') { // froggy front kick: chamber the knee, then drive the foot out
+        if (fighter.airAttackActive) { // Sam's pike kick: knees up, then both legs driven straight out, folded at the hips
+          const tuck = ext < 0 ? -ext / 0.45 : 0, drive = ext > 0 ? ext : 0;
+          if (ext < 0) {
+            T.fA = F(lerp(-6, 16, tuck), lerp(0, -34, tuck));
+            T.fB = F(lerp(8, 24, tuck), lerp(0, -28, tuck));
+            T.lean = 26 * tuck;
+          } else {
+            // (reaching a little past full leg length, so the legs lock out straight)
+            T.fA = F(lerp(16, 66, drive), lerp(-34, -50, drive));
+            T.fB = F(lerp(24, 72, drive), lerp(-28, -46, drive));
+            T.lean = lerp(26, 72, drive);
+          }
+          T.crouch = 0.08;
+          // (the torso is folded forward, so "toward the toes" is along the torso's own axis, past the head)
+          T.arms = [P(lerp(10, 2, drive), lerp(18, -46, drive), 0, 1), P(lerp(16, 10, drive), lerp(24, -50, drive), 0, 1)];
+        } else if (id === 'artur') { // froggy front kick: chamber the knee, then drive the foot out
           const hipY = -fighter.height * 0.38;
           const chamber = ext < 0 ? -ext / 0.45 : 0;
           const drive = ext > 0 ? ext : 0;
@@ -563,7 +578,8 @@ const Animator = (() => {
     const rollFinish = !fighter.rolling && an.rollAngle !== 0 && an.rollAngle !== undefined;
     if (rollFinish) rollPose(T, an);
     if (!T.arms) T.arms = armsFor(T.armPose, { R, E: T.E, s: T.s });
-    applyClip(T, fighter, an, now, rollFinish);
+    // (an air attack is hand-posed: the punch clip would fight it)
+    applyClip(T, fighter, an, now, rollFinish || (fighter.state === 'attack' && fighter.airAttackActive));
     if (fighter.rolling || rollFinish) T.headTilt = 38; // chin tucked into the chest
     else if (fighter.state === 'block' && fighter.character.crouchSwim) T.headTilt = -22; // chin up, looking ahead as he swims
     // Long-armed characters (Nathan): every arm pose reaches proportionally further.

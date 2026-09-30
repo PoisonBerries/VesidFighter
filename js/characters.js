@@ -277,7 +277,7 @@ const CHARACTERS = {
     maxHp: 108,
     transform: {
       hpThreshold: 0.5,
-      bonusHp: 65,
+      bonusHp: 65, // raises max HP; current health keeps the same percentage (no heal)
       sizeMul: 1.3,
       spdMul: 0.75,
       dmgMul: 1.65,
@@ -374,6 +374,14 @@ const CHARACTERS = {
       damage: 7, offset: 22, width: 60, height: 80,
       startup: 6, active: 3, recovery: 9,
       knockback: 7, knockbackUp: 3, hitstun: 12,
+    },
+    // Attack while airborne: a pike kick. He folds at the hips and drives both
+    // straight legs out in front -- a low, long attack that reaches at foot
+    // level (so a crouch doesn't duck it), with a long active window.
+    airAttack: {
+      damage: 9, offset: 14, width: 74, height: 62, high: false,
+      startup: 5, active: 6, recovery: 10,
+      knockback: 8, knockbackUp: 3, hitstun: 14,
     },
     special: {
       type: 'dive',

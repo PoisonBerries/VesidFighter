@@ -326,10 +326,15 @@ test('Robert transforms at half HP, and the transformation resets at the start o
   const base = sim.CHARACTERS.robert;
   const { f } = startFighter(sim, 'robert', 500);
   assert.strictEqual(f.transformed, false);
-  f.applyHit({ damage: f.hp - base.maxHp * base.transform.hpThreshold + 1, knockback: 5, knockbackUp: 1, hitstun: 5, fromFacing: -1 });
+  const hitDamage = f.hp - base.maxHp * base.transform.hpThreshold + 1;
+  const hpAfterHit = f.hp - hitDamage, hpFracAfterHit = hpAfterHit / base.maxHp;
+  f.applyHit({ damage: hitDamage, knockback: 5, knockbackUp: 1, hitstun: 5, fromFacing: -1 });
   assert.strictEqual(f.transformed, true, 'should transform once HP reaches the threshold');
   assert.strictEqual(f.maxHp, base.maxHp + base.transform.bonusHp);
   assert.ok(f.width > sim.CHARACTERS.robert.sizeScale * 96, 'transformed Robert is bigger');
+  // Transforming doesn't heal him: he keeps the same PERCENTAGE of the bigger pool.
+  assert.ok(Math.abs(f.hp / f.maxHp - hpFracAfterHit) < 1e-9, `health should stay at ${(hpFracAfterHit * 100).toFixed(1)}% (is ${(f.hp / f.maxHp * 100).toFixed(1)}%)`);
+  assert.ok(f.hp < hpAfterHit + base.transform.bonusHp * 0.9, 'and he is not topped up by the bonus HP');
   f.revertTransform();
   assert.strictEqual(f.transformed, false);
   assert.strictEqual(f.maxHp, base.maxHp);
@@ -1210,4 +1215,79 @@ test('Blood Donor in a real fight: a wounded Owen hits harder, attacks quicker a
     return (f.x - x0) / 30;
   };
   assert.ok(walk(0.1) > walk(1) * 1.15, 'walks faster when hurt');
+});
+
+// ---- Sam's pike kick ----
+test('Sam: attacking in the air is a pike kick (its own timing, reach and damage); on the ground it is the ordinary attack', () => {
+  const sim = createSim();
+  const sam = sim.CHARACTERS.sam;
+  const C = sim.VCONTROLS.p1;
+  const press = (down) => { for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], false, down === a); };
+
+  // Grounded: the ordinary attack.
+  let { f, foe } = startFighter(sim, 'sam', 400);
+  press('attack'); f.update(C, foe); press(null);
+  assert.strictEqual(f.state, 'attack');
+  assert.strictEqual(f.airAttackActive, false);
+  assert.strictEqual(f.attackDef, sam.attack);
+
+  // Airborne: the pike kick.
+  ({ f, foe } = startFighter(sim, 'sam', 400));
+  press('jump'); f.update(C, foe); press(null);
+  for (let i = 0; i < 6; i++) f.update(C, foe);
+  assert.strictEqual(f.grounded, false, 'in the air');
+  press('attack'); f.update(C, foe); press(null);
+  assert.strictEqual(f.state, 'attack');
+  assert.strictEqual(f.airAttackActive, true, 'the aerial attack');
+  assert.strictEqual(f.attackDef, sam.airAttack);
+  // Its own timing, hitbox and reach: a low, long box at foot level during the active frames.
+  f.actionTimer = sam.airAttack.startup + 1;
+  const box = f.getHitbox();
+  assert.ok(box, 'active on its own window');
+  assert.strictEqual(box.w, sam.airAttack.width);
+  assert.ok(Math.abs(box.y + box.h - f.y) < 1e-9, 'a low attack: the box reaches down to his feet (not chest-height)');
+  f.actionTimer = sam.airAttack.startup - 1;
+  assert.strictEqual(f.getHitbox(), null, 'not yet active during its start-up');
+  // It ends (even mid-air) and the flag clears.
+  f.actionTimer = 0;
+  for (let i = 0; i < 60 && f.state === 'attack'; i++) f.update(C, foe);
+  assert.notStrictEqual(f.state, 'attack');
+  assert.strictEqual(f.airAttackActive, false);
+
+  // Everyone else keeps their one attack in the air.
+  for (const c of sim.CHARACTER_LIST.filter((c) => !c.airAttack)) {
+    const x = startFighter(sim, c.id, 400);
+    x.f.grounded = false; x.f.y = sim.GROUND_Y - 120;
+    press('attack'); x.f.update(C, x.foe); press(null);
+    assert.strictEqual(x.f.airAttackActive, false, `${c.id} has no aerial attack`);
+  }
+});
+
+test('Sam\'s pike kick connects for its own damage through the real game loop, and hits low', () => {
+  const sim = createSim();
+  const sam = sim.CHARACTERS.sam;
+  const C = sim.VCONTROLS.p1;
+  sim.Game.startMatch('sam', 'keenan', () => {}, { ball: 'off' });
+  for (let i = 0; i < 200; i++) sim.Game.update(sim.FIXED_STEP);
+  sim.Game.applySnapshot({ f: [{ x: 400 }, { x: 465 }] });
+  const hp0 = sim.Game.getSnapshot().f[1].hp;
+  sim.InputManager.setVirtual(C.jump, false, true); sim.Game.update(sim.FIXED_STEP);
+  sim.InputManager.setVirtual(C.jump, false, false);
+  // Kick as he comes down past the opponent's height.
+  let kicked = false;
+  for (let i = 0; i < 120 && !kicked; i++) {
+    sim.Game.update(sim.FIXED_STEP);
+    const s = sim.Game.getSnapshot().f[0];
+    if (s.vy > 2 && s.y < sim.GROUND_Y - 30 && s.y > sim.GROUND_Y - 110) {
+      sim.InputManager.setVirtual(C.attack, false, true); sim.Game.update(sim.FIXED_STEP);
+      sim.InputManager.setVirtual(C.attack, false, false);
+      kicked = true;
+    }
+  }
+  assert.ok(kicked, 'reached a spot to kick from');
+  assert.strictEqual(sim.Game.getSnapshot().f[0].airAttackActive, true);
+  let dealt = 0;
+  for (let i = 0; i < 40; i++) { sim.Game.update(sim.FIXED_STEP); dealt = hp0 - sim.Game.getSnapshot().f[1].hp; if (dealt > 0) break; }
+  assert.ok(Math.abs(dealt - sam.airAttack.damage) < 0.01, `pike kick damage ${sam.airAttack.damage} (dealt ${dealt})`);
+  assert.notStrictEqual(dealt, sam.attack.damage, 'not the ground punch\'s damage');
 });

@@ -49,7 +49,7 @@ const Cpu = (() => {
       x: f.x, y: f.y, vx: f.vx, vy: f.vy, state: f.state, t: f.actionTimer,
       grounded: f.grounded, crouching: f.isCrouching, blocking: f.blocking,
       facing: f.facing, width: f.width, height: f.height, hp: f.hp,
-      invuln: f.invulnerableTimer > 0, reflecting: f.reflectTimer > 0,
+      invuln: f.invulnerableTimer > 0, reflecting: f.reflectTimer > 0, airAttack: !!f.airAttackActive,
       ability: f._ability ? { diving: f._ability.diving, fired: f._ability.fired, phase: f._ability.phase } : {},
     };
   }
@@ -95,7 +95,7 @@ const Cpu = (() => {
       const toward = Math.sign(dx) === o.facing || dist < 20;
       const halfMe = me.width / 2;
       if (o.state === 'attack') {
-        const a = oc.attack;
+        const a = o.airAttack ? oc.airAttack : oc.attack;
         if (o.t > a.startup + a.active) return null;
         if (!toward || dist > reachOf(a.offset, a.width, halfMe) + 25) return null;
         return { frames: a.startup - o.t, low: a.high === false, kind: 'melee' };
