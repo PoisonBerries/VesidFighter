@@ -8,7 +8,7 @@
 //   moveSpeed:    4.6 low, 5.0-5.6 medium, 6.4-6.6 high
 //   attackSpeed:  total basic-attack frames (startup+active+recovery), lower
 //                 is faster -- 16-19 fast, 24-27 normal, 29-32 slow, 38 slowest
-//   maxHp:        90-92 low, 115 medium, 124-140 high
+//   maxHp:        90-92 low, 108-115 medium, 124-140 high
 //   attack dmg:   6-7 low, 8-11 normal, 14-16 high
 //
 // Attack speed and damage are meant to trade off against each other, and
@@ -232,16 +232,16 @@ const CHARACTERS = {
     moveSpeed: 5.6,
     jumpForce: 15,
     maxJumps: 1,
-    maxHp: 115,
+    maxHp: 108,
     transform: {
       hpThreshold: 0.5,
-      bonusHp: 58,
+      bonusHp: 65,
       sizeMul: 1.3,
       spdMul: 0.75,
-      dmgMul: 1.5,
+      dmgMul: 1.65,
     },
     attack: {
-      damage: 11, offset: 26, width: 74, height: 94,
+      damage: 10, offset: 26, width: 74, height: 94,
       startup: 7, active: 4, recovery: 14,
       knockback: 9, knockbackUp: 3, hitstun: 16,
     },
@@ -252,7 +252,7 @@ const CHARACTERS = {
       cooldown: 4.0,
       riseFrames: 14, riseSpeed: 14, fallSpeed: 22,
       radius: 130,
-      damage: 16, knockback: 12, knockbackUp: 6, hitstun: 22,
+      damage: 15, knockback: 12, knockbackUp: 6, hitstun: 22,
     },
     ultimate: {
       type: 'dive',
@@ -264,7 +264,7 @@ const CHARACTERS = {
       recovery: 14,
       speed: 18,
       width: 110, height: 120,
-      damage: 30, knockback: 20, knockbackUp: 8, hitstun: 26,
+      damage: 28, knockback: 20, knockbackUp: 8, hitstun: 26,
     },
   },
 

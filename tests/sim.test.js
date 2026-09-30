@@ -320,3 +320,84 @@ test('hits, blocks and reflects are announced with a counter the visuals (and on
   d.invulnerableTimer = 10; d.applyHit(hit);
   assert.strictEqual(d.impactSeq, 0, 'a dodged hit is not an impact');
 });
+
+test('Robert transforms at half HP, and the transformation resets at the start of the next round', () => {
+  const sim = createSim();
+  const base = sim.CHARACTERS.robert;
+  const { f } = startFighter(sim, 'robert', 500);
+  assert.strictEqual(f.transformed, false);
+  f.applyHit({ damage: f.hp - base.maxHp * base.transform.hpThreshold + 1, knockback: 5, knockbackUp: 1, hitstun: 5, fromFacing: -1 });
+  assert.strictEqual(f.transformed, true, 'should transform once HP reaches the threshold');
+  assert.strictEqual(f.maxHp, base.maxHp + base.transform.bonusHp);
+  assert.ok(f.width > sim.CHARACTERS.robert.sizeScale * 96, 'transformed Robert is bigger');
+  f.revertTransform();
+  assert.strictEqual(f.transformed, false);
+  assert.strictEqual(f.maxHp, base.maxHp);
+
+  // End to end through the round flow: transform, lose the round, start the next one.
+  sim.Game.startMatch('robert', 'sam', () => {});
+  driveRandom(sim, 200, 3); // through the countdown into the fight
+  sim.Game.applySnapshot({ f: [{ transformed: true, maxHp: base.maxHp + base.transform.bonusHp, hp: 5 }, { hp: 0 }] });
+  for (let i = 0; i < 400; i++) {
+    sim.Game.update(sim.FIXED_STEP);
+    if (sim.Game.getSnapshot().m === 'countdown' && i > 30) break;
+  }
+  const s = sim.Game.getSnapshot();
+  assert.strictEqual(s.m, 'countdown', 'the next round should have started');
+  assert.strictEqual(s.f[0].transformed, false, 'transformation must not carry into the next round');
+  assert.strictEqual(s.f[0].maxHp, base.maxHp);
+  assert.strictEqual(s.f[0].hp, base.maxHp, 'and he starts the round at full base HP');
+});
+
+test('a transformed Robert hits as hard as before the base nerf (base got slightly weaker, transformed did not)', () => {
+  const sim = createSim();
+  const r = sim.CHARACTERS.robert;
+  const transformedBasic = r.attack.damage * r.transform.dmgMul;
+  assert.ok(transformedBasic >= 16 && transformedBasic <= 17.5, `transformed basic attack ${transformedBasic}`);
+  assert.ok(r.attack.damage <= 10, 'base Robert should be a touch weaker than before (was 11)');
+  assert.ok(r.maxHp < 115, 'base Robert should have a little less HP than before (was 115)');
+  assert.ok(r.maxHp + r.transform.bonusHp >= 170, 'transformed HP pool unchanged (~173)');
+});
+
+test('nothing lingers between rounds: buffs, poison, shields, stun and transformations are all cleared', () => {
+  const sim = createSim();
+  const lingering = { buffTimer: 300, buffAtkMul: 1.4, buffSpdMul: 1.45, buffSizeMul: 1.35, atkSpeedMul: 1.6, poisonTicksLeft: 4, poisonTickTimer: 7, poisonDamagePerTick: 3, invulnerableTimer: 20, _dodging: true, reflectTimer: 25, hitFlashTimer: 9, hoverLeft: 3, hovering: true, transformed: true, maxHp: 180 };
+
+  // Unit level: the reset itself.
+  const { f } = startFighter(sim, 'robert', 500);
+  Object.assign(f, lingering);
+  f.resetForRound();
+  assert.strictEqual(f.buffTimer, 0);
+  assert.strictEqual(f.buffSizeMul, 1);
+  assert.strictEqual(f.buffAtkMul, 1);
+  assert.strictEqual(f.buffSpdMul, 1);
+  assert.strictEqual(f.atkSpeedMul, 1);
+  assert.strictEqual(f.poisonTicksLeft, 0);
+  assert.strictEqual(f.invulnerableTimer, 0);
+  assert.strictEqual(f._dodging, false);
+  assert.strictEqual(f.reflectTimer, 0);
+  assert.strictEqual(f.transformed, false);
+  assert.strictEqual(f.maxHp, sim.CHARACTERS.robert.maxHp);
+  assert.strictEqual(f.width, 96 * sim.CHARACTERS.robert.sizeScale, 'back to normal size');
+
+  // Through the real round flow, for every character.
+  for (const c of sim.CHARACTER_LIST) {
+    sim.Game.startMatch(c.id, 'sam', () => {});
+    driveRandom(sim, 200, 11);
+    sim.Game.applySnapshot({ f: [Object.assign({ hp: 5 }, lingering, { maxHp: c.maxHp }), { hp: 0 }] });
+    for (let i = 0; i < 400; i++) {
+      sim.Game.update(sim.FIXED_STEP);
+      if (sim.Game.getSnapshot().m === 'countdown' && i > 30) break;
+    }
+    const s = sim.Game.getSnapshot();
+    assert.strictEqual(s.m, 'countdown', `${c.id}: next round should have started`);
+    const p = s.f[0];
+    assert.strictEqual(p.buffTimer, 0, `${c.id}: buff carried over`);
+    assert.strictEqual(p.buffSizeMul, 1, `${c.id}: size buff carried over`);
+    assert.strictEqual(p.poisonTicksLeft, 0, `${c.id}: poison carried over`);
+    assert.strictEqual(p.reflectTimer, 0, `${c.id}: reflect carried over`);
+    assert.strictEqual(p.invulnerableTimer, 0, `${c.id}: invulnerability carried over`);
+    assert.strictEqual(p.transformed, false, `${c.id}: transformation carried over`);
+    assert.strictEqual(p.hp, c.maxHp, `${c.id}: should start at full base HP`);
+  }
+});

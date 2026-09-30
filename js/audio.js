@@ -171,9 +171,18 @@ const Sfx = (() => {
       noise({ f0: 400, f1: 3000, dur: 0.3, vol: 0.14, attack: 0.05 });
     },
     click() { tone({ type: 'square', f0: 720, f1: 480, dur: 0.045, vol: 0.09 }); },
-    transform() {
-      tone({ type: 'sawtooth', f0: 70, f1: 140, dur: 0.6, vol: 0.3, attack: 0.05 });
-      noise({ f0: 200, f1: 1600, dur: 0.6, vol: 0.2, attack: 0.1 });
+    transform(pan) {
+      // Building rumble and growl...
+      tone({ type: 'sawtooth', f0: 55, f1: 110, dur: 0.55, vol: 0.32, attack: 0.08, pan });
+      tone({ type: 'square', f0: 80, f1: 160, dur: 0.5, vol: 0.12, attack: 0.1, pan });
+      noise({ filter: 'lowpass', f0: 300, f1: 1400, q: 0.7, dur: 0.55, vol: 0.25, attack: 0.1, pan });
+      // ...cloth ripping...
+      noise({ filter: 'highpass', f0: 2500, dur: 0.18, vol: 0.22, delay: 0.35, attack: 0.01, pan });
+      noise({ f0: 3200, f1: 1200, q: 1.5, dur: 0.14, vol: 0.2, delay: 0.48, pan });
+      // ...then the roar and a heavy landing.
+      tone({ type: 'sawtooth', f0: 150, f1: 70, dur: 0.5, vol: 0.3, delay: 0.55, attack: 0.02, pan });
+      tone({ f0: 90, f1: 30, dur: 0.45, vol: 0.65, delay: 0.58, pan });
+      noise({ filter: 'lowpass', f0: 900, f1: 150, dur: 0.4, vol: 0.4, delay: 0.58, pan });
     },
   };
 
@@ -252,7 +261,7 @@ const Sfx = (() => {
     tick: () => play('tick'),
     go: () => play('go'),
     click: () => play('click'),
-    transform: () => play('transform'),
+    transform: (pan) => play('transform', pan),
     ability(type, isUlt, pan) { if (ensure() && gate('ability', 40)) ability(type, isUlt, pan); },
     impact,
     settings, save, applyVolumes, ensure, sfxBoost: SFX_BOOST,

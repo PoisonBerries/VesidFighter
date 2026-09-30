@@ -368,6 +368,47 @@ class Fighter {
     }
   }
 
+  // Clears everything that lasts beyond a single action, so nothing carries
+  // from one round into the next: Robert's transformation, timed buffs
+  // (Overgrowth, Encore), poison, shields/dodge windows, stun, hover fuel and
+  // any half-finished move. Position, HP and meters are set by the caller.
+  resetForRound() {
+    this.revertTransform();
+    this.buffTimer = 0;
+    this.buffAtkMul = 1;
+    this.buffSpdMul = 1;
+    this.buffSizeMul = 1;
+    this.atkSpeedMul = 1;
+    this.poisonTicksLeft = 0;
+    this.poisonTickTimer = 0;
+    this.invulnerableTimer = 0;
+    this._dodging = false;
+    this._dodgeSuccess = false;
+    this.reflectTimer = 0;
+    this.hitFlashTimer = 0;
+    this.knockdownTimer = 0;
+    this.stunFrames = 0;
+    this.doubleJumpFlipTimer = 0;
+    this.hoverLeft = this.character.hover ? this.character.hover.frames : 0;
+    this.hovering = false;
+    this.blocking = false;
+    this.facingLocked = false;
+    this.attackHasHit = false;
+    this.actionTimer = 0;
+    this.jumpsUsed = 0;
+    this.grounded = true;
+    this._ability = {};
+  }
+
+  // Undo a transformation (Robert's transform only lasts for the round it
+  // happened in).
+  revertTransform() {
+    if (!this.transformed) return;
+    this.transformed = false;
+    this._justTransformed = false;
+    this.maxHp = this.character.maxHp;
+  }
+
   consumeTransformFlag() {
     if (this._justTransformed) {
       this._justTransformed = false;

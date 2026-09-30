@@ -482,7 +482,7 @@ const Animator = (() => {
       rot: 0, rotVel: 0, prevSpin: 0, toppling: false,
       hop: 0, hopV: 0,
       landT: 0, landImpact: 0, getup: 0,
-      prevAirborne: false, prevVy: 0, prevState: 'idle', prevT: 0, prevJumps: 0, prevHovering: false, pan: 0, impactSeq: 0, str: 0, strV: 0,
+      prevAirborne: false, prevVy: 0, prevState: 'idle', prevT: 0, prevJumps: 0, prevHovering: false, prevTransformed: undefined, pan: 0, impactSeq: 0, str: 0, strV: 0,
       dustTimer: 0,
     };
   }
@@ -610,6 +610,7 @@ const Animator = (() => {
       }
       if (fighter.jumpsUsed > an.prevJumps) Sfx.jump(fighter.jumpsUsed, an.pan);
       if (fighter.hovering && !an.prevHovering) Sfx.hover(an.pan);
+      if (fighter.transformed && an.prevTransformed === false) Sfx.transform(an.pan);
       if (T0_TUMBLE(fighter, st) && !an.falling) { an.falling = true; Sfx.fall(an.pan); }
     }
     an.prevJumps = fighter.jumpsUsed;
@@ -632,6 +633,7 @@ const Animator = (() => {
       an.str = clamp(an.str, -1.4, 1.4);
     }
     an.prevHovering = !!fighter.hovering;
+    an.prevTransformed = !!fighter.transformed;
     an.prevT = fighter.actionTimer;
 
     if (an.prevState === 'knockdown' && !down && st !== 'hitstun' && Math.abs(an.rot) > 0.8) an.getup = 1;
