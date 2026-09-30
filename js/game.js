@@ -247,6 +247,7 @@ const Game = (() => {
       w: stats.width, h: stats.height,
       damage: stats.damage, knockback: stats.knockback, knockbackUp: stats.knockbackUp, hitstun: stats.hitstun,
       color: opts.color || '#bfefff',
+      kind: opts.kind || null,
       life: 90,
       parryKnockdown: !!opts.parryKnockdown,
       knockdownDuration: opts.knockdownDuration || 0,
@@ -333,8 +334,15 @@ const Game = (() => {
     ctx.save();
     ctx.translate(shakeOffset.x, shakeOffset.y);
 
+    AbilityFX.update(p1);
+    AbilityFX.update(p2);
+    AbilityFX.drawBack(ctx, p1);
+    AbilityFX.drawBack(ctx, p2);
     Renderer.drawFighter(ctx, p1);
     Renderer.drawFighter(ctx, p2);
+    AbilityFX.drawFront(ctx, p1);
+    AbilityFX.drawFront(ctx, p2);
+    AbilityFX.drawTimed(ctx);
     Renderer.drawProjectiles(ctx, projectiles);
     Effects.draw(ctx);
 

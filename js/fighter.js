@@ -706,7 +706,7 @@ class Fighter {
       a.charging = false;
       const usedCharged = a.chargeFrames >= CHARGE_THRESHOLD;
       const shot = usedCharged ? def.charged : def.quick;
-      Game.spawnProjectile(this, shot, { color: usedCharged ? '#ffe066' : this.displayAccent });
+      Game.spawnProjectile(this, shot, { color: usedCharged ? '#ffe066' : this.displayAccent, kind: usedCharged ? 'plasmaCharged' : 'plasmaQuick' });
       a.recoveryTimer = def.recovery;
       return;
     }
@@ -724,6 +724,7 @@ class Fighter {
         parryKnockdown: def.parryKnockdown,
         knockdownDuration: def.knockdownDuration,
         color: this.displayAccent,
+        kind: 'soundwave',
       });
       a.fired = true;
       a.recoveryTimer = def.recovery;
