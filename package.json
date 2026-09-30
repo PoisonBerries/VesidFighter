@@ -1,0 +1,13 @@
+{
+  "name": "vesid-fighter",
+  "private": true,
+  "description": "Vesid Fighter -- static browser game. Dev tooling only; the game itself has no build step.",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
+    "test:fast": "node --test tests/static.test.js tests/sim.test.js",
+    "test:e2e": "node --test tests/e2e.test.js"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.0.0"
+  }
+}
