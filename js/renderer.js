@@ -2,52 +2,301 @@
 // placeholder), and in-fight HUD (health bars, timer, round pips).
 
 const Renderer = (() => {
-  function drawStage(ctx) {
-    // Sky
-    const sky = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
-    sky.addColorStop(0, '#2b1b3d');
-    sky.addColorStop(1, '#6b3fa0');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  // ---- Stage ----------------------------------------------------------
+  // A floating sky-arena at dusk. Everything that never moves (sky, moon,
+  // far ranges, ruined skyline, the rock island itself) is painted once into
+  // an offscreen canvas and blitted each frame; only a handful of cheap
+  // animated touches (twinkling stars, light beams, drifting embers, the
+  // pulsing edge runes) are drawn live on top.
+  let stageCache = null;
+  let twinkleStars = [];
 
-    // Distant crowd dots for a bit of arena atmosphere
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    for (let i = 0; i < 40; i++) {
-      const x = (i * 97) % CANVAS_WIDTH;
-      const y = 60 + ((i * 53) % 120);
+  function seededRandom(seed) {
+    let s = seed >>> 0;
+    return () => {
+      s = (s + 0x6D2B79F5) >>> 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function ridge(c, baseY, amp, seed, color, fadeTo) {
+    const rnd = seededRandom(seed);
+    const p1 = rnd() * 6, p2 = rnd() * 6, p3 = rnd() * 6;
+    c.beginPath();
+    c.moveTo(0, CANVAS_HEIGHT);
+    for (let x = 0; x <= CANVAS_WIDTH; x += 8) {
+      const y = baseY - amp * (0.55 * Math.sin(x / 190 + p1) + 0.3 * Math.sin(x / 83 + p2) + 0.15 * Math.sin(x / 37 + p3) + 0.6);
+      c.lineTo(x, y);
+    }
+    c.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT);
+    c.closePath();
+    const g = c.createLinearGradient(0, baseY - amp * 1.6, 0, baseY + 40);
+    g.addColorStop(0, color);
+    g.addColorStop(1, fadeTo);
+    c.fillStyle = g;
+    c.fill();
+  }
+
+  function skyline(c, baseY, seed, color, windowColor) {
+    const rnd = seededRandom(seed);
+    let x = -20;
+    while (x < CANVAS_WIDTH + 20) {
+      const w = 26 + rnd() * 46;
+      const h = 40 + rnd() * 120 * (0.4 + 0.6 * Math.abs(Math.sin(x / 260)));
+      c.fillStyle = color;
+      c.fillRect(x, baseY - h, w, h + 160);
+      // Broken ruined tops: a spire on some, a crumbled notch on others.
+      if (rnd() < 0.3) {
+        c.beginPath();
+        c.moveTo(x + w * 0.2, baseY - h);
+        c.lineTo(x + w * 0.5, baseY - h - 22 - rnd() * 26);
+        c.lineTo(x + w * 0.8, baseY - h);
+        c.closePath();
+        c.fill();
+      } else if (rnd() < 0.4) {
+        // A stubby chimney/antenna block for a broken roofline.
+        c.fillRect(x + w * 0.6, baseY - h - 9, w * 0.22, 9);
+      }
+      c.fillStyle = windowColor;
+      for (let wy = baseY - h + 12; wy < baseY - 10; wy += 13) {
+        for (let wx = x + 5; wx < x + w - 6; wx += 9) {
+          if (rnd() < 0.16) c.fillRect(wx, wy, 3, 4);
+        }
+      }
+      x += w + rnd() * 6;
+    }
+  }
+
+  function buildStageCache() {
+    const cv = document.createElement('canvas');
+    cv.width = CANVAS_WIDTH;
+    cv.height = CANVAS_HEIGHT;
+    const c = cv.getContext('2d');
+    const rnd = seededRandom(1337);
+    const L = STAGE_LEFT_EDGE, R = STAGE_RIGHT_EDGE, mid = (L + R) / 2;
+
+    // Sky: deep indigo overhead melting to a warm magenta horizon glow.
+    const sky = c.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+    sky.addColorStop(0, '#0d0820');
+    sky.addColorStop(0.35, '#241546');
+    sky.addColorStop(0.68, '#5a2f86');
+    sky.addColorStop(0.86, '#a24a9c');
+    sky.addColorStop(1, '#d9788f');
+    c.fillStyle = sky;
+    c.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // Stars (the brighter ones get re-drawn live so they twinkle).
+    twinkleStars = [];
+    for (let i = 0; i < 140; i++) {
+      const x = rnd() * CANVAS_WIDTH, y = rnd() * 380;
+      const r = 0.4 + rnd() * 1.3, a = 0.25 + rnd() * 0.6;
+      if (r > 1.15 && twinkleStars.length < 26) {
+        twinkleStars.push({ x, y, r, a, ph: rnd() * 6.28, sp: 1.2 + rnd() * 2 });
+      } else {
+        c.fillStyle = `rgba(255,245,255,${a})`;
+        c.beginPath();
+        c.arc(x, y, r, 0, Math.PI * 2);
+        c.fill();
+      }
+    }
+
+    // Moon with a wide halo and soft craters.
+    const mx = 1010, my = 150, mr = 62;
+    const halo = c.createRadialGradient(mx, my, mr * 0.5, mx, my, mr * 4.2);
+    halo.addColorStop(0, 'rgba(255,225,250,0.34)');
+    halo.addColorStop(0.35, 'rgba(230,170,240,0.12)');
+    halo.addColorStop(1, 'rgba(180,120,220,0)');
+    c.fillStyle = halo;
+    c.fillRect(mx - mr * 4.2, my - mr * 4.2, mr * 8.4, mr * 8.4);
+    const disc = c.createRadialGradient(mx - 18, my - 18, 6, mx, my, mr);
+    disc.addColorStop(0, '#fff7ff');
+    disc.addColorStop(1, '#e6c6f2');
+    c.fillStyle = disc;
+    c.beginPath();
+    c.arc(mx, my, mr, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = 'rgba(160,110,190,0.22)';
+    for (const [dx, dy, r] of [[-20, -8, 11], [16, 18, 15], [22, -22, 7], [-8, 28, 6]]) {
+      c.beginPath();
+      c.arc(mx + dx, my + dy, r, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    // Distant range, then the ruined skyline, each hazier the further back.
+    ridge(c, 470, 120, 7, '#5b3a86', '#a2508f');
+    ridge(c, 520, 90, 21, '#3e2766', '#8c4590');
+    skyline(c, 610, 99, '#2a1a4c', 'rgba(255,196,120,0.75)');
+    // Haze pooling between the skyline and the island.
+    const haze = c.createLinearGradient(0, 470, 0, CANVAS_HEIGHT);
+    haze.addColorStop(0, 'rgba(217,120,150,0)');
+    haze.addColorStop(0.55, 'rgba(217,120,160,0.28)');
+    haze.addColorStop(1, 'rgba(240,150,170,0.5)');
+    c.fillStyle = haze;
+    c.fillRect(0, 470, CANVAS_WIDTH, CANVAS_HEIGHT - 470);
+
+    // ---- The floating island ----
+    const slabH = 38;
+    // Jagged tapering underside.
+    const under = [];
+    for (let x = L; x <= R; x += 30) {
+      const k = Math.abs((x - mid) / ((R - L) / 2));
+      const depth = 150 * (1 - Math.pow(k, 1.5)) + 18 + (rnd() - 0.5) * 26;
+      under.push([x, GROUND_Y + slabH + depth]);
+    }
+    c.beginPath();
+    c.moveTo(L, GROUND_Y + slabH - 2);
+    for (const [x, y] of under) c.lineTo(x, y);
+    c.lineTo(R, GROUND_Y + slabH - 2);
+    c.closePath();
+    const rock = c.createLinearGradient(0, GROUND_Y + slabH, 0, CANVAS_HEIGHT);
+    rock.addColorStop(0, '#3a2f57');
+    rock.addColorStop(1, '#171029');
+    c.fillStyle = rock;
+    c.fill();
+    c.strokeStyle = 'rgba(0,0,0,0.35)';
+    c.lineWidth = 2;
+    c.stroke();
+    // Cracks and lit crystals in the rock.
+    c.strokeStyle = 'rgba(10,5,25,0.55)';
+    c.lineWidth = 1.5;
+    for (let i = 0; i < 16; i++) {
+      const x = L + 40 + rnd() * (R - L - 80);
+      let y = GROUND_Y + slabH + 4;
+      c.beginPath();
+      c.moveTo(x, y);
+      for (let s = 0; s < 4; s++) {
+        y += 8 + rnd() * 16;
+        c.lineTo(x + (rnd() - 0.5) * 22, y);
+      }
+      c.stroke();
+    }
+    for (let i = 0; i < 9; i++) {
+      const k = 0.15 + rnd() * 0.7;
+      const x = L + k * (R - L);
+      const kk = Math.abs((x - mid) / ((R - L) / 2));
+      const y = GROUND_Y + slabH + 12 + rnd() * 90 * (1 - Math.pow(kk, 1.5));
+      const gl = c.createRadialGradient(x, y, 0, x, y, 20);
+      gl.addColorStop(0, 'rgba(190,150,255,0.85)');
+      gl.addColorStop(1, 'rgba(190,150,255,0)');
+      c.fillStyle = gl;
+      c.fillRect(x - 20, y - 20, 40, 40);
+      c.fillStyle = '#e6d4ff';
+      c.beginPath();
+      c.moveTo(x, y - 6); c.lineTo(x + 3.5, y); c.lineTo(x, y + 6); c.lineTo(x - 3.5, y);
+      c.closePath();
+      c.fill();
+    }
+
+    // Front stone face: staggered blocks with bevelled highlights.
+    const face = c.createLinearGradient(0, GROUND_Y, 0, GROUND_Y + slabH);
+    face.addColorStop(0, '#6b5f8f');
+    face.addColorStop(1, '#40365f');
+    c.fillStyle = face;
+    c.fillRect(L, GROUND_Y, R - L, slabH);
+    c.strokeStyle = 'rgba(15,8,35,0.5)';
+    c.lineWidth = 1.5;
+    const rows = [GROUND_Y + 6, GROUND_Y + 22];
+    c.beginPath();
+    c.moveTo(L, rows[1]);
+    c.lineTo(R, rows[1]);
+    c.stroke();
+    for (let r = 0; r < 2; r++) {
+      const top = r === 0 ? GROUND_Y + 6 : rows[1];
+      const bot = r === 0 ? rows[1] : GROUND_Y + slabH;
+      for (let x = L + (r ? 30 : 0); x < R; x += 60) {
+        c.beginPath();
+        c.moveTo(x, top);
+        c.lineTo(x, bot);
+        c.stroke();
+        c.fillStyle = 'rgba(255,255,255,0.06)';
+        c.fillRect(x + 2, top + 1, 56, 2);
+      }
+    }
+    // Top surface: bright lip plus a darker walking strip below it.
+    c.fillStyle = '#b3a5d9';
+    c.fillRect(L, GROUND_Y, R - L, 4);
+    c.fillStyle = '#8a7cae';
+    c.fillRect(L, GROUND_Y + 4, R - L, 3);
+    // Carved centre emblem.
+    c.strokeStyle = 'rgba(190,170,255,0.32)';
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(mid, GROUND_Y + 10); c.lineTo(mid + 14, GROUND_Y + 22); c.lineTo(mid, GROUND_Y + 34); c.lineTo(mid - 14, GROUND_Y + 22);
+    c.closePath();
+    c.stroke();
+    // Corner posts with the old cliff-cap look.
+    c.fillStyle = '#a596cc';
+    c.fillRect(L - 5, GROUND_Y, 5, slabH + 6);
+    c.fillRect(R, GROUND_Y, 5, slabH + 6);
+
+    return cv;
+  }
+
+  function drawStage(ctx) {
+    if (!stageCache) stageCache = buildStageCache();
+    ctx.drawImage(stageCache, 0, 0);
+    const now = performance.now() / 1000;
+    const L = STAGE_LEFT_EDGE, R = STAGE_RIGHT_EDGE;
+
+    // Twinkling stars.
+    for (const s of twinkleStars) {
+      const a = s.a * (0.45 + 0.55 * Math.sin(now * s.sp + s.ph));
+      ctx.fillStyle = `rgba(255,248,255,${Math.max(0, a)})`;
       ctx.beginPath();
-      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // The pit on either side of the platform (just more sky/void showing through)
-    ctx.fillStyle = '#1a1025';
-    ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+    // Two slow-sweeping searchlight beams from beyond the top corners,
+    // crossing over the fighting area.
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const side of [-1, 1]) {
+      const ox = side < 0 ? 40 : CANVAS_WIDTH - 40;
+      const tx = CANVAS_WIDTH / 2 + side * (150 + Math.sin(now * 0.45 + side) * 130);
+      const spread = 70;
+      const g = ctx.createLinearGradient(ox, -20, tx, GROUND_Y);
+      g.addColorStop(0, 'rgba(255,220,255,0.16)');
+      g.addColorStop(1, 'rgba(255,200,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(ox - 8, -20);
+      ctx.lineTo(ox + 8, -20);
+      ctx.lineTo(tx + spread, GROUND_Y);
+      ctx.lineTo(tx - spread, GROUND_Y);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
 
-    // Platform
-    const platGrad = ctx.createLinearGradient(0, GROUND_Y, 0, CANVAS_HEIGHT);
-    platGrad.addColorStop(0, '#4a4063');
-    platGrad.addColorStop(1, '#241c33');
-    ctx.fillStyle = platGrad;
-    ctx.fillRect(STAGE_LEFT_EDGE, GROUND_Y, STAGE_RIGHT_EDGE - STAGE_LEFT_EDGE, CANVAS_HEIGHT - GROUND_Y);
+    // Pulsing runes along the stone face.
+    const pulse = 0.35 + 0.25 * Math.sin(now * 2);
+    ctx.fillStyle = `rgba(150,130,255,${pulse})`;
+    for (let x = L + 30; x < R; x += 60) {
+      ctx.fillRect(x - 5, GROUND_Y + 12, 10, 2);
+      ctx.fillRect(x - 1, GROUND_Y + 9, 2, 8);
+    }
+    // Glow along the lip.
+    const lip = ctx.createLinearGradient(0, GROUND_Y - 14, 0, GROUND_Y);
+    lip.addColorStop(0, 'rgba(200,170,255,0)');
+    lip.addColorStop(1, `rgba(200,170,255,${0.16 + pulse * 0.2})`);
+    ctx.fillStyle = lip;
+    ctx.fillRect(L, GROUND_Y - 14, R - L, 14);
 
-    // Top edge highlight
-    ctx.fillStyle = '#8a7cae';
-    ctx.fillRect(STAGE_LEFT_EDGE, GROUND_Y, STAGE_RIGHT_EDGE - STAGE_LEFT_EDGE, 6);
-
-    // Cliff edge caps
-    ctx.fillStyle = '#8a7cae';
-    ctx.fillRect(STAGE_LEFT_EDGE - 4, GROUND_Y, 4, 40);
-    ctx.fillRect(STAGE_RIGHT_EDGE, GROUND_Y, 4, 40);
-
-    // Center line decoration
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.setLineDash([10, 10]);
-    ctx.beginPath();
-    ctx.moveTo(CANVAS_WIDTH / 2, GROUND_Y + 10);
-    ctx.lineTo(CANVAS_WIDTH / 2, CANVAS_HEIGHT);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    // Embers drifting up off the island and out of the void.
+    for (let i = 0; i < 28; i++) {
+      const seed = i * 47.13;
+      const life = ((now * (0.05 + (i % 5) * 0.012) + seed) % 1);
+      const x = L - 120 + ((seed * 13.7) % (R - L + 240)) + Math.sin(now + seed) * 14;
+      const y = GROUND_Y + 150 - life * 420;
+      const a = Math.sin(life * Math.PI) * 0.55;
+      ctx.fillStyle = `rgba(255,190,140,${a})`;
+      ctx.beginPath();
+      ctx.arc(x, y, 1 + (i % 3) * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   const RANGED_ABILITY_TYPES = new Set(['projectileCharge', 'soundwaveProjectile', 'nuke']);

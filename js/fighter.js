@@ -771,6 +771,7 @@ class Fighter {
 
   _applyPhysics() {
     this.vy += GRAVITY * (this.character.gravityMul || 1);
+    const prevY = this.y;
     this.x += this.vx;
     this.y += this.vy;
 
@@ -780,7 +781,16 @@ class Fighter {
 
     const onStage = this.x > STAGE_LEFT_EDGE && this.x < STAGE_RIGHT_EDGE;
 
-    if (onStage && this.y >= GROUND_Y) {
+    if (onStage && this.y > GROUND_Y && prevY > GROUND_Y) {
+      // Already below the platform's top surface (walked or was knocked off
+      // the edge): the platform is a solid wall from here, not a floor.
+      // Recovering means jumping up and landing on top, never sliding back
+      // in sideways.
+      const leftSide = this.x < (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2;
+      this.x = leftSide ? STAGE_LEFT_EDGE : STAGE_RIGHT_EDGE;
+      if (leftSide ? this.vx > 0 : this.vx < 0) this.vx = 0;
+      this.grounded = false;
+    } else if (onStage && this.y >= GROUND_Y) {
       this.y = GROUND_Y;
       this.vy = 0;
       if (!this.grounded) {
