@@ -112,8 +112,7 @@
     "sam": {
       "attack": "cross-punch",
       "victory": "backflip",
-      "jump2": "front-flip",
-      "swim": "swimming"
+      "jump2": "front-flip"
     },
     "carlos": {
       "attack": "quad-punch"

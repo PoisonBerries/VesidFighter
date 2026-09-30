@@ -755,6 +755,7 @@ class Fighter {
           // Committed to the glide (no steering); it ends when it runs out of speed.
           if (Math.abs(this.vx) < swim.slide.endSpeed) this.sliding = false;
         } else if (crouchDir !== 0) {
+          if (swim && !this.facingLocked) this.facing = crouchDir; // Sam turns to swim the other way
           const roll = this.character.crouchRoll;
           this.vx = crouchDir * this.moveSpeedEff * (roll ? roll.speedMul : swim ? swim.speedMul : CROUCH_SPEED_MULTIPLIER);
           this.rolling = !!roll;

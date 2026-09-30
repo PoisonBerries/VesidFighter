@@ -246,9 +246,9 @@ const CHARACTERS = {
     // Charged jump: hold jump to crouch and build power (release to go, higher
     // the longer it was held). Held to the max it's a plasma jump: he rockets
     // up, then throws his arms out and spins straight down in a whirlwind.
-    chargeJump: { tapFrames: 9, maxFrames: 38, holdFrames: 50, maxForce: 21, plasmaForce: 27 },
+    chargeJump: { tapFrames: 9, maxFrames: 24, holdFrames: 50, maxForce: 21, plasmaForce: 27 },
     whirlwind: {
-      startAt: -1, fallSpeed: 17, steer: 3, hitEvery: 7,
+      startAt: -1, fallSpeed: 17, steer: 7, hitEvery: 7,
       width: 150, height: 120,
       damage: 5, knockback: 4, knockbackUp: 0, hitstun: 12,
       // the crash at the bottom
@@ -269,7 +269,7 @@ const CHARACTERS = {
       // Hold to charge: a tap of under chargeThreshold frames is the quick
       // shot; holding fills the charge (and fires the big blast) by
       // maxChargeFrames.
-      maxChargeFrames: 13,
+      maxChargeFrames: 5,
       chargeThreshold: 3,
       recovery: 14,
       quick: { speed: 22, width: 40, height: 22, damage: 9, knockback: 6, knockbackUp: 2, hitstun: 10 },
