@@ -5,8 +5,12 @@ const Effects = (() => {
   let particles = [];
   let shakeTime = 0;
   let shakeMagnitude = 0;
+  // Online host records sparks/shakes/resets so the guest can replay them.
+  let recording = false;
+  let events = [];
 
   function spawnHitSpark(x, y, color) {
+    if (recording) events.push(['h', Math.round(x), Math.round(y), color]);
     for (let i = 0; i < 10; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 2 + Math.random() * 5;
@@ -42,6 +46,7 @@ const Effects = (() => {
   }
 
   function shake(magnitude, frames) {
+    if (recording) events.push(['s', magnitude, frames]);
     shakeMagnitude = Math.max(shakeMagnitude, magnitude);
     shakeTime = Math.max(shakeTime, frames);
   }
@@ -80,10 +85,27 @@ const Effects = (() => {
   }
 
   function reset() {
+    if (recording) events.push(['r']);
     particles = [];
     shakeTime = 0;
     shakeMagnitude = 0;
   }
 
-  return { spawnHitSpark, spawnAuraPuff, shake, update, getShakeOffset, draw, reset };
+  function setRecording(v) { recording = v; events = []; }
+
+  function drainEvents() {
+    const out = events;
+    events = [];
+    return out;
+  }
+
+  function replayEvents(list) {
+    for (const e of list || []) {
+      if (e[0] === 'h') spawnHitSpark(e[1], e[2], e[3]);
+      else if (e[0] === 's') shake(e[1], e[2]);
+      else if (e[0] === 'r') reset();
+    }
+  }
+
+  return { setRecording, drainEvents, replayEvents, spawnHitSpark, spawnAuraPuff, shake, update, getShakeOffset, draw, reset };
 })();

@@ -7,6 +7,7 @@ const UI = (() => {
     title: document.getElementById('screen-title'),
     select: document.getElementById('screen-select'),
     customize: document.getElementById('screen-customize'),
+    online: document.getElementById('screen-online'),
     matchend: document.getElementById('screen-matchend'),
     pause: document.getElementById('pause-menu'),
   };
@@ -122,6 +123,10 @@ const UI = (() => {
       icon.addEventListener('mouseenter', () => renderPreview(slot, char.id));
       icon.addEventListener('mouseleave', () => renderPreview(slot, selected[slot]));
       icon.addEventListener('click', () => {
+        if (Net.isOnline()) {
+          if (slot !== Net.localSlot()) return;
+          Net.sendCtrl({ t: 'pick', slot, id: char.id });
+        }
         selected[slot] = char.id;
         buildCharCards(containerId, slot);
         renderPreview(slot, char.id);
@@ -131,6 +136,15 @@ const UI = (() => {
   }
 
   function openSelect() {
+    const online = Net.isOnline();
+    const local = Net.localSlot();
+    document.getElementById('p1-cards').classList.toggle('locked', online && local !== 'p1');
+    document.getElementById('p2-cards').classList.toggle('locked', online && local !== 'p2');
+    document.getElementById('btn-fight').disabled = online && !Net.isLeader();
+    document.getElementById('btn-select-customize').style.display = online ? 'none' : '';
+    document.getElementById('select-online-note').textContent = !online ? ''
+      : (Net.isLeader() ? 'Online: you are Player 1. Press Fight! when you are both ready.'
+        : 'Online: you are Player 2. Waiting for the host to start...');
     buildCharCards('p1-cards', 'p1');
     buildCharCards('p2-cards', 'p2');
     renderPreview('p1', selected.p1);
@@ -199,6 +213,15 @@ const UI = (() => {
 
   // ---- Match flow ----
   function startFight() {
+    if (Net.isOnline()) {
+      if (!Net.isLeader()) return; // P1 drives match start
+      Net.sendCtrl({ t: 'start', p1: selected.p1, p2: selected.p2 });
+      if (Net.isServer()) return; // wait for the server to echo 'start'
+    }
+    beginMatch();
+  }
+
+  function beginMatch() {
     hideAll();
     window.VF_setPaused(false);
     isPaused = false;
@@ -206,6 +229,10 @@ const UI = (() => {
   }
 
   function onMatchEnd(winnerSlot) {
+    if (Net.isHost()) Net.sendCtrl({ t: 'matchEnd', winner: winnerSlot });
+    const online = Net.isOnline();
+    document.getElementById('btn-rematch').disabled = online && !Net.isLeader();
+    document.getElementById('btn-rematch').textContent = online && !Net.isLeader() ? 'P1 picks rematch' : 'Rematch';
     const winnerChar = CHARACTERS[selected[winnerSlot]];
     document.getElementById('matchend-title').textContent =
       `${winnerChar.name} (${winnerSlot.toUpperCase()}) WINS THE MATCH!`;
@@ -232,8 +259,92 @@ const UI = (() => {
   document.getElementById('btn-fight').addEventListener('click', startFight);
 
   document.getElementById('btn-rematch').addEventListener('click', startFight);
-  document.getElementById('btn-change-chars').addEventListener('click', openSelect);
-  document.getElementById('btn-main-menu').addEventListener('click', () => show('title'));
+  document.getElementById('btn-change-chars').addEventListener('click', () => {
+    Net.sendCtrl({ t: 'select' });
+    openSelect();
+  });
+  document.getElementById('btn-main-menu').addEventListener('click', () => {
+    Net.disconnect();
+    show('title');
+  });
+
+  // ---- Online lobby ----
+  const onlineStatus = document.getElementById('online-status');
+  const joinInput = document.getElementById('join-code');
+
+  function setOnlineStatus(text, code) {
+    onlineStatus.innerHTML = '';
+    if (code) {
+      const codeEl = document.createElement('div');
+      codeEl.className = 'room-code';
+      codeEl.textContent = code;
+      onlineStatus.appendChild(codeEl);
+    }
+    onlineStatus.appendChild(document.createTextNode(text));
+  }
+
+  document.getElementById('btn-online').addEventListener('click', () => {
+    setOnlineStatus('');
+    show('online');
+  });
+  document.getElementById('btn-online-back').addEventListener('click', () => {
+    Net.disconnect();
+    show('title');
+  });
+  document.getElementById('btn-host').addEventListener('click', () => {
+    setOnlineStatus('Creating room...');
+    if (useServer()) Net.hostServer(); else Net.host();
+  });
+  const directToggle = document.getElementById('direct-toggle');
+  directToggle.parentElement.style.display = GAME_SERVER_URL ? '' : 'none';
+  function useServer() {
+    return !!GAME_SERVER_URL && !directToggle.checked;
+  }
+
+  function doJoin() {
+    const code = joinInput.value.trim();
+    if (!code) { setOnlineStatus('Enter the room code from the host.'); return; }
+    if (useServer()) Net.joinServer(code); else Net.join(code);
+  }
+  document.getElementById('btn-join').addEventListener('click', doJoin);
+  joinInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') doJoin();
+  });
+
+  Net.on('status', (s) => {
+    if (s.code) setOnlineStatus('Send this code to your opponent. Waiting for them to join...', s.code);
+    else setOnlineStatus(s.text);
+  });
+  Net.on('connected', () => {
+    Net.sendCtrl({ t: 'pick', slot: Net.localSlot(), id: selected[Net.localSlot()] });
+    openSelect();
+  });
+  Net.on('disconnected', (reason) => {
+    Game.stop();
+    isPaused = false;
+    window.VF_setPaused(false);
+    setOnlineStatus(reason);
+    show('online');
+  });
+  Net.on('ctrl', (msg) => {
+    if (!msg) return;
+    if (msg.t === 'pick' && (msg.slot === 'p1' || msg.slot === 'p2') && CHARACTERS[msg.id]) {
+      selected[msg.slot] = msg.id;
+      if (!screens.select.classList.contains('hidden')) {
+        buildCharCards(msg.slot + '-cards', msg.slot);
+        renderPreview(msg.slot, msg.id);
+      }
+    } else if (msg.t === 'start' && Net.isRemoteSim() && CHARACTERS[msg.p1] && CHARACTERS[msg.p2]) {
+      selected.p1 = msg.p1;
+      selected.p2 = msg.p2;
+      beginMatch();
+    } else if (msg.t === 'select') {
+      openSelect();
+    } else if (msg.t === 'matchEnd' && Net.isRemoteSim()) {
+      onMatchEnd(msg.winner);
+    }
+  });
 
   document.getElementById('btn-resume').addEventListener('click', togglePause);
   document.getElementById('btn-restart-match').addEventListener('click', () => {

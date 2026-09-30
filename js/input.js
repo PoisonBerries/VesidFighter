@@ -4,6 +4,9 @@
 const InputManager = (() => {
   const down = new Set();
   const pressedThisFrame = new Set();
+  // Virtual keys driven by net.js in online mode (not real keyboard codes).
+  const virtualDown = new Set();
+  const virtualPressed = new Set();
 
   const PREVENT_DEFAULT_CODES = new Set([
     'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space',
@@ -26,17 +29,23 @@ const InputManager = (() => {
   });
 
   function isDown(code) {
-    return down.has(code);
+    return down.has(code) || virtualDown.has(code);
   }
 
   function isPressed(code) {
-    return pressedThisFrame.has(code);
+    return pressedThisFrame.has(code) || virtualPressed.has(code);
+  }
+
+  function setVirtual(code, isDownNow, pressedNow) {
+    if (isDownNow) virtualDown.add(code); else virtualDown.delete(code);
+    if (pressedNow) virtualPressed.add(code); else virtualPressed.delete(code);
   }
 
   // Call once per physics tick, after all fighters have read input.
   function endFrame() {
     pressedThisFrame.clear();
+    virtualPressed.clear();
   }
 
-  return { isDown, isPressed, endFrame };
+  return { isDown, isPressed, endFrame, setVirtual };
 })();

@@ -110,8 +110,8 @@ const Game = (() => {
 
     roundTimeLeft -= dt;
 
-    p1.update(CONTROLS.p1, p2);
-    p2.update(CONTROLS.p2, p1);
+    p1.update(Net.controlsFor('p1'), p2);
+    p2.update(Net.controlsFor('p2'), p1);
     InputManager.endFrame();
 
     resolveCombat();
@@ -338,9 +338,49 @@ const Game = (() => {
     }
   }
 
+  // ---- Online sync (see net.js) ----
+  // Fields the guest must not receive: object refs and renderer-local caches.
+  const SNAPSHOT_SKIP = new Set(['character', '_controls', '_visualPose']);
+
+  function serializeFighter(f) {
+    const o = {};
+    for (const k of Object.keys(f)) {
+      if (!SNAPSHOT_SKIP.has(k)) o[k] = f[k];
+    }
+    return o;
+  }
+
+  function getSnapshot() {
+    return {
+      m: matchState, st: stateTimer, rt: roundTimeLeft, rm: roundMessage,
+      f: p1 && p2 ? [serializeFighter(p1), serializeFighter(p2)] : null,
+      pr: projectiles.map(p => Object.assign({}, p, { owner: p.owner.slot })),
+      fx: Effects.drainEvents(),
+    };
+  }
+
+  // Accepts full snapshots (P2P) or deltas (server): absent fields are unchanged.
+  function applySnapshot(s) {
+    if (s.m !== undefined) matchState = s.m;
+    if (s.st !== undefined) stateTimer = s.st;
+    if (s.rt !== undefined) roundTimeLeft = s.rt;
+    if (s.rm !== undefined) roundMessage = s.rm;
+    if (s.f && p1 && p2) {
+      Object.assign(p1, s.f[0]);
+      Object.assign(p2, s.f[1]);
+    }
+    if (s.pr) projectiles = s.pr.map(p => Object.assign(p, { owner: p.owner === 'p1' ? p1 : p2 }));
+    Effects.replayEvents(s.fx);
+  }
+
   function getState() {
     return matchState;
   }
 
-  return { startMatch, update, render, getState, spawnProjectile };
+  // Freeze the sim (e.g. opponent disconnected mid-match).
+  function stop() {
+    matchState = 'idle';
+  }
+
+  return { startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, stop };
 })();

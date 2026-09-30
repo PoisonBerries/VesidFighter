@@ -49,6 +49,12 @@ const CONTROLS = {
   },
 };
 
+// WebSocket URL of server/server.js for online play. Leave empty to fall
+// back to direct peer-to-peer connections. A ?server=wss://... query param
+// overrides it (handy for testing). This file also runs on the server,
+// where there's no `location`.
+const GAME_SERVER_URL = (typeof location !== 'undefined' && new URLSearchParams(location.search).get('server')) || 'wss://35-223-40-228.sslip.io';
+
 const ULT_METER_MAX = 100;
 const ULT_GAIN_ON_LAND_NORMAL = 7;
 const ULT_GAIN_ON_LAND_SPECIAL = 12;

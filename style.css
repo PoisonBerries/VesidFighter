@@ -479,3 +479,59 @@ button:active {
   .controls-legend { gap: 24px; }
   .customize-column { width: 100%; max-width: 460px; }
 }
+
+/* ---- Online lobby ---- */
+.online-join {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.online-join input {
+  font-size: 1.3rem;
+  padding: 10px 14px;
+  width: 170px;
+  text-align: center;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  border-radius: 8px;
+  border: 2px solid #6b3fa0;
+  background: #1a1026;
+  color: #fff;
+}
+
+.online-status {
+  min-height: 1.4em;
+  color: #ffe066;
+  font-size: 1.1rem;
+  margin: 12px auto;
+}
+
+.online-status .room-code {
+  font-size: 2rem;
+  letter-spacing: 0.25em;
+  font-weight: bold;
+  color: #fff;
+  user-select: all;
+}
+
+.roster-grid.locked .roster-icon {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+
+.direct-label {
+  display: block;
+  color: #cbb9e0;
+  font-size: 0.85rem;
+  margin: 6px auto;
+}

@@ -1,0 +1,312 @@
+// Online play over WebRTC (PeerJS). No game server: the free PeerJS cloud
+// broker is only used to introduce the two browsers, then traffic goes
+// peer-to-peer.
+//
+// Two ways to connect:
+//  - "server" mode (default when GAME_SERVER_URL is set): both players
+//    connect by WebSocket to server/server.js, which runs the simulation.
+//    Both browsers behave like a guest below: stream inputs, render
+//    snapshots. The server's snapshots are deltas, merged by applySnapshot.
+//  - direct peer-to-peer (fallback), described below.
+//
+// P2P model: host-authoritative. The host (always P1) runs the real simulation,
+// feeding it its own keyboard plus the guest's streamed inputs. Every tick
+// the host broadcasts a snapshot; the guest (always P2) just renders the
+// latest snapshot and streams its inputs back.
+//
+// Two data channels: "ctrl" (reliable -- menu/match events) and "fast"
+// (unreliable -- inputs + snapshots, where a late packet is worse than a
+// dropped one). Button presses are sent as cumulative counters so a dropped
+// packet never eats a jump/attack.
+
+const Net = (() => {
+  const ID_PREFIX = 'vesidfighter-';
+  const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const HELD = ['left', 'right', 'block'];
+  const TAPS = ['jump', 'attack', 'special', 'ultimate'];
+  const ACTIONS = HELD.concat(TAPS);
+
+  // Virtual key codes the fighters read in online mode (see InputManager).
+  const VCONTROLS = {};
+  for (const slot of ['p1', 'p2']) {
+    VCONTROLS[slot] = {};
+    for (const a of ACTIONS) VCONTROLS[slot][a] = 'V_' + slot + '_' + a;
+  }
+
+  let mode = 'offline'; // offline | host | guest | server
+  let slot = 'p1'; // our fighter in server mode
+  let ws = null;
+  let peer = null;
+  let ctrl = null;
+  let fast = null;
+  let handlers = {};
+
+  // Local input sampling
+  const localTapCounts = [0, 0, 0, 0];
+  let sendSeq = 0;
+
+  // Host: latest remote input
+  let remoteHeld = [false, false, false];
+  let remoteTapCounts = [0, 0, 0, 0];
+  const remoteTapsConsumed = [0, 0, 0, 0];
+
+  // Guest: latest snapshot seq
+  let lastSnapSeq = -1;
+
+  // WebRTC often doesn't report a closed tab, so time out on silence too.
+  const TIMEOUT_MS = 5000;
+  let lastRecvAt = 0;
+
+  function isOnline() { return mode !== 'offline'; }
+  function isHost() { return mode === 'host'; }
+  function isGuest() { return mode === 'guest'; }
+  function isServer() { return mode === 'server'; }
+  // True when someone else (P2P host or the server) runs the simulation.
+  function isRemoteSim() { return mode === 'guest' || mode === 'server'; }
+  function localSlot() {
+    if (mode === 'server') return slot;
+    return mode === 'guest' ? 'p2' : 'p1';
+  }
+  // P1 drives menu flow (Fight!, Rematch) in every online mode.
+  function isLeader() { return isOnline() && localSlot() === 'p1'; }
+
+  function controlsFor(slot) {
+    return isOnline() ? VCONTROLS[slot] : CONTROLS[slot];
+  }
+
+  function randomCode() {
+    let s = '';
+    for (let i = 0; i < 5; i++) s += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+    return s;
+  }
+
+  function emit(name, arg) {
+    if (handlers[name]) handlers[name](arg);
+  }
+
+  function on(name, fn) { handlers[name] = fn; }
+
+  function resetState() {
+    localTapCounts.fill(0);
+    remoteHeld = [false, false, false];
+    remoteTapCounts = [0, 0, 0, 0];
+    remoteTapsConsumed.fill(0);
+    lastSnapSeq = -1;
+    sendSeq = 0;
+  }
+
+  function makePeer(id) {
+    return new Peer(id, { debug: 1 });
+  }
+
+  function wireConnection(conn) {
+    if (conn.label === 'ctrl') {
+      ctrl = conn;
+      conn.on('data', (msg) => emit('ctrl', msg));
+    } else {
+      fast = conn;
+      conn.on('data', onFast);
+    }
+    conn.on('close', () => disconnect('Opponent disconnected.'));
+    conn.on('error', (e) => console.warn('conn error', e));
+    conn.on('open', maybeReady);
+  }
+
+  function maybeReady() {
+    if (ctrl && fast && ctrl.open && fast.open) {
+      resetState();
+      lastRecvAt = performance.now();
+      Effects.setRecording(isHost());
+      emit('connected');
+    }
+  }
+
+  function host() {
+    disconnect();
+    mode = 'host';
+    const code = randomCode();
+    peer = makePeer(ID_PREFIX + code);
+    peer.on('open', () => emit('status', { code, text: 'Room code: ' + code + ' -- waiting for opponent...' }));
+    peer.on('connection', (conn) => {
+      // Only one opponent per room.
+      if ((conn.label === 'ctrl' && ctrl) || (conn.label === 'fast' && fast)) {
+        conn.close();
+        return;
+      }
+      wireConnection(conn);
+    });
+    peer.on('error', onPeerError);
+  }
+
+  function join(code) {
+    disconnect();
+    mode = 'guest';
+    code = code.trim().toUpperCase();
+    peer = makePeer();
+    emit('status', { text: 'Connecting to ' + code + '...' });
+    peer.on('open', () => {
+      const target = ID_PREFIX + code;
+      wireConnection(peer.connect(target, { label: 'ctrl', reliable: true, serialization: 'json' }));
+      wireConnection(peer.connect(target, { label: 'fast', reliable: false, serialization: 'json' }));
+    });
+    peer.on('error', onPeerError);
+  }
+
+  // ---- Server mode ----
+  function serverConnect(firstMsg) {
+    disconnect();
+    mode = 'server';
+    emit('status', { text: 'Connecting to server...' });
+    let sock;
+    try {
+      sock = new WebSocket(GAME_SERVER_URL);
+    } catch (e) {
+      disconnect('Could not reach the game server.');
+      return;
+    }
+    ws = sock;
+    sock.onopen = () => sock.send(JSON.stringify(firstMsg));
+    sock.onmessage = (ev) => {
+      if (ws !== sock) return;
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      onServerMessage(msg);
+    };
+    sock.onclose = () => {
+      if (ws === sock) disconnect('Lost connection to the game server.');
+    };
+  }
+
+  function onServerMessage(msg) {
+    if (msg.t === 's') {
+      Game.applySnapshot(msg);
+    } else if (msg.t === 'room') {
+      slot = msg.slot;
+      if (slot === 'p1') {
+        emit('status', { code: msg.code, text: 'Room code: ' + msg.code + ' -- waiting for opponent...' });
+      }
+    } else if (msg.t === 'connected') {
+      resetState();
+      emit('connected');
+    } else if (msg.t === 'error') {
+      disconnect(msg.text);
+    } else if (msg.t === 'left') {
+      disconnect('Opponent disconnected.');
+    } else {
+      emit('ctrl', msg);
+    }
+  }
+
+  function hostServer() { serverConnect({ t: 'create' }); }
+  function joinServer(code) { serverConnect({ t: 'join', code: code.trim().toUpperCase() }); }
+
+  function onPeerError(err) {
+    console.warn('peer error', err);
+    let text = 'Connection error: ' + (err.type || err.message || err);
+    if (err.type === 'peer-unavailable') text = 'No room with that code.';
+    disconnect(text);
+  }
+
+  function disconnect(reason) {
+    const wasOnline = isOnline();
+    const p = peer;
+    const sock = ws;
+    peer = null; ctrl = null; fast = null; ws = null;
+    if (sock) { try { sock.close(); } catch (e) { /* ignore */ } }
+    mode = 'offline';
+    Effects.setRecording(false);
+    if (p) { try { p.destroy(); } catch (e) { /* ignore */ } }
+    if (wasOnline && reason) emit('disconnected', reason);
+  }
+
+  function sendWs(msg) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }
+
+  function sendCtrl(msg) {
+    if (ws) return sendWs(msg);
+    if (ctrl && ctrl.open) ctrl.send(msg);
+  }
+
+  function sendFast(msg) {
+    if (ws) return sendWs(msg);
+    if (fast && fast.open) fast.send(msg);
+  }
+
+  // Either key set works for the local player online.
+  function sampleLocal() {
+    const held = HELD.map(a => InputManager.isDown(CONTROLS.p1[a]) || InputManager.isDown(CONTROLS.p2[a]));
+    const taps = TAPS.map(a => InputManager.isPressed(CONTROLS.p1[a]) || InputManager.isPressed(CONTROLS.p2[a]));
+    taps.forEach((t, i) => { if (t) localTapCounts[i]++; });
+    return { held, taps };
+  }
+
+  function setVirtual(slot, held, taps) {
+    HELD.forEach((a, i) => InputManager.setVirtual(VCONTROLS[slot][a], held[i], false));
+    TAPS.forEach((a, i) => InputManager.setVirtual(VCONTROLS[slot][a], false, taps[i]));
+  }
+
+  // Called once per fixed tick on the host, before Game.update.
+  function hostPreTick() {
+    checkTimeout();
+    const local = sampleLocal();
+    setVirtual('p1', local.held, local.taps);
+
+    // One press per tick per button; extra presses queue for the next tick.
+    const remoteTaps = remoteTapCounts.map((c, i) => {
+      if (c > remoteTapsConsumed[i]) { remoteTapsConsumed[i]++; return true; }
+      return false;
+    });
+    // Special can be a hold-to-charge, so "held" for it = still pressed on guest.
+    setVirtual('p2', remoteHeld, remoteTaps);
+    InputManager.setVirtual(VCONTROLS.p2.special, !!remoteHeld.specialHeld, remoteTaps[2]);
+    InputManager.setVirtual(VCONTROLS.p1.special,
+      InputManager.isDown(CONTROLS.p1.special) || InputManager.isDown(CONTROLS.p2.special), local.taps[2]);
+  }
+
+  function hostPostTick() {
+    const snap = Game.getSnapshot();
+    snap.t = 's';
+    snap.q = ++sendSeq;
+    sendFast(snap);
+  }
+
+  // Called once per fixed tick on the guest instead of Game.update.
+  function guestTick() {
+    checkTimeout();
+    const local = sampleLocal();
+    const specialHeld = InputManager.isDown(CONTROLS.p1.special) || InputManager.isDown(CONTROLS.p2.special);
+    InputManager.endFrame();
+    sendFast({ t: 'i', h: local.held, s: specialHeld, c: localTapCounts.slice() });
+    Effects.update();
+  }
+
+  function checkTimeout() {
+    if (!ws && fast && fast.open && performance.now() - lastRecvAt > TIMEOUT_MS) {
+      disconnect('Lost connection to opponent.');
+    }
+  }
+
+  function onFast(msg) {
+    if (!msg) return;
+    lastRecvAt = performance.now();
+    if (msg.t === 'i' && isHost()) {
+      remoteHeld = msg.h.slice();
+      remoteHeld.specialHeld = msg.s;
+      // Counters only ever go up; ignore reordered stale packets.
+      for (let i = 0; i < 4; i++) remoteTapCounts[i] = Math.max(remoteTapCounts[i], msg.c[i]);
+    } else if (msg.t === 's' && isGuest()) {
+      if (msg.q <= lastSnapSeq) return;
+      lastSnapSeq = msg.q;
+      Game.applySnapshot(msg);
+    }
+  }
+
+  window.addEventListener('beforeunload', () => disconnect());
+
+  return {
+    isOnline, isHost, isGuest, isServer, isRemoteSim, isLeader, localSlot, controlsFor,
+    host, join, hostServer, joinServer, disconnect, on, sendCtrl,
+    hostPreTick, hostPostTick, guestTick,
+  };
+})();

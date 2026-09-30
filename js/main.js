@@ -23,7 +23,15 @@
     if (!paused) {
       accumulator += delta;
       while (accumulator >= FIXED_STEP) {
-        Game.update(FIXED_STEP);
+        if (Net.isRemoteSim()) {
+          Net.guestTick();
+        } else if (Net.isHost()) {
+          Net.hostPreTick();
+          Game.update(FIXED_STEP);
+          Net.hostPostTick();
+        } else {
+          Game.update(FIXED_STEP);
+        }
         accumulator -= FIXED_STEP;
       }
     }
@@ -34,7 +42,7 @@
   requestAnimationFrame(loop);
 
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && Game.getState() === 'fight') {
+    if (e.code === 'Escape' && Game.getState() === 'fight' && !Net.isOnline()) {
       UI.togglePause();
     }
   });
