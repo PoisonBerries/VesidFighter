@@ -606,6 +606,7 @@ const AbilityFX = (() => {
         case 'nuke': drawNuke(ctx, e, t); break;
         case 'soundRing': drawSoundRing(ctx, e, t); break;
         case 'shockring': drawShockRing(ctx, e, t); break;
+        case 'healburst': drawHealBurst(ctx, e, t); break;
         case 'flash': drawFlash(ctx, e, t); break;
         case 'counter': drawCounter(ctx, e, t); break;
         case 'ghost': drawGhost(ctx, e, t); break;
@@ -1316,7 +1317,185 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // ---- Passive looks (state-following, so they're on whenever the passive is) ----
+
+  function hash01(i, salt) { const x = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453; return x - Math.floor(x); }
+
+  // Rising embers/bubbles around the body: `n` particles, each on its own loop.
+  function risers(ctx, f, n, period, colour, draw) {
+    const now = performance.now(), H = f.height;
+    for (let i = 0; i < n; i++) {
+      const ph = ((now / period) + hash01(i, 1)) % 1;
+      const x = f.x + (hash01(i, 2) - 0.5) * f.width * 1.25 + Math.sin(now / 240 + i * 2.1) * 4;
+      const y = f.y - H * 0.06 - ph * H * 0.95;
+      draw(x, y, ph, i);
+    }
+  }
+
+  // Keenan, Adrenaline: a burst of gold-orange heat that cools off as the window closes.
+  function drawAdrenaline(ctx, f) {
+    const rt = f.character.retaliate;
+    if (f.sinceHit >= rt.frames) return;
+    const k = 1 - f.sinceHit / rt.frames, now = performance.now(), H = f.height;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    glow(ctx, f.x, f.y - H * 0.5, H * (0.55 + 0.08 * Math.sin(now / 70)), '#ff9f1c', 0.12 + 0.3 * k);
+    risers(ctx, f, 9, 650, '#ffd166', (x, y, ph) => {
+      ctx.globalAlpha = k * (1 - ph) * 0.9;
+      ctx.fillStyle = ph < 0.5 ? '#fff3b0' : '#ff9f1c';
+      ctx.beginPath(); ctx.arc(x, y, 3 * (1 - ph) + 0.8, 0, TAU); ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  // Artur, Toxic Rush: toxic green fumes and bubbles that thicken as he soaks up fart damage.
+  function drawToxicRush(ctx, f) {
+    const p = clamp(f.fartPower / f.character.fartPower.max, 0, 1), H = f.height;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    glow(ctx, f.x, f.y - H * 0.45, H * (0.5 + 0.2 * p), '#7ed321', 0.1 + 0.28 * p);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineWidth = 1.5;
+    risers(ctx, f, 3 + Math.round(9 * p), 1300, '#b6e86a', (x, y, ph, i) => {
+      const r = 3 + hash01(i, 3) * 5 * (0.6 + p);
+      ctx.globalAlpha = (1 - ph) * (0.35 + 0.5 * p);
+      ctx.strokeStyle = '#c5f57a';
+      ctx.fillStyle = 'rgba(126,211,33,0.25)';
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  // Carlos, Desperate Fuel: the lower his health, the hotter the thrusters burn on his back.
+  function drawDesperateFuel(ctx, f) {
+    const t = 1 - clamp(f.hp / f.maxHp, 0, 1);
+    if (t < 0.2) return;
+    const now = performance.now(), H = f.height;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    glow(ctx, f.x - f.facing * f.width * 0.25, f.y - H * 0.55, H * (0.32 + 0.25 * t), '#ff5a1f', 0.1 + 0.3 * t);
+    // Thruster flames licking out of the pack, longer and hotter the lower he is.
+    ctx.globalCompositeOperation = 'source-over';
+    for (const dx of [0.14, 0.34]) {
+      const x = f.x - f.facing * f.width * dx, y = f.y - H * 0.52;
+      const len = (16 + 42 * t) * (0.8 + 0.25 * Math.sin(now / 45 + dx * 40) + Math.random() * 0.12);
+      const g = ctx.createLinearGradient(x, y, x - f.facing * len * 0.35, y + len);
+      g.addColorStop(0, 'rgba(255,214,102,0.95)'); g.addColorStop(0.35, 'rgba(255,120,20,0.9)'); g.addColorStop(1, 'rgba(230,40,10,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(x - 5, y); ctx.quadraticCurveTo(x - f.facing * len * 0.3, y + len * 1.1, x + 5, y); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Nathan, Rubber Skin: a glossy blue sheen on the body with a glint that sweeps across.
+  function drawRubberSkin(ctx, f) {
+    const now = performance.now(), H = f.height, cx = f.x, cy = f.y - H * 0.5;
+    const rx = f.width * 0.6, ry = H * 0.54;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `rgba(130,175,255,${0.22 + 0.1 * Math.sin(now / 500)})`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU); ctx.stroke();
+    const sw = (now / 2600) % 1;
+    if (sw < 0.4) {
+      const u = sw / 0.4, a = -2.5 + u * 1.9, al = Math.sin(u * Math.PI);
+      ctx.strokeStyle = `rgba(255,255,255,${0.75 * al})`;
+      ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.ellipse(cx, cy, rx * 0.93, ry * 0.93, 0, a, a + 0.35); ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(cx, cy, rx * 0.93, ry * 0.93, 0, a + 0.5, a + 0.6); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Robert, transformed: a hot red glow with steam and embers rising off him.
+  function drawRage(ctx, f) {
+    const now = performance.now(), H = f.height;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    glow(ctx, f.x, f.y - H * 0.5, H * (0.62 + 0.05 * Math.sin(now / 110)), '#e01e1e', 0.26);
+    risers(ctx, f, 10, 900, '#ff6b4a', (x, y, ph) => {
+      ctx.globalAlpha = (1 - ph) * 0.8;
+      ctx.fillStyle = ph < 0.4 ? '#ffd0a0' : '#ff4a2a';
+      ctx.beginPath(); ctx.arc(x, y, 3.2 * (1 - ph) + 0.8, 0, TAU); ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  // Ryan, Crescendo: music notes orbit him, more of them (and a brighter glow) as the ult meter fills.
+  function drawCrescendo(ctx, f) {
+    const u = f.ultFrac, now = performance.now(), H = f.height;
+    const n = 1 + Math.floor(u * 5), cx = f.x, cy = f.y - H * 0.55;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    glow(ctx, cx, cy, H * (0.45 + 0.2 * u), '#ff5fd2', 0.06 + 0.26 * u);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.textAlign = 'center';
+    ctx.font = `bold ${Math.round(15 + 9 * u)}px serif`;
+    for (let i = 0; i < n; i++) {
+      const a = now / (1100 - 500 * u) + (i / n) * TAU;
+      const x = cx + Math.cos(a) * f.width * 0.95, y = cy + Math.sin(a) * H * 0.3 - 6;
+      ctx.globalAlpha = 0.45 + 0.45 * u;
+      ctx.fillStyle = u > 0.85 ? '#fff2a8' : '#ffb3f0';
+      ctx.fillText(i % 2 ? '\u266B' : '\u266A', x, y);
+    }
+    ctx.restore();
+  }
+
+  // John, Bounce Back: springy chevrons by his feet (one more pair every couple of hits) and an orange glow underfoot.
+  function drawBounceBack(ctx, f) {
+    const hj = f.character.hitJump, k = f.jumpStacks / hj.max, now = performance.now();
+    const pairs = Math.min(5, Math.ceil(f.jumpStacks / 2));
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    glow(ctx, f.x, f.y - 4, f.width * (0.5 + 0.5 * k), '#ff9a3c', 0.12 + 0.3 * k);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const side of [-1, 1]) {
+      for (let j = 0; j < pairs; j++) {
+        const bob = Math.sin(now / 160 + j * 0.8) * 2.5;
+        const x = f.x + side * f.width * 0.62, y = f.y - 14 - j * 10 + bob;
+        ctx.globalAlpha = 0.95 - j * 0.12;
+        ctx.strokeStyle = '#ffb347';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(x - 6, y + 4); ctx.lineTo(x, y - 3); ctx.lineTo(x + 6, y + 4); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawPassiveFX(ctx, f) {
+    const c = f.character;
+    if (f.state === 'ko') return;
+    if (c.retaliate) drawAdrenaline(ctx, f);
+    if (c.fartPower && f.fartPower > 0.01) drawToxicRush(ctx, f);
+    if (c.hover && c.hover.lowHealthBonus) drawDesperateFuel(ctx, f);
+    if (c.projectileResist) drawRubberSkin(ctx, f);
+    if (c.transform && f.transformed) drawRage(ctx, f);
+    if (c.ultCrescendo && f.ultFrac > 0.12) drawCrescendo(ctx, f);
+    if (c.hitJump && f.jumpStacks > 0) drawBounceBack(ctx, f);
+  }
+
+  // Sam, Second Wind: a little burst of rising plus-signs and droplets when an air hit heals him.
+  function drawHealBurst(ctx, e, t) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    glow(ctx, e.x, e.y - 30 * t, 40 * (1 - t * 0.4), '#3de0c4', 0.35 * (1 - t));
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 20px sans-serif';
+    for (let i = 0; i < 6; i++) {
+      const a = e.a + i * 1.05, rise = t * (40 + 30 * hash01(i, 5));
+      ctx.globalAlpha = (1 - t);
+      ctx.fillStyle = i % 2 ? '#b8fff2' : '#5df0d0';
+      if (i % 3 === 0) ctx.fillText('+', e.x + Math.cos(a) * 26, e.y - rise);
+      else { ctx.beginPath(); ctx.arc(e.x + Math.cos(a) * 22, e.y - rise, 3.2 * (1 - t) + 1, 0, TAU); ctx.fill(); }
+    }
+    ctx.restore();
+  }
+
   function drawFront(ctx, f) {
+    drawPassiveFX(ctx, f);
     if (f.character.chargeJump) drawOwenJump(ctx, f);
     if (f.character.bloodDonor && f.bloodFactor > 0.12) drawBloodAura(ctx, f);
     if (f.sliding && f.state === 'block') drawSlideFX(ctx, f);
@@ -1422,6 +1601,12 @@ const AbilityFX = (() => {
 
     if (st === 'attack' && f.downAttackActive && f.character.comboSong && crossed(prevT, t, f.attackDef.startup)) {
       add({ kind: 'shockring', dur: 560, x: f.x, y: f.y - H * 0.5, r: f.attackDef.width * 0.55, color: 'rgba(255,150,225,A)', notes: 7, a: Math.random() * TAU });
+    }
+    if (f.character.airLeech) {
+      if (m.hp !== undefined && f.hp > m.hp + 0.01 && f.state === 'attack') {
+        add({ kind: 'healburst', dur: 750, x: f.x, y: f.y - H * 0.6, a: Math.random() * TAU });
+      }
+      m.hp = f.hp;
     }
     if (st === 'whirlwind' && a.landing && !m.landed) {
       m.landed = true;
