@@ -318,6 +318,8 @@ class Fighter {
     this.downAttackActive = !!this.character.downAttack && !this.grounded && !!this._controls && InputManager.isDown(this._controls.block);
     this.airAttackActive = !this.upAttackActive && !this.downAttackActive && !this.grounded && !!this.character.airAttack;
     if (this.grounded) this.vx = 0; // in the air, keep the momentum
+    const slam = this.downAttackActive && this.character.downAttack.slamSpeed;
+    if (slam) { this.vy = Math.max(this.vy, slam); this.vx += this.facing * this.character.downAttack.slamVx; }
   }
 
   startSpecial() {
@@ -559,13 +561,14 @@ class Fighter {
     // Picked up by Robert: carried around by him (he positions us), no input, no physics.
     if (this.state === 'grabbed') {
       this.vx = 0; this.vy = 0;
-      if (opponent.state !== 'grabslam') this.state = 'fall';
+      if (opponent.state !== 'grabslam' && opponent.state !== 'grabbeat') this.state = 'fall';
       return;
     }
 
     this.rolling = false; // set again below while a crouch-roll is in progress
     if (this.state !== 'block') this.sliding = false; // a slide only lasts while crouched
     if (this.state === 'grabslam') this._updateGrabSlam(opponent);
+    if (this.state === 'grabbeat') this._updateGrabBeat(opponent);
     if (this.state !== 'ko' && this.state !== 'victory') {
       this._handleInput(controls, opponent);
     }
@@ -724,7 +727,7 @@ class Fighter {
     // Shortly after a hit you can still slip away, even once you're back on your feet.
     const ps = this.character.phaseStep;
     if (ps && comboEdge && this.sinceHit <= ps.window && this.state !== 'phasestep' && this._tryPhaseStep(opponent)) return;
-    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep' || this.state === 'hoverdive' || this.state === 'whirlwind' || this.state === 'grabslam') {
+    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep' || this.state === 'hoverdive' || this.state === 'whirlwind' || this.state === 'grabslam' || this.state === 'grabbeat') {
       return; // committed to the action until it finishes
     }
 
@@ -880,19 +883,56 @@ class Fighter {
 
   // Robert's third unanswered hit: pick the opponent up and slam them down.
   startGrabSlam(opp) {
-    const gs = this.character.grabSlam;
-    this.state = 'grabslam';
+    const gs = this.character.grabSlam || this.character.grabBeat;
+    this.state = this.character.grabBeat ? 'grabbeat' : 'grabslam';
     this.actionTimer = 0;
     this.attackHasHit = true;
     this.facingLocked = true;
     this.comboHits = 0;
     this.vx = 0;
     this.blocking = false;
-    this._ability = { slammed: false };
+    this._ability = { slammed: false, released: false };
     opp.state = 'grabbed';
     opp.vx = 0; opp.vy = 0;
     opp.blocking = false; opp.stunFrames = 0; opp.launched = false; opp.facingLocked = false;
     opp.actionTimer = 0;
+  }
+
+  // John: carried over the shoulder and pummelled, then they wriggle free.
+  _updateGrabBeat(opp) {
+    const gb = this.character.grabBeat, a = this._ability, t = this.actionTimer;
+    this.vx = 0;
+    if (!a.released) {
+      if (opp.state !== 'grabbed') { a.released = true; }
+      else {
+        const u = Math.min(1, t / gb.lift), e = u * u * (3 - 2 * u);
+        opp.x = this.x + this.facing * (30 - 46 * e);
+        opp.y = this.y - this.height * 0.5 * e;
+        const k = t - gb.lift;
+        if (k > 0 && k % gb.every === 0 && k / gb.every <= gb.punches) {
+          opp.hp = Math.max(0, opp.hp - gb.damage * this.damageMultiplier * Game.fightDamageMul());
+          opp.hitFlashTimer = 6;
+          opp.noteImpact('hit', this.facing, 0.7);
+          opp._maybeTransform();
+          if (typeof Effects !== 'undefined') {
+            Effects.shake(5, 6);
+            Effects.spawnHitSpark(opp.x, opp.y - this.height * 0.4, '#ffe066');
+          }
+        }
+        if (k >= gb.punches * gb.every) {
+          a.released = true;
+          a.releasedAt = t;
+          opp.state = 'hitstun';
+          opp.stunFrames = 16;
+          opp.actionTimer = 0;
+          opp.vx = this.facing * 9;
+          opp.vy = -5;
+          opp.grounded = false;
+        }
+      }
+      return;
+    }
+    if (t > (a.releasedAt || t) + gb.recovery) { this.state = 'idle'; this.facingLocked = false; }
   }
 
   _updateGrabSlam(opp) {
@@ -976,6 +1016,7 @@ class Fighter {
     if (this.state === 'attack') {
       const a = this.attackDef;
       const total = a.startup + a.active + a.recovery;
+      if (this.downAttackActive && a.slamSpeed && !this.grounded && !this.attackHasHit) this.vy = Math.max(this.vy, a.slamSpeed); // stays on the way down
       this._decelerate();
       if (this.actionTimer > total) this._endAbility();
     }
@@ -1318,7 +1359,7 @@ class Fighter {
       case 'special': return 'special';
       case 'ultimate': return 'special';
       case 'phasestep': return 'special';
-      case 'hoverdive': case 'whirlwind': case 'grabslam': return 'special';
+      case 'hoverdive': case 'whirlwind': case 'grabslam': case 'grabbeat': return 'special';
       case 'jumpcharge': return 'block';
       case 'grabbed': return 'hit';
       case 'hitstun': return 'hit';

@@ -207,7 +207,7 @@ const Game = (() => {
     if (isSpecial && stats.type === 'counterDodge' && attacker._ability.phase === 'counter') {
       dmg = stats.counterDamage; kb = stats.counterKnockback; kbUp = stats.counterKnockbackUp; hs = stats.counterHitstun;
     }
-    if (stats.type === 'dive' && stats.knockdownOnHit) {
+    if (stats.knockdownOnHit) {
       knockdown = true;
       knockdownDuration = stats.knockdownDuration;
     }
@@ -234,7 +234,7 @@ const Game = (() => {
     } else if (result === 'blocked') {
       attacker.comboHits = 0;
     }
-    const gs = attacker.character.grabSlam;
+    const gs = attacker.character.grabSlam || attacker.character.grabBeat;
     if (result === 'hit' && gs && attacker.comboHits >= gs.hits && attacker.state === 'attack' && attacker.grounded && defender.y >= GROUND_Y - 1 && defender.hp > 0) {
       attacker.startGrabSlam(defender);
     }

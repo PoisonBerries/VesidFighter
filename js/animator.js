@@ -426,7 +426,12 @@ const Animator = (() => {
         const ext = attackExt(t, atk);
         const heavy = id === 'john' || id === 'robert';
         T.rate = 60;
-        if (fighter.downAttackActive) { // Ryan: arms flung wide, belting out the shockwave
+        if (fighter.downAttackActive && id === 'john') { // elbow first, dropping like a stone
+          T.lean = 48; T.crouch = 0.14;
+          T.arms = [P(-14, 20, -6, 1), P(28, 36, -16, 1)];
+          T.fA = F(-8, -12); T.fB = F(12, -8);
+          T.rate = 60;
+        } else if (fighter.downAttackActive) { // Ryan: arms flung wide, belting out the shockwave
           const pulse = clamp((t - atk.startup) / Math.max(1, atk.active), 0, 1);
           T.arms = [P(-40 - 8 * pulse, -26 + 10 * (1 - pulse), 0, 1), P(40 + 8 * pulse, -26 + 10 * (1 - pulse), 0, 1)];
           T.crouch = 0.1 + 0.08 * (1 - pulse); T.lean = 0;
@@ -571,6 +576,24 @@ const Animator = (() => {
         }
         T.fA = F(-18, 0); T.fB = F(16, 0);
         T.rate = 50;
+        break;
+      }
+
+      case 'grabbeat': { // John: heave them up onto the shoulder, then hammer away
+        const gb = fighter.character.grabBeat;
+        if (t <= gb.lift) {
+          const lift = clamp(t / gb.lift, 0, 1);
+          T.arms = [P(lerp(-14, -20, lift), lerp(10, -20, lift), -4, 1), P(lerp(16, 6, lift), lerp(10, -26, lift), 4, 1)];
+          T.crouch = lerp(0.22, 0.04, lift); T.lean = lerp(14, -6, lift);
+        } else {
+          const ph = ((t - gb.lift) % gb.every) / gb.every, e = Math.sin(ph * Math.PI);
+          const right = Math.floor((t - gb.lift) / gb.every) % 2 === 0;
+          const out = P(lerp(14, R, e), lerp(12, -4, e), 0, 1), back = P(-8, 14, -6, 1);
+          T.arms = right ? [back, out] : [out, back];
+          T.lean = 6 + 10 * e; T.crouch = 0.08;
+        }
+        T.fA = F(-16, 0); T.fB = F(14, 0);
+        T.rate = 60;
         break;
       }
 

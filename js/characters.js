@@ -459,7 +459,7 @@ const CHARACTERS = {
     title: 'Thicc Silb',
     color: '#a0522d',
     accent: '#ffd8a8',
-    sizeScale: 1.25,
+    sizeScale: 1.1,
     moveSpeed: 5.0,
     jumpForce: 13,
     maxJumps: 1,
@@ -469,6 +469,18 @@ const CHARACTERS = {
       startup: 9, active: 5, recovery: 18,
       knockback: 11, knockbackUp: 4, hitstun: 19,
     },
+    // Midair down + F: drops like a stone elbow-first. Whoever it catches is
+    // knocked down, leaving time for a free hit.
+    downAttack: {
+      damage: 12, offset: 4, width: 76, height: 84, high: false,
+      startup: 4, active: 14, recovery: 14,
+      slamSpeed: 15, slamVx: 2,
+      knockback: 3, knockbackUp: 0, hitstun: 20,
+      knockdownOnHit: true, knockdownDuration: 62,
+    },
+    // Three unanswered hits: he hoists the opponent over his shoulder and
+    // hammers them until they wriggle free.
+    grabBeat: { hits: 3, window: 100, lift: 14, punches: 6, every: 10, damage: 4, recovery: 12 },
     special: {
       type: 'lunge',
       name: 'Momentum Roll',

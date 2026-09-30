@@ -241,6 +241,19 @@ const UI = (() => {
           <div class="ability-desc">Land ${char.grabSlam.hits} hits in a row without being blocked or hit back and he lifts the opponent and slams them down, stunning them for a second.</div>
         </div>
       </div>` : ''}
+      ${char.grabBeat ? `<div class="ability-row">
+        <div>
+          <div class="ability-name">Carry &amp; Pummel</div>
+          <div class="ability-desc">Land ${char.grabBeat.hits} hits in a row without being blocked or hit back and he throws the opponent over his shoulder and pounds them until they wriggle loose.</div>
+        </div>
+      </div>` : ''}
+      ${char.downAttack && char.downAttack.knockdownOnHit ? `<div class="ability-row">
+        ${controls ? `<span class="key-badge">${keyLabel(controls.block)}+${keyLabel(controls.attack)}</span>` : ''}
+        <div>
+          <div class="ability-name">Elbow Drop</div>
+          <div class="ability-desc">In the air, down + attack: drop elbow-first onto your opponent, knocking them down for a free hit.</div>
+        </div>
+      </div>` : ''}
       ${char.comboSong ? `<div class="ability-row">
         ${controls ? `<span class="key-badge">${keyLabel(controls.block)}+${keyLabel(controls.attack)}</span>` : ''}
         <div>

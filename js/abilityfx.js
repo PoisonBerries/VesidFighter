@@ -1420,7 +1420,7 @@ const AbilityFX = (() => {
       }
     }
 
-    if (st === 'attack' && f.downAttackActive && crossed(prevT, t, f.attackDef.startup)) {
+    if (st === 'attack' && f.downAttackActive && f.character.comboSong && crossed(prevT, t, f.attackDef.startup)) {
       add({ kind: 'shockring', dur: 560, x: f.x, y: f.y - H * 0.5, r: f.attackDef.width * 0.55, color: 'rgba(255,150,225,A)', notes: 7, a: Math.random() * TAU });
     }
     if (st === 'whirlwind' && a.landing && !m.landed) {

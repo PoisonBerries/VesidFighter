@@ -58,7 +58,7 @@ function assertFinite(obj, where) {
   }
 }
 
-const STATES = new Set(['idle', 'walk', 'jump', 'fall', 'block', 'attack', 'special', 'ultimate', 'hitstun', 'knockdown', 'ko', 'victory', 'phasestep', 'hoverdive', 'jumpcharge', 'whirlwind', 'grabslam', 'grabbed']);
+const STATES = new Set(['idle', 'walk', 'jump', 'fall', 'block', 'attack', 'special', 'ultimate', 'hitstun', 'knockdown', 'ko', 'victory', 'phasestep', 'hoverdive', 'jumpcharge', 'whirlwind', 'grabslam', 'grabbeat', 'grabbed']);
 
 test('every character can fight every other character for a whole match without errors', () => {
   const sim = createSim();
@@ -443,7 +443,7 @@ test('crouching (holding block on the ground) shrinks the hurtbox in proportion 
   }
   const small = new sim.Fighter('p1', sim.CHARACTERS.keenan, 500, 1), big = new sim.Fighter('p1', sim.CHARACTERS.john, 500, 1);
   for (const f of [small, big]) { f.grounded = true; f.state = 'block'; }
-  assert.ok(small.getHurtbox().h < big.getHurtbox().h * 0.7, 'a small fighter crouches much lower than a big one');
+  assert.ok(small.getHurtbox().h < big.getHurtbox().h * 0.8, 'a small fighter crouches much lower than a big one');
 });
 
 test('punches are high attacks: you duck a punch from anyone about your height or taller; nobody ducks a standing hit', () => {
@@ -503,8 +503,8 @@ test('through the real game loop: a crouch ducks a high punch, but Artur\'s kick
   assert.ok(Math.abs(lost - kick.damage * kick.blockDamageMul) < 0.01, `expected ~${kick.damage * kick.blockDamageMul} damage through the guard, got ${lost}`);
   assert.ok(lost > kick.damage * 0.15 * 2.5, 'much more than a normal block lets through');
   // A blocked high punch that does connect (same-height target, crouch too high to duck) still only chips 15%.
-  const hit = sim.CHARACTERS.carlos.attack;
-  const chip = crouchBlockedDamage(sim, 'carlos', 'john', true);
+  const hit = sim.CHARACTERS.ryan.attack;
+  const chip = crouchBlockedDamage(sim, 'ryan', 'nathan', true);
   assert.ok(Math.abs(chip - hit.damage * 0.15) < 0.01, `a normal block should let 15% through, got ${chip} of ${hit.damage}`);
 });
 
@@ -1500,4 +1500,44 @@ test('Ryan: air F is a backflip kick, air down + F is a stunning shockwave, hits
     step(sim2, 10);
   }
   assert.deepStrictEqual(notes, ['note:0', 'note:1', 'note:2']);
+});
+
+// ---- John: elbow drop, carry & pummel ----
+test('John: midair down + F is an elbow drop that knocks the opponent down; on the ground down is a crouch', () => {
+  const sim = createSim();
+  const C = startGame(sim, 'john', 'keenan', 400, 470);
+  const p1 = () => sim.Game.world().p1, p2 = () => sim.Game.world().p2;
+  setKey(sim, C.jump, false, true); step(sim, 1); setKey(sim, C.jump, false, false);
+  step(sim, 4);
+  assert.strictEqual(p1().grounded, false);
+  setKey(sim, C.block, true, false);
+  sim.InputManager.setVirtual(C.attack, false, true); step(sim, 1); sim.InputManager.setVirtual(C.attack, false, false);
+  assert.strictEqual(p1().downAttackActive, true);
+  const hp0 = p2().hp;
+  let downed = false;
+  for (let i = 0; i < 40 && !downed; i++) { step(sim, 1); downed = p2().state === 'knockdown'; }
+  setKey(sim, C.block, false, false);
+  assert.ok(downed, 'knocked down');
+  assert.ok(p2().hp < hp0, 'and hurt');
+  assert.ok(p2().knockdownTimer >= 55, 'long enough for a free hit');
+});
+
+test('John: three unanswered hits carry the opponent over the shoulder and pummel them until they break loose', () => {
+  const sim = createSim();
+  startGame(sim, 'john', 'keenan', 500, 560);
+  const p2 = () => sim.Game.world().p2;
+  for (let hit = 1; hit <= 3; hit++) {
+    sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 560, state: 'idle', stunFrames: 0 }] });
+    punch(sim, 'p1');
+    step(sim, 14);
+    if (hit < 3) { assert.notStrictEqual(sim.Game.world().p1.state, 'grabbeat'); step(sim, 25); }
+  }
+  assert.strictEqual(sim.Game.world().p1.state, 'grabbeat');
+  assert.strictEqual(p2().state, 'grabbed');
+  const hp0 = p2().hp;
+  let held = 0;
+  for (let i = 0; i < 200 && p2().state === 'grabbed'; i++) { step(sim, 1); held++; }
+  assert.ok(held > 40, `held for a while (${held} frames)`);
+  assert.ok(hp0 - p2().hp >= 3 * 4, 'pummelled several times');
+  assert.strictEqual(p2().state, 'hitstun', 'then breaks loose');
 });

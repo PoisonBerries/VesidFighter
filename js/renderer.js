@@ -1010,7 +1010,7 @@ const Renderer = (() => {
     robert: { headScale: 0.95, stanceMul: 1.2, staggerMul: 0.6, shoulders: 1.22, waist: 1.02, armBulk: 1.4, legBulk: 1.2 }, // stocky, muscular
     ryan: { dancer: true, staggerMul: 1.3, shoulders: 0.95, waist: 0.85, armBulk: 0.85, legBulk: 0.92 },
     sam: { headScale: 1.05, stanceMul: 0.85, staggerMul: 1.3, shoulders: 1.1, waist: 0.84, armBulk: 1.0, legBulk: 0.95 }, // swimmer's V-shape
-    john: { headScale: 0.9, stanceMul: 1.3, staggerMul: 0.5, shoulders: 1.3, waist: 1.38, hips: 1.3, armBulk: 1.3, legBulk: 1.3 }, // broad, thicc frame
+    john: { headScale: 0.9, stanceMul: 1.3, staggerMul: 0.5, shoulders: 1.3, waist: 1.4, hips: 1.75, armBulk: 1.3, legBulk: 1.35 }, // broad, thicc frame with a big rear
   };
   function getBodyProfile(id) {
     const custom = typeof BodyArt !== 'undefined' && BodyArt.build ? BodyArt.build(id) : null;
