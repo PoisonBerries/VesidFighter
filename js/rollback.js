@@ -20,7 +20,7 @@ const Rollback = (() => {
                            // relay is TCP: inputs arrive late in bursts; freezing until they
                            // land stutters your own fighter, a longer rollback doesn't)
   const HISTORY = 180;     // frames of saved states/inputs kept (for rollbacks and desync repair)
-  const ADV_SMOOTH = 0.02; // how fast the clock-gap estimate follows new samples
+  const ADV_SMOOTH = 0.03; // how fast the clock-gap estimate follows new samples
   const ADV_WAIT = 2;      // pause a frame once we're this far ahead (smoothed)
   const MAX_PACKET = 120;  // max frames of our input per packet
   const SYNC_EVERY = 60;   // frames between desync checks
@@ -232,7 +232,12 @@ const Rollback = (() => {
     // (they started later, or their machine runs slower), pause one frame now
     // and then so neither side has to rollback much more than the other.
     advDiff += (frame - remoteFrame - remoteAdvantage - advDiff) * ADV_SMOOTH;
-    if (advDiff > ADV_WAIT && frame - lastWaitFrame > 30) {
+    // The further ahead, the more often: a machine that can't hold 60 fps
+    // would otherwise let the faster one run a full rollback window ahead, and
+    // then every packet it gets rewinds that whole window (it sees the
+    // opponent jerk about and stall while the slow side looks fine).
+    const waitEvery = Math.max(2, Math.min(30, Math.round(24 / Math.max(1, advDiff))));
+    if (advDiff > ADV_WAIT && frame - lastWaitFrame > waitEvery) {
       lastWaitFrame = frame;
       advDiff -= 2; // waiting a frame closes the gap by ~2 (we fall 1 behind, they gain 1)
       stats.waits++;

@@ -156,3 +156,29 @@ test('rollback rides out TCP-style hiccups without freezing', () => {
     assert.ok(s.waits < 15, `clock sync paused ${s.waits} times`);
   }
 });
+
+// Every character (all the new states: grabs, charged jumps, whirlwinds...)
+// must stay deterministic through rollbacks, or one player sees the game snap.
+const ALL = ['keenan', 'artur', 'carlos', 'nathan', 'owen', 'robert', 'ryan', 'sam', 'john'];
+for (let i = 0; i < ALL.length; i++) {
+  test(`rollback stays in sync for ${ALL[i]} vs ${ALL[(i + 4) % ALL.length]}`, () => {
+    const r = runMatch({ latency: 4, jitter: 2, loss: 0.03, startGap: 3, seed: 100 + i, chars: [ALL[i], ALL[(i + 4) % ALL.length]], ticks: 3000 });
+    assert.strictEqual(r.peerHashes[0], r.refHash, 'player 1 diverged from the reference game');
+    assert.strictEqual(r.peerHashes[1], r.refHash, 'player 2 diverged from the reference game');
+    for (const s of r.stats) assert.strictEqual(s.desyncs, 0, 'desync repair was needed');
+  });
+}
+
+
+// One machine that can't hold 60 fps (heavy graphics, slow laptop, background
+// tab) must slow the other one down to match. Otherwise the fast player runs a
+// whole rollback window ahead: every packet rewinds ~20 frames, so they see the
+// opponent jerk and stall while the slow player's game looks perfectly smooth.
+test('a slower opponent machine does not make the faster player stall and rewind constantly', () => {
+  const r = runMatch({ latency: 4, jitter: 1, loss: 0, startGap: 2, seed: 7, chars: ['keenan', 'owen'], ticks: 3600, p2Drops: 0.15 });
+  assert.strictEqual(r.peerHashes[0], r.refHash);
+  assert.strictEqual(r.peerHashes[1], r.refHash);
+  const [fast] = r.stats;
+  assert.ok(fast.stalls < 20, `the fast player froze ${fast.stalls} times waiting`);
+  assert.ok(fast.rolledFrames / Math.max(1, fast.rollbacks) < 12, `rewinds ${(fast.rolledFrames / fast.rollbacks).toFixed(1)} frames per correction on average`);
+});
