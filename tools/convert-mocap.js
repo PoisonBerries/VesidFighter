@@ -43,8 +43,13 @@ function loadMoves() {
 //   hp:   [far, near] hip joint offsets from the hips' centre (screen frame)
 //   leg:  [far, near] [thigh angle, shin angle]
 //   ft:   [far, near] foot angle change from standing (0 = flat, + = toe down)
-//   lo:   height of the lower foot above the floor (0 = standing on it)
+//   lo:   height of the body's lowest joint above the floor (0 = standing;
+//         for a body lying down it's whichever part is on the floor)
 // "far"/"near" are by depth: the near limbs are drawn in front.
+// Joints that can be the one touching the floor (not the toes: the floor is
+// measured from the ankles).
+const LOW_JOINTS = ['lFoot', 'rFoot', 'lKnee', 'rKnee', 'hips', 'lHand', 'rHand', 'lElbow', 'rElbow', 'head', 'lShoulder', 'rShoulder'];
+
 function toPose(raw, opts) {
   const flip = opts.flip ? -1 : 1;
   const yaw = ((opts.view || 0) * Math.PI) / 180;
@@ -82,7 +87,7 @@ function toPose(raw, opts) {
       const x = (q[0] - neck[0]) / height, y = (q[1] - neck[1]) / height;
       return [round(x * cos + y * sin), round(-x * sin + y * cos)]; // undo the lean
     };
-    const feetY = [f.lFoot[1], f.rFoot[1]];
+    const lowJoint = Math.min(...LOW_JOINTS.map((j) => f[j][1]));
     return {
       root: [round((hips[0] - hip0[0]) / height), round((f.hips[1] - ankleFloor) / height)],
       c: round(Math.max(0, Math.min(0.5, 1 - (f.hips[1] - ankleFloor) / legLen))),
@@ -93,7 +98,7 @@ function toPose(raw, opts) {
       hp: legSides.map((s) => { const q = P(f[s + 'Hip']); return [round((q[0] - hips[0]) / height), round((q[1] - hips[1]) / height)]; }),
       leg: legSides.map((s) => [ang(f[s + 'Hip'], f[s + 'Knee']), ang(f[s + 'Knee'], f[s + 'Foot'])]),
       ft: legSides.map((s, i) => round(ang(f[s + 'Foot'], f[s + 'Toe']) - footRest[i])),
-      lo: round((Math.min(...feetY) - ankleFloor) / height),
+      lo: round((lowJoint - ankleFloor) / height),
     };
   });
 
@@ -148,7 +153,22 @@ function toPose(raw, opts) {
   // Not really a strike (a victory pose, a fall): play the whole clip.
   if ((window[1] - window[0]) * raw.length < 8) window = [0, 1];
   if (Array.isArray(opts.window)) { window[0] = opts.window[0]; window[1] = opts.window[1]; }
-  return { frames, impact: round(impact / n), strike, limb: strikeLimb, window };
+  // Airborne stretch (both feet clearly off the floor): a jump clip's air
+  // time is matched to the game's jump.
+  const up = raw.map((f) => Math.min(f.lFoot[1], f.rFoot[1]) - ankleFloor > height * 0.04);
+  const a0 = up.indexOf(true), a1 = up.lastIndexOf(true);
+  const air = a0 >= 0 && a1 - a0 >= 3 ? [round(a0 / n), round(a1 / n)] : null;
+  // Where the motion comes to rest (a fall ending on the floor): the last
+  // frame where anything is still moving noticeably.
+  const motion = raw.map((f, i) => (i === 0 ? 0 : LOW_JOINTS.reduce((sum, j) => sum + dist(f[j], raw[i - 1][j]), 0) / height));
+  const mPeak = Math.max(...motion) || 1;
+  let settle = motion.length - 1;
+  while (settle > 1 && motion[settle] < mPeak * 0.08) settle--;
+  // For falls: the first moment the hips are down at their lowest.
+  const hipH = raw.map((f) => f.hips[1]);
+  const hipMin = Math.min(...hipH);
+  const down = hipH.findIndex((h) => h <= hipMin + height * 0.03);
+  return { frames, impact: round(impact / n), strike, limb: strikeLimb, window, air, settle: round(Math.min(n, settle + 1) / n), down: round(down / n) };
 }
 
 (async () => {
@@ -182,10 +202,11 @@ function toPose(raw, opts) {
         const url = '/' + clip.fbx.split('/').map(encodeURIComponent).join('/');
         const raw = await page.evaluate((u, fps) => window.sampleClip(u, fps), url, FPS);
         const pose = toPose(raw.frames, clip);
-        const out = { version: 2, source: clip.fbx, fps: FPS, duration: round(raw.duration), impact: pose.impact, strike: pose.strike, limb: pose.limb, window: pose.window, frames: pose.frames };
+        const out = { version: 2, source: clip.fbx, fps: FPS, duration: round(raw.duration), impact: pose.impact, strike: pose.strike, limb: pose.limb, window: pose.window, air: pose.air, settle: pose.settle, down: pose.down, frames: pose.frames };
         fs.writeFileSync(path.join(ANIM_DIR, id + '.json'), JSON.stringify(out));
         const secs = ((pose.window[1] - pose.window[0]) * raw.duration).toFixed(2);
-        console.log(`  ${id}: ${pose.frames.length} frames, action ${Math.round(pose.window[0] * 100)}-${Math.round(pose.window[1] * 100)}% (${secs}s), ${pose.strike} strike at ${Math.round(pose.impact * 100)}%`);
+        const airTxt = pose.air ? `, airborne ${Math.round(pose.air[0] * 100)}-${Math.round(pose.air[1] * 100)}%` : '';
+        console.log(`  ${id}: ${pose.frames.length} frames, action ${Math.round(pose.window[0] * 100)}-${Math.round(pose.window[1] * 100)}% (${secs}s), ${pose.strike} strike at ${Math.round(pose.impact * 100)}%${airTxt}, settles ${Math.round(pose.settle * 100)}%`);
       }
     } finally {
       await browser.close();

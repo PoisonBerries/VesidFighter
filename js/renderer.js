@@ -1385,7 +1385,9 @@ const Renderer = (() => {
     const crouchScale = 1 - rig.crouch;
     const floatY = rig.float;
     const hipY = -H * d.hipFrac * crouchScale + floatY;
-    const shoulderY = -H * d.shoulderFrac * crouchScale + floatY;
+    // Mocap clips move the hips but keep the torso its full length (a body
+    // lying down isn't squashed); the built-in animation shrinks both.
+    const shoulderY = rig.rigidTorso ? hipY - H * (d.shoulderFrac - d.hipFrac) : -H * d.shoulderFrac * crouchScale + floatY;
     const J = torsoJoints(d, shoulderY, hipY);
 
     // A mocap move can shift the body forward and back (a step into a punch).

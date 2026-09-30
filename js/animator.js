@@ -515,8 +515,69 @@ const Animator = (() => {
       return clip ? { clip, u: Mocap.debug.time } : null;
     }
 
+    // Jumps: the clip's airborne stretch follows the jump (by vertical
+    // speed); the landing plays out at real speed afterwards. A double jump
+    // can have its own clip ('jump2', e.g. a flip).
+    const airborne = st === 'jump' || st === 'fall';
+    if (airborne) {
+      const single = Mocap.clipFor(id, 'jump');
+      let two = fighter.jumpsUsed >= 2 && Mocap.clipFor(id, 'jump2');
+      // Once the flip is done, fall like any other jump.
+      if (two && single && an.mocap && (an.mocap.flipped || (an.mocap.clip === two && now - an.mocap.since > 650))) two = null;
+      const clip = two || single;
+      if (clip) {
+        let mo2 = an.mocap;
+        if (!mo2 || mo2.clip !== clip) {
+          const flipped = !two && fighter.jumpsUsed >= 2 && !!Mocap.clipFor(id, 'jump2');
+          mo2 = an.mocap = { state: two ? 'jump2' : 'jump', clip, since: now, landedAt: null, flipped };
+        }
+        const [a0, a1] = clip.air || clip.window || [0, 1];
+        let u;
+        if (two) u = a0 + (a1 - a0) * Math.min(1, (now - mo2.since) / 600); // the flip in ~0.6s
+        else {
+          const v0 = fighter.character.jumpForce || 15;
+          u = a0 + (a1 - a0) * clamp((fighter.vy + v0) / (2 * v0), 0, 1);
+        }
+        return { clip, u, oneShot: true, air: true };
+      }
+    }
+    // Landing after a jump clip.
+    if (an.mocap && (an.mocap.state === 'jump' || an.mocap.state === 'jump2') && settling) {
+      const mo2 = an.mocap, c = mo2.clip;
+      if (mo2.landedAt === null) mo2.landedAt = now;
+      // (at real speed, but never longer than ~0.3s -- landings shouldn't feel sluggish)
+      const a1 = c.air ? c.air[1] : (c.window || [0, 1])[1], end = (c.window || [0, 1])[1];
+      const rate = Math.max(1 / Math.max(0.1, c.duration), (end - a1) / 0.3);
+      const u = a1 + ((now - mo2.landedAt) / 1000) * rate;
+      if (u < end) return { clip: c, u, oneShot: true, from: c.air ? c.air[1] : null };
+      an.mocap = null;
+    }
+
+    // Getting up after a knockdown: the fall played backwards, quickly.
+    if (an.mocap && an.mocap.state === 'knockdown' && st !== 'knockdown' && st !== 'ko' && st !== 'hitstun') {
+      const mo2 = an.mocap, c = mo2.clip;
+      if (!mo2.upAt) mo2.upAt = now;
+      const ws = (c.window || [0, 1])[0], down = Math.max(ws, c.down || 1);
+      const k = (now - mo2.upAt) / 450;
+      if (k < 1) return { clip: c, u: down - (down - ws) * easeInOut(k), oneShot: true, fall: true };
+      an.mocap = null;
+    }
+
+    // Knockdowns and KOs: the fall (compressed to fit), then lie there.
+    if (st === 'knockdown' || st === 'ko') {
+      const clip = Mocap.clipFor(id, st);
+      if (!clip) { an.mocap = null; return null; }
+      let mo2 = an.mocap;
+      if (!mo2 || mo2.state !== st || mo2.clip !== clip) mo2 = an.mocap = { state: st, clip, since: now };
+      const ws = (clip.window || [0, 1])[0], down = Math.max(ws, clip.down || 1);
+      const fallMs = Math.min(700, (down - ws) * clip.duration * 1000);
+      const u = ws + (down - ws) * Math.min(1, (now - mo2.since) / Math.max(1, fallMs));
+      return { clip, u, oneShot: true, fall: true };
+    }
+
     // A one-shot (attack, hit reaction) that's still playing out.
     let mo = an.mocap;
+    if (mo && (mo.state === 'knockdown' || mo.state === 'ko' || mo.state === 'jump' || mo.state === 'jump2')) an.mocap = mo = null;
     if (st === 'attack' || st === 'hitstun') {
       const clip = Mocap.clipFor(id, st);
       if (!clip) { an.mocap = null; return null; }
@@ -557,8 +618,16 @@ const Animator = (() => {
     }
     switch (st) {
       case 'block': return { clip, u: clip.impact };
-      case 'walk': return { clip, u: ((fighter.walkCycle / TAU) % 1 + 1) % 1 };
-      case 'idle': case 'victory': return { clip, u: ((now / 1000) / Math.max(0.1, clip.duration)) % 1 };
+      case 'walk': {
+        // Advance by distance walked, one clip loop per the clip's own
+        // stride, so the feet don't slide; backwards plays it in reverse.
+        const r0 = clip.frames[0].root[0], r1 = clip.frames[clip.frames.length - 1].root[0];
+        const stride = Math.abs(r1 - r0) * fighter.height;
+        let u = stride > fighter.height * 0.2 ? ((an.walkDist || 0) / stride) % 1 : ((fighter.walkCycle / TAU) % 1 + 1) % 1;
+        if (fighter.vx * fighter.facing < 0) u = 1 - u;
+        return { clip, u, loop: true };
+      }
+      case 'idle': case 'victory': return { clip, u: ((now / 1000) / Math.max(0.1, clip.duration)) % 1, loop: true };
       default: return null;
     }
   }
@@ -612,9 +681,9 @@ const Animator = (() => {
       return;
     }
 
-    // Legs from the hips, then stand the lower foot on the floor (or at the
-    // height the clip has it) by raising or lowering the hips.
-    const hipY0 = -H * d.hipFrac * (1 - f.c);
+    // Legs from the hips.
+    // (in the air the game's jump is the height: the clip's own rise is dropped)
+    const hipY0 = -H * d.hipFrac * (1 - (pb.air ? Math.max(0, f.c) : f.c));
     // Each hip where the clip has it (in a fighting stance the far leg is
     // often the forward one).
     const hips = f.hp ? f.hp.map(([x, y]) => F(x * H, hipY0 + y * H)) : [F(-H * 0.022 * d.fh, hipY0), F(H * 0.026 * d.fh, hipY0)];
@@ -625,10 +694,30 @@ const Animator = (() => {
       return { knee, ankle: F(knee.x + s2.x, knee.y + s2.y) };
     });
     const ankleLift = d.leg.foot * 0.45;
-    const lowY = Math.max(legs[0].ankle.y, legs[1].ankle.y);
-    const shift = (-(f.lo * H) - ankleLift) - lowY;
+
+    // Stand on the floor with whatever is lowest -- feet when standing, the
+    // back and head when lying down -- at the height the clip has it. The
+    // torso keeps its length in clips (only the hips move), so this is
+    // worked out on the whole body. In the air the game's jump decides.
+    let shift = 0;
+    if (fighter.grounded && !pb.air) {
+      const torsoLen = H * (d.shoulderFrac - d.hipFrac);
+      const rot = (x, y, a) => F(x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a));
+      const nb = rot(0, -torsoLen, L);
+      const neckBase = F(nb.x, hipY0 + nb.y);
+      const pad = H * 0.035;
+      const low = [legs[0].ankle.y + ankleLift, legs[1].ankle.y + ankleLift, legs[0].knee.y + pad, legs[1].knee.y + pad, hipY0 + pad];
+      for (const [x, y] of f.sh) {
+        const q = rot(x * H, y * H, L);
+        low.push(neckBase.y + q.y + pad);
+      }
+      const headTop = rot(0, -(d.neckLen + d.headH), L + (f.hd * Math.PI) / 180);
+      low.push(neckBase.y + headTop.y * 0.5 + pad, neckBase.y + headTop.y + pad);
+      shift = -(f.lo * H) - Math.max(...low);
+    }
     const hipY = hipY0 + shift;
-    T.crouch = clamp(1 - -hipY / (H * d.hipFrac), -0.3, 0.6);
+    T.crouch = clamp(1 - -hipY / (H * d.hipFrac), -0.3, 0.95);
+    T.rigidTorso = true;
     T.fA = F(legs[0].ankle.x, legs[0].ankle.y + shift + ankleLift);
     T.fB = F(legs[1].ankle.x, legs[1].ankle.y + shift + ankleLift);
     T.knees = legs.map((l) => F(l.knee.x, l.knee.y + shift));
@@ -636,14 +725,24 @@ const Animator = (() => {
     T.footAngles = f.ft;
     T.footPoint = 0;
 
-    // Body lean, head tilt, and the body's own shift forward and back
-    // within the move (measured from where the move started).
+    // Breathing, and the body's own shift forward and back within the move
+    // (from where the move started; loops have their overall travel removed
+    // -- the game moves the fighter).
     T.crouch += breathe * 0.008;
-    const x0 = Mocap.sample(pb.clip, (pb.clip.window || [0, 1])[0]).root[0];
+    const fr = pb.clip.frames;
+    // Jumps travel with the game too, and landings start from where it put
+    // the fighter down. Falls keep only some of theirs, so getting up doesn't
+    // slide the body back a long way.
+    const x0 = pb.air ? f.root[0]
+      : pb.loop ? fr[0].root[0] + (fr[fr.length - 1].root[0] - fr[0].root[0]) * pb.u
+      : Mocap.sample(pb.clip, pb.from != null ? pb.from : (pb.clip.window || [0, 1])[0]).root[0];
     T.rootX = (f.root[0] - x0) * H;
+    if (pb.fall) T.rootX = clamp(T.rootX, -H * 0.35, H * 0.35);
     T.float = 0;
     T.rot = 0;
     T.spin = 0;
+    T.topple = false;
+    T.tumble = 0;
     T.clip = true;
     T.rate = 55;
     // Motion smear behind the striking hand/foot, from the wind-up to the hit.
@@ -786,6 +885,7 @@ const Animator = (() => {
     const st = fighter.state;
     const down = st === 'knockdown' || st === 'ko';
     const airborne = !fighter.grounded;
+    an.walkDist = (an.walkDist || 0) + Math.abs(fighter.vx) * f; // drives walk clips
 
     // Event detection from state transitions (render-side only).
     if (!settle && an.prevAirborne && !airborne && fighter.y >= GROUND_Y - 1) {
@@ -896,6 +996,7 @@ const Animator = (() => {
       fA: c.fA, fB: c.fB, arms: c.arms, knees: c.knees,
       sh: c.sh, hips: c.hips, footAngles: c.footAngles, rootX: c.rootX, headTilt: c.headTilt,
       smear: T.smear || null,
+      rigidTorso: !!T.rigidTorso,
       rot, ball: c.ball, pv, wh: wh + an.hop + c.lift, lift: an.hop + c.lift,
       stretch: an.str,
     };

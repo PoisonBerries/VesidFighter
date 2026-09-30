@@ -27,7 +27,8 @@ window.sampleClip = async (url, fps = 30) => {
   const n = Math.max(2, Math.round(clip.duration * fps));
   const v = new THREE.Vector3();
   for (let i = 0; i < n; i++) {
-    mixer.setTime((i / (n - 1)) * clip.duration);
+    // (just short of the end: at the exact end the looping action wraps to 0)
+    mixer.setTime(Math.min((i / (n - 1)) * clip.duration, clip.duration - 1e-3));
     obj.updateMatrixWorld(true);
     const f = {};
     for (const [k, b] of Object.entries(J)) { if (b) { b.getWorldPosition(v); f[k] = [v.x, v.y, v.z]; } }

@@ -326,7 +326,7 @@
 
     const canvas = document.getElementById('preview');
     const ctx = canvas.getContext('2d');
-    const POSES = [['idle', 120, 'Idle'], ['walk', 120, 'Walk'], ['attack', 60, 'Punch'], ['block', 80, 'Block'], ['jump', 70, 'Jump'], ['hitstun', 45, 'Hit'], ['victory', 150, 'Victory']];
+    const POSES = [['idle', 120, 'Idle'], ['walk', 120, 'Walk'], ['attack', 60, 'Punch'], ['block', 80, 'Block'], ['jump', 70, 'Jump'], ['hitstun', 45, 'Hit'], ['knockdown', 120, 'Knockdown'], ['victory', 150, 'Victory']];
     let fighter = null, forId = null, poseIdx = 0, poseT = 0;
     let paused = false;
     let only = null;   // a pose index to loop/hold, or null to cycle through all
@@ -352,6 +352,7 @@
       if (f.state === 'walk') { f.walkCycle = 1.2; f.vx = 4; }
       if (f.state === 'jump') { f.vy = -3; f.y = GROUND_Y - f.height * 0.4; }
       if (f.state === 'hitstun') f.actionTimer = 6;
+      if (f.state === 'knockdown') { f.actionTimer = 40; f.knockdownTimer = 90; }
       snapNext = true;
     }
 
@@ -415,7 +416,7 @@
     }
 
     // ---- Animations: try motion-capture clips on this character ----
-    const MOVE_NAMES = { stance: 'Stance', attack: 'Punch', hitstun: 'Hit', idle: 'Idle', walk: 'Walk', block: 'Block', victory: 'Victory' };
+    const MOVE_NAMES = { stance: 'Stance', attack: 'Punch', hitstun: 'Hit', idle: 'Idle', walk: 'Walk', jump: 'Jump', jump2: 'Double jump', block: 'Block', knockdown: 'Knockdown', ko: 'KO', victory: 'Victory' };
     const tried = {}; // state -> '' (as assigned) | 'builtin' | clip id
     function renderAnims() {
       const root = document.getElementById('anims');

@@ -77,6 +77,12 @@
     },
     "jumpkick": {
       "fbx": "fbx/jumpKick.fbx"
+    },
+    "walk-crouching-forward-right": {
+      "fbx": "fbx/Walk Crouching Forward Right.fbx"
+    },
+    "walk-forward": {
+      "fbx": "fbx/Walk Forward.fbx"
     }
   },
   "use": {
@@ -85,7 +91,11 @@
       "idle": "ready-idle",
       "attack": "jab",
       "hitstun": "receive-uppercut-to-the-face",
-      "victory": "victory"
+      "victory": "victory",
+      "walk": "walk-forward",
+      "jump": "jump",
+      "knockdown": "dying2",
+      "ko": "dying"
     },
     "keenan": {
       "attack": "jab"
@@ -98,7 +108,8 @@
     },
     "sam": {
       "attack": "cross-punch",
-      "victory": "backflip"
+      "victory": "backflip",
+      "jump2": "front-flip"
     },
     "carlos": {
       "attack": "quad-punch"
@@ -110,11 +121,13 @@
       "attack": "hook-punch"
     },
     "artur": {
-      "attack": "pontera-kick"
+      "attack": "pontera-kick",
+      "jump2": "front-flip"
     },
     "ryan": {
       "attack": "roundhouse-kick",
-      "victory": "joyful-jump"
+      "victory": "joyful-jump",
+      "jump": "jumping"
     }
   }
 }

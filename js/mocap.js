@@ -15,7 +15,8 @@ const Mocap = (() => {
   // Moves a clip can be assigned to, and how its time is driven (animator.js).
   // 'stance': the guard a fighter stands and walks in when there's no
   // idle/walk clip (the start of that clip's action is used).
-  const STATES = ['stance', 'attack', 'hitstun', 'idle', 'walk', 'block', 'victory'];
+  // 'jump2': a double jump (e.g. a flip). 'knockdown'/'ko': a fall, then lying there.
+  const STATES = ['stance', 'attack', 'hitstun', 'idle', 'walk', 'jump', 'jump2', 'block', 'knockdown', 'ko', 'victory'];
 
   if (typeof fetch !== 'undefined') {
     fetch('assets/anim/moves.json')
