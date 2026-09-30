@@ -200,7 +200,7 @@ button:active {
   color: #ffd166;
   text-shadow: 2px 2px 0 #e63946;
   padding: 0 6px;
-  margin-top: 130px;
+  margin-top: 0;
 }
 
 /* ---- Fighter preview: the big "who's selected" panel ---- */
@@ -208,10 +208,17 @@ button:active {
   --fp-color: #3d2a55;
   --fp-glow: rgba(0, 0, 0, 0);
   width: 100%;
+  /* A fixed size, so what the hovered fighter's text happens to be never
+     changes the layout (the roster above stays exactly where it is): the
+     header is fixed and only the ability list scrolls if it runs long. */
+  height: clamp(330px, calc(100vh - 425px), 400px); /* fixed for a given window, never by content */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: linear-gradient(160deg, #241633, #150d20);
   border: 2px solid var(--fp-color);
   border-radius: 16px;
-  padding: 16px 18px;
+  padding: 12px 18px;
   box-shadow: 0 0 20px var(--fp-glow);
   animation: previewGlow 2.6s ease-in-out infinite;
   transition: border-color 0.2s ease;
@@ -224,9 +231,9 @@ button:active {
 
 .preview-avatar-wrap {
   position: relative;
-  width: 92px;
-  height: 92px;
-  margin: 0 auto 10px auto;
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 8px auto;
   border-radius: 50%;
   overflow: hidden;
   border: 3px solid var(--fp-color);
@@ -301,6 +308,28 @@ button:active {
   transition: width 0.25s ease;
 }
 
+.preview-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.preview-id { flex: 0 0 132px; min-width: 0; }
+.preview-head .stat-bars { flex: 1 1 auto; min-width: 0; margin: 0; }
+.preview-id .preview-name { font-size: 1.25rem; overflow-wrap: anywhere; }
+.preview-id .preview-title { font-size: 0.66rem; line-height: 1.25; }
+
+/* The scrolling part of the preview: everything under the stat bars. */
+.preview-abilities {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 4px;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
 .ability-row {
   display: flex;
   gap: 9px;
@@ -340,10 +369,10 @@ button:active {
 /* ---- Roster grid: small selectable icons beneath the preview ---- */
 .roster-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 6px;
   width: 100%;
-  max-width: 280px;
+  max-width: 400px;
 }
 
 .roster-icon {
@@ -398,6 +427,37 @@ button:active {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.roster-icon.random .roster-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 30% 28%, #6b3fa0, #241633);
+  border-style: dashed;
+  border-color: #8a7cae;
+}
+
+.random-mark {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: #ffd166;
+  line-height: 1;
+}
+
+.roster-icon.random.spinning .roster-avatar {
+  border-style: solid;
+  border-color: #ffd166;
+  box-shadow: 0 0 14px rgba(255, 209, 102, 0.7);
+}
+
+.roster-icon.random.spinning .random-mark {
+  animation: randomSpin 0.4s linear infinite;
+}
+
+@keyframes randomSpin {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(360deg); }
 }
 
 .roster-name {
@@ -519,6 +579,9 @@ button:disabled {
 
 
 /* Vs CPU difficulty picker (character select, above the CPU's side) */
+/* CPU difficulty, ball and balance options share one line on the select screen. */
+.select-options { display: flex; flex-wrap: wrap; gap: 6px 28px; justify-content: center; align-items: center; margin: 4px 0 8px; }
+.select-options .cpu-difficulty { margin: 0; }
 .cpu-difficulty { display: flex; gap: 6px; justify-content: center; align-items: center; margin: 12px 0 0; }
 .cpu-difficulty.hidden { display: none; }
 .cpu-difficulty button { padding: 4px 12px; font-size: 13px; opacity: 0.6; }

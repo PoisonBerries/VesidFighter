@@ -107,6 +107,43 @@ test('a transforming character wears its transformed head (Robert), everyone els
   await page.close();
 });
 
+test('character select: the layout never shifts as fighters are hovered, everything fits a laptop screen, and Random picks a fighter', async () => {
+  const { page, errors } = await openGame();
+  await page.setViewport({ width: 1366, height: 768 });
+  await page.click('#btn-start');
+  await page.waitForSelector('#screen-select:not(.hidden)');
+  const layout = () => page.evaluate(() => {
+    const tiles = [...document.querySelectorAll('#p1-cards .roster-icon, #p2-cards .roster-icon')].map((e) => `${e.offsetTop}:${e.offsetLeft}:${e.offsetWidth}`);
+    const box = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return `${Math.round(b.top)}:${Math.round(b.height)}`; };
+    const fight = document.getElementById('btn-fight').getBoundingClientRect();
+    return { tiles: tiles.join(','), preview1: box('#preview-p1'), preview2: box('#preview-p2'), fight: Math.round(fight.top) + ':' + Math.round(fight.bottom) };
+  });
+  const icons = await page.$$('#p1-cards .roster-icon');
+  assert.strictEqual(icons.length, 10, 'nine fighters plus the Random tile');
+  const first = await layout();
+  const seen = new Set();
+  for (const icon of icons) {
+    await icon.hover();
+    seen.add(await page.evaluate(() => document.querySelector('#preview-p1 .preview-name').textContent));
+    assert.deepStrictEqual(await layout(), first, 'hovering a fighter must not move the tiles, the preview or the Fight button');
+  }
+  assert.ok(seen.size >= 9, 'each hover shows that fighter');
+  const bottom = Number(first.fight.split(':')[1]);
+  assert.ok(bottom <= 768, `the Fight button should be on screen at 1366x768 (bottom edge ${bottom})`);
+  // Random.
+  const nameOf = () => page.evaluate(() => document.querySelector('#p1-cards .roster-icon.selected:not(.random) .roster-name').textContent);
+  const before = await nameOf();
+  await page.click('#p1-cards .roster-icon.random');
+  await page.waitForFunction(() => !document.querySelector('#p1-cards .roster-icon.random.spinning'), { timeout: 5000 });
+  const after = await nameOf();
+  assert.notStrictEqual(after, before, 'Random should land on a different fighter');
+  assert.strictEqual(await page.evaluate(() => document.querySelector('#preview-p1 .preview-name').textContent), after, 'and show them');
+  assert.strictEqual(await page.evaluate(() => document.querySelectorAll('#p1-cards .roster-icon.selected').length), 1);
+  assert.deepStrictEqual(await layout(), first, 'and nothing moved');
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+});
+
 test('quitting to the main menu stops the match: nothing keeps running behind the title screen', async () => {
   for (const mode of ['#btn-start', '#btn-cpu']) {
     const { page, errors } = await openGame();

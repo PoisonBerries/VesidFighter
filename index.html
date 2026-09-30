@@ -65,32 +65,34 @@
       <div class="select-arena">
         <div class="select-side">
           <div class="side-label p1-label">Player 1</div>
-          <div class="fighter-preview" id="preview-p1"></div>
           <div class="roster-grid" id="p1-cards"></div>
+          <div class="fighter-preview" id="preview-p1"></div>
         </div>
         <div class="vs-divider">VS</div>
         <div class="select-side">
           <div class="side-label p2-label">Player 2</div>
-          <div class="fighter-preview" id="preview-p2"></div>
           <div class="roster-grid" id="p2-cards"></div>
+          <div class="fighter-preview" id="preview-p2"></div>
         </div>
       </div>
-      <div id="cpu-difficulty" class="cpu-difficulty hidden">
-        <span>CPU difficulty:</span>
-        <button data-level="easy">Easy</button>
-        <button data-level="normal">Normal</button>
-        <button data-level="hard">Hard</button>
-      </div>
-      <div id="ball-mode" class="cpu-difficulty">
-        <span>Ball:</span>
-        <button data-ball="rally" title="One ball all round. Hit it at your opponent -- every hit makes it hotter. Block just as it arrives to catch it.">Rally</button>
-        <button data-ball="bomb" title="A bomb you volley at each other until it explodes.">Bomb</button>
-        <button data-ball="off">Off</button>
-      </div>
-      <div id="balance-mode" class="cpu-difficulty">
-        <span>Balance mode:</span>
-        <button data-balance="on" title="No KOs: your health bar is your balance. Every hit makes you easier to knock off -- you only lose by falling off the stage.">On</button>
-        <button data-balance="off">Off</button>
+      <div class="select-options">
+        <div id="cpu-difficulty" class="cpu-difficulty hidden">
+          <span>CPU difficulty:</span>
+          <button data-level="easy">Easy</button>
+          <button data-level="normal">Normal</button>
+          <button data-level="hard">Hard</button>
+        </div>
+        <div id="ball-mode" class="cpu-difficulty">
+          <span>Ball:</span>
+          <button data-ball="rally" title="One ball all round. Hit it at your opponent -- every hit makes it hotter. Block just as it arrives to catch it.">Rally</button>
+          <button data-ball="bomb" title="A bomb you volley at each other until it explodes.">Bomb</button>
+          <button data-ball="off">Off</button>
+        </div>
+        <div id="balance-mode" class="cpu-difficulty">
+          <span>Balance mode:</span>
+          <button data-balance="on" title="No KOs: your health bar is your balance. Every hit makes you easier to knock off -- you only lose by falling off the stage.">On</button>
+          <button data-balance="off">Off</button>
+        </div>
       </div>
       <div class="row-buttons">
         <button id="btn-select-back">Back</button>

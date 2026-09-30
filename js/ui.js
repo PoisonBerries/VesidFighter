@@ -91,12 +91,15 @@ const UI = (() => {
     const sizePct = statPct(char.sizeScale, STAT_RANGES.size);
 
     container.innerHTML = `
+      <div class="preview-head">
+      <div class="preview-id">
       <div class="preview-avatar-wrap">
         <div class="avatar-fallback" style="background:${color}"></div>
         <img class="avatar-img" src="assets/heads/${char.id}.png" alt="" onerror="this.style.display='none'">
       </div>
       <div class="preview-name">${char.name}</div>
       <div class="preview-title">${char.title}</div>
+      </div>
       <div class="stat-bars">
         <div class="stat-row"><span class="stat-label">Speed</span><div class="stat-bar"><div class="stat-fill" style="width:${speedPct}%"></div></div></div>
         <div class="stat-row"><span class="stat-label">Atk Spd</span><div class="stat-bar"><div class="stat-fill" style="width:${atkSpeedPct}%"></div></div></div>
@@ -104,6 +107,8 @@ const UI = (() => {
         <div class="stat-row"><span class="stat-label">HP</span><div class="stat-bar"><div class="stat-fill" style="width:${hpPct}%"></div></div></div>
         <div class="stat-row"><span class="stat-label">Size</span><div class="stat-bar"><div class="stat-fill" style="width:${sizePct}%"></div></div></div>
       </div>
+      </div>
+      <div class="preview-abilities">
       <div class="ability-row">
         ${controls ? `<span class="key-badge">${keyLabel(controls.special)}</span>` : ''}
         <div>
@@ -152,7 +157,35 @@ const UI = (() => {
           <div class="ability-desc">Stretching punches with a very long reach; the body wobbles, squashes and rebounds when hit.</div>
         </div>
       </div>` : ''}
+      </div>
     `;
+  }
+
+  // The Random tile: shuffles the preview through the roster for a moment,
+  // then lands on a fighter (never the one already selected). Online, only
+  // the final choice is sent, so the opponent just sees the pick change once.
+  const spinning = { p1: false, p2: false };
+  function pickRandom(slot, containerId) {
+    if (Net.isOnline() && slot !== Net.localSlot()) return;
+    if (spinning[slot]) return;
+    spinning[slot] = true;
+    const others = CHARACTER_LIST.filter((c) => c.id !== selected[slot]);
+    const final = others[Math.floor(Math.random() * others.length)].id;
+    const order = CHARACTER_LIST.map((c) => c.id);
+    let at = Math.floor(Math.random() * order.length), ticks = 0;
+    const total = 12 + Math.floor(Math.random() * 4);
+    const tile = document.querySelector('#' + containerId + ' .random');
+    if (tile) tile.classList.add('spinning');
+    const timer = setInterval(() => {
+      ticks++;
+      if (ticks < total) { renderPreview(slot, order[at++ % order.length]); return; }
+      clearInterval(timer);
+      spinning[slot] = false;
+      if (Net.isOnline()) Net.sendCtrl({ t: 'pick', slot, id: final });
+      selected[slot] = final;
+      buildCharCards(containerId, slot);
+      refreshSelect();
+    }, 70);
   }
 
   function buildCharCards(containerId, slot) {
@@ -181,6 +214,15 @@ const UI = (() => {
       });
       container.appendChild(icon);
     }
+    const random = document.createElement('div');
+    random.className = 'roster-icon random' + (spinning[slot] ? ' selected spinning' : '');
+    random.title = 'Pick a random fighter';
+    random.innerHTML = `
+      <div class="roster-avatar"><span class="random-mark">?</span></div>
+      <div class="roster-name">Random</div>
+    `;
+    random.addEventListener('click', () => pickRandom(slot, containerId));
+    container.appendChild(random);
   }
 
   function openSelect() {
