@@ -25,10 +25,8 @@
       while (accumulator >= FIXED_STEP) {
         if (Net.isRemoteSim()) {
           Net.guestTick();
-        } else if (Net.isHost()) {
-          Net.hostPreTick();
-          Game.update(FIXED_STEP);
-          Net.hostPostTick();
+        } else if (Net.isRollback()) {
+          Net.rollbackTick();
         } else {
           Game.update(FIXED_STEP);
         }

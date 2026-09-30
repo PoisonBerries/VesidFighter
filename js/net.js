@@ -9,15 +9,14 @@
 //    snapshots. The server's snapshots are deltas, merged by applySnapshot.
 //  - direct peer-to-peer (fallback), described below.
 //
-// P2P model: host-authoritative. The host (always P1) runs the real simulation,
-// feeding it its own keyboard plus the guest's streamed inputs. Every tick
-// the host broadcasts a snapshot; the guest (always P2) just renders the
-// latest snapshot and streams its inputs back.
+// P2P model: rollback netcode (js/rollback.js). Both players run the
+// simulation and exchange only their inputs, so your own fighter responds
+// instantly; a late opponent input is predicted and corrected by rewinding.
+// The host (P1) still leads the menus (Fight!, Rematch).
 //
 // Two data channels: "ctrl" (reliable -- menu/match events) and "fast"
-// (unreliable -- inputs + snapshots, where a late packet is worse than a
-// dropped one). Button presses are sent as cumulative counters so a dropped
-// packet never eats a jump/attack.
+// (unreliable -- rollback inputs, where a late packet is worse than a
+// dropped one; rollback resends anything unconfirmed).
 
 const Net = (() => {
   const ID_PREFIX = 'vesidfighter-';
@@ -45,13 +44,10 @@ const Net = (() => {
   const localTapCounts = [0, 0, 0, 0];
   let sendSeq = 0;
 
-  // Host: latest remote input
-  let remoteHeld = [false, false, false];
-  let remoteTapCounts = [0, 0, 0, 0];
-  const remoteTapsConsumed = [0, 0, 0, 0];
-
-  // Guest: latest snapshot seq
-  let lastSnapSeq = -1;
+  // Rollback (direct P2P): match ids so both sides agree which match an
+  // input belongs to, and a keepalive while no match is running.
+  let matchSeq = 0;
+  let lastHeartbeat = 0;
 
   // WebRTC often doesn't report a closed tab, so time out on silence too.
   const TIMEOUT_MS = 5000;
@@ -61,8 +57,10 @@ const Net = (() => {
   function isHost() { return mode === 'host'; }
   function isGuest() { return mode === 'guest'; }
   function isServer() { return mode === 'server'; }
-  // True when someone else (P2P host or the server) runs the simulation.
-  function isRemoteSim() { return mode === 'guest' || mode === 'server'; }
+  // True when the server runs the simulation and we just render it.
+  function isRemoteSim() { return mode === 'server'; }
+  // Direct P2P: both players simulate, with rollback.
+  function isRollback() { return mode === 'host' || mode === 'guest'; }
   function localSlot() {
     if (mode === 'server') return slot;
     return mode === 'guest' ? 'p2' : 'p1';
@@ -97,11 +95,8 @@ const Net = (() => {
 
   function resetState() {
     localTapCounts.fill(0);
-    remoteHeld = [false, false, false];
-    remoteTapCounts = [0, 0, 0, 0];
-    remoteTapsConsumed.fill(0);
-    lastSnapSeq = -1;
     sendSeq = 0;
+    Rollback.end();
   }
 
   function makePeer(id) {
@@ -125,7 +120,7 @@ const Net = (() => {
     if (ctrl && fast && ctrl.open && fast.open) {
       resetState();
       lastRecvAt = performance.now();
-      Effects.setRecording(isHost());
+      Effects.setRecording(false); // both sides simulate, so no effect events to forward
       emit('connected');
     }
   }
@@ -223,6 +218,7 @@ const Net = (() => {
     peer = null; ctrl = null; fast = null; ws = null;
     if (sock) { try { sock.close(); } catch (e) { /* ignore */ } }
     mode = 'offline';
+    Rollback.end();
     Effects.setRecording(false);
     if (p) { try { p.destroy(); } catch (e) { /* ignore */ } }
     if (wasOnline && reason) emit('disconnected', reason);
@@ -257,31 +253,25 @@ const Net = (() => {
     TAPS.forEach((a, i) => InputManager.setVirtual(VCONTROLS[slot][a], false, taps[i]));
   }
 
-  // Called once per fixed tick on the host, before Game.update.
-  function hostPreTick() {
-    checkTimeout();
-    const local = sampleLocal();
-    setVirtual('p1', local.held, local.taps);
-    InputManager.setVirtual(VCONTROLS.p1.jump, local.jumpHeld, local.taps[0]);
+  // ---- Rollback (direct P2P) ----
+  // Player 1 numbers each match; player 2 uses the number from 'start'.
+  function newMatchId() { return ++matchSeq; }
 
-    // One press per tick per button; extra presses queue for the next tick.
-    const remoteTaps = remoteTapCounts.map((c, i) => {
-      if (c > remoteTapsConsumed[i]) { remoteTapsConsumed[i]++; return true; }
-      return false;
-    });
-    // Special can be a hold-to-charge, so "held" for it = still pressed on guest.
-    setVirtual('p2', remoteHeld, remoteTaps);
-    InputManager.setVirtual(VCONTROLS.p2.special, !!remoteHeld.specialHeld, remoteTaps[2]);
-    InputManager.setVirtual(VCONTROLS.p2.jump, !!remoteHeld.jumpHeld, remoteTaps[0]);
-    InputManager.setVirtual(VCONTROLS.p1.special,
-      InputManager.isDown(CONTROLS.p1.special) || InputManager.isDown(CONTROLS.p2.special), local.taps[2]);
+  function startRollback(id) {
+    matchSeq = Math.max(matchSeq, id);
+    Rollback.begin(localSlot(), id, sendFast);
   }
 
-  function hostPostTick() {
-    const snap = Game.getSnapshot();
-    snap.t = 's';
-    snap.q = ++sendSeq;
-    sendFast(snap);
+  // Called once per fixed tick in direct matches, instead of Game.update.
+  function rollbackTick() {
+    checkTimeout();
+    if (Rollback.isActive()) {
+      Rollback.tick(Rollback.inputBits());
+    } else {
+      InputManager.endFrame();
+      const now = performance.now();
+      if (now - lastHeartbeat > 250) { lastHeartbeat = now; sendFast({ t: 'hb' }); }
+    }
   }
 
   // Called once per fixed tick on the guest instead of Game.update.
@@ -303,17 +293,7 @@ const Net = (() => {
   function onFast(msg) {
     if (!msg) return;
     lastRecvAt = performance.now();
-    if (msg.t === 'i' && isHost()) {
-      remoteHeld = msg.h.slice();
-      remoteHeld.specialHeld = msg.s;
-      remoteHeld.jumpHeld = !!msg.j;
-      // Counters only ever go up; ignore reordered stale packets.
-      for (let i = 0; i < 4; i++) remoteTapCounts[i] = Math.max(remoteTapCounts[i], msg.c[i]);
-    } else if (msg.t === 's' && isGuest()) {
-      if (msg.q <= lastSnapSeq) return;
-      lastSnapSeq = msg.q;
-      Game.applySnapshot(msg);
-    }
+    if (msg.t === 'ri' || msg.t === 'rh' || msg.t === 'rs') Rollback.receive(msg);
   }
 
   window.addEventListener('beforeunload', () => disconnect());
@@ -321,6 +301,6 @@ const Net = (() => {
   return {
     isOnline, isHost, isGuest, isServer, isRemoteSim, isLeader, localSlot, controlsFor, controlLabelsFor,
     host, join, hostServer, joinServer, disconnect, on, sendCtrl,
-    hostPreTick, hostPostTick, guestTick,
+    isRollback, newMatchId, startRollback, rollbackTick, guestTick,
   };
 })();

@@ -181,21 +181,26 @@ const UI = (() => {
   function startFight() {
     if (Net.isOnline()) {
       if (!Net.isLeader()) return; // P1 drives match start
-      Net.sendCtrl({ t: 'start', p1: selected.p1, p2: selected.p2 });
+      const mid = Net.isRollback() ? Net.newMatchId() : undefined;
+      Net.sendCtrl({ t: 'start', p1: selected.p1, p2: selected.p2, mid });
       if (Net.isServer()) return; // wait for the server to echo 'start'
+      beginMatch(mid);
+      return;
     }
     beginMatch();
   }
 
-  function beginMatch() {
+  function beginMatch(matchId) {
     hideAll();
     window.VF_setPaused(false);
     isPaused = false;
     Game.startMatch(selected.p1, selected.p2, onMatchEnd);
+    // Direct matches: both sides simulate from this exact starting state.
+    if (Net.isRollback()) Net.startRollback(matchId);
   }
 
   function onMatchEnd(winnerSlot) {
-    if (Net.isHost()) Net.sendCtrl({ t: 'matchEnd', winner: winnerSlot });
+    // With rollback both players see the match end themselves.
     const online = Net.isOnline();
     document.getElementById('btn-rematch').disabled = online && !Net.isLeader();
     document.getElementById('btn-rematch').textContent = online && !Net.isLeader() ? 'P1 picks rematch' : 'Rematch';
@@ -299,10 +304,10 @@ const UI = (() => {
         buildCharCards(msg.slot + '-cards', msg.slot);
         refreshSelect();
       }
-    } else if (msg.t === 'start' && Net.isRemoteSim() && CHARACTERS[msg.p1] && CHARACTERS[msg.p2]) {
+    } else if (msg.t === 'start' && (Net.isRemoteSim() || (Net.isRollback() && !Net.isLeader())) && CHARACTERS[msg.p1] && CHARACTERS[msg.p2]) {
       selected.p1 = msg.p1;
       selected.p2 = msg.p2;
-      beginMatch();
+      beginMatch(msg.mid);
     } else if (msg.t === 'select') {
       openSelect();
     } else if (msg.t === 'matchEnd' && Net.isRemoteSim()) {

@@ -101,10 +101,13 @@ const Game = (() => {
 
     if (matchState === 'matchEnd') {
       stateTimer -= dt;
-      if (stateTimer <= 0 && onMatchEnd) {
+      if (stateTimer <= 0) {
         const winner = p1.roundsWon > p2.roundsWon ? 'p1' : 'p2';
         matchState = 'idle';
-        onMatchEnd(winner);
+        // Once per match, even if rollback netcode replays these frames.
+        const done = onMatchEnd;
+        onMatchEnd = null;
+        if (done) done(winner);
       }
       return;
     }
@@ -418,6 +421,31 @@ const Game = (() => {
     Effects.replayEvents(s.fx);
   }
 
+  // ---- Rollback netcode (see rollback.js) ----
+  // A complete, independent copy of the simulation: restoring it and running
+  // the same inputs again must give exactly the same result. Plain data only
+  // (JSON-safe), so a peer can also send one over to repair a desync.
+  function saveState() {
+    return {
+      m: matchState, st: stateTimer, rt: roundTimeLeft, rm: roundMessage,
+      f: p1 && p2 ? [JSON.parse(JSON.stringify(serializeFighter(p1))), JSON.parse(JSON.stringify(serializeFighter(p2)))] : null,
+      pr: projectiles.map((p) => Object.assign({}, p, { owner: p.owner.slot })),
+    };
+  }
+
+  function loadState(s) {
+    matchState = s.m; stateTimer = s.st; roundTimeLeft = s.rt; roundMessage = s.rm;
+    if (s.f && p1 && p2) {
+      [p1, p2].forEach((f, i) => {
+        const saved = s.f[i];
+        // Drop fields added since the save, then copy (never share) the rest.
+        for (const k of Object.keys(f)) if (!SNAPSHOT_SKIP.has(k) && !(k in saved)) delete f[k];
+        Object.assign(f, JSON.parse(JSON.stringify(saved)));
+      });
+    }
+    projectiles = s.pr.map((p) => Object.assign({}, p, { owner: p.owner === 'p1' ? p1 : p2 }));
+  }
+
   function getState() {
     return matchState;
   }
@@ -427,5 +455,5 @@ const Game = (() => {
     matchState = 'idle';
   }
 
-  return { startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, stop };
+  return { startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, saveState, loadState, stop };
 })();

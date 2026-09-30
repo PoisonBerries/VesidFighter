@@ -7,9 +7,13 @@ const Effects = (() => {
   let shakeMagnitude = 0;
   // Online host records sparks/shakes/resets so the guest can replay them.
   let recording = false;
+  // Set by rollback netcode while it re-simulates frames it already showed,
+  // so replays don't spawn duplicate sparks, shakes and hit sounds.
+  let suppressed = false;
   let events = [];
 
   function spawnHitSpark(x, y, color, kind) {
+    if (suppressed) return;
     if (recording) events.push(['h', Math.round(x), Math.round(y), color, kind]);
     if (typeof Sfx !== 'undefined') Sfx.impact(color, kind); // absent on the sim server
     for (let i = 0; i < 10; i++) {
@@ -49,6 +53,7 @@ const Effects = (() => {
   // Low, fast-fading puff kicked up where a fighter lands or slides. Local
   // only (each peer spawns its own from the animation), so not recorded.
   function spawnDust(x, y, count, power) {
+    if (suppressed) return;
     for (let i = 0; i < count; i++) {
       const dir = Math.random() < 0.5 ? -1 : 1;
       particles.push({
@@ -68,11 +73,13 @@ const Effects = (() => {
   // Generic particle for ability effects: droplets, debris, embers.
   // Optional per-particle g (gravity), drag and shrink.
   function spawn(o) {
+    if (suppressed) return;
     const life = o.life || 30;
     particles.push(Object.assign({ vx: 0, vy: 0, size: 3, color: '#fff', maxLife: life }, o, { life, maxLife: life }));
   }
 
   function shake(magnitude, frames) {
+    if (suppressed) return;
     if (recording) events.push(['s', magnitude, frames]);
     shakeMagnitude = Math.max(shakeMagnitude, magnitude);
     shakeTime = Math.max(shakeTime, frames);
@@ -120,6 +127,7 @@ const Effects = (() => {
   }
 
   function setRecording(v) { recording = v; events = []; }
+  function setSuppressed(v) { suppressed = !!v; }
 
   function drainEvents() {
     const out = events;
@@ -135,5 +143,5 @@ const Effects = (() => {
     }
   }
 
-  return { setRecording, drainEvents, replayEvents, spawnHitSpark, spawnAuraPuff, spawnDust, spawn, shake, update, getShakeOffset, draw, reset };
+  return { setRecording, setSuppressed, drainEvents, replayEvents, spawnHitSpark, spawnAuraPuff, spawnDust, spawn, shake, update, getShakeOffset, draw, reset };
 })();
