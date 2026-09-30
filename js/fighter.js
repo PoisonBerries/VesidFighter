@@ -833,7 +833,8 @@ class Fighter {
     this.jumpCharge++;
     if (held && this.jumpCharge < cj.maxFrames + cj.holdFrames) return;
     const full = this.jumpCharge >= cj.maxFrames;
-    const frac = Math.min(1, this.jumpCharge / cj.maxFrames);
+    // A quick tap is the ordinary jump; charging only counts past tapFrames.
+    const frac = Math.max(0, Math.min(1, (this.jumpCharge - cj.tapFrames) / (cj.maxFrames - cj.tapFrames)));
     const force = full ? cj.plasmaForce : this.character.jumpForce + (cj.maxForce - this.character.jumpForce) * frac;
     this.vy = -force;
     this.grounded = false;

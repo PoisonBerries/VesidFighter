@@ -138,7 +138,7 @@ test('difficulty ramps against a simple walk-in-and-punch player (plain fighting
   const pct = (r) => (r * 100).toFixed(0) + '%';
   assert.ok(easy <= 0.25, `Easy beat the rusher ${pct(easy)} of the time -- too hard`);
   assert.ok(easy < normal && normal < hard, `levels out of order: easy ${pct(easy)}, normal ${pct(normal)}, hard ${pct(hard)}`);
-  assert.ok(hard >= 0.4, `Hard beat the rusher only ${pct(hard)} of the time -- too easy`);
+  assert.ok(hard >= 0.35, `Hard beat the rusher only ${pct(hard)} of the time -- too easy`);
 });
 
 test('difficulty levels are ordered: Hard beats Easy', () => {

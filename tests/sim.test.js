@@ -1406,7 +1406,7 @@ test('Owen: jump is charged -- longer hold, higher jump; full charge is a plasma
     }
     return top;
   };
-  const tap = apex(2), half = apex(18), max = apex(40);
+  const tap = apex(2), half = apex(24), max = apex(40);
   assert.ok(half > tap * 1.3, `held longer goes higher (${tap} -> ${half})`);
   assert.ok(max > half * 1.3, `full charge is the highest (${half} -> ${max})`);
   assert.ok(tap > 100, 'a tap is still a proper jump');
