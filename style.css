@@ -53,12 +53,16 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   background: rgba(10, 5, 20, 0.92);
   padding: 20px;
   text-align: center;
   overflow-y: auto;
 }
+/* Centred when the content fits, scrolls from the top when it doesn't
+   (plain justify-content: center pushes the top out of scroll reach). */
+.screen > :first-child { margin-top: auto; }
+.screen > :last-child { margin-bottom: auto; }
 
 .screen.hidden { display: none; }
 
@@ -513,4 +517,9 @@ button:disabled {
 #audio-panel .audio-row button { flex: 1; padding: 6px 4px; font-size: 12px; }
 #now-playing { margin-top: 8px; opacity: 0.75; font-size: 12px; word-break: break-word; }
 
-#btn-view-toggle.hidden { display: none; }
+
+/* Vs CPU difficulty picker (character select, above the CPU's side) */
+.cpu-difficulty { display: flex; gap: 6px; justify-content: center; align-items: center; margin: 12px 0 0; }
+.cpu-difficulty.hidden { display: none; }
+.cpu-difficulty button { padding: 4px 12px; font-size: 13px; opacity: 0.6; }
+.cpu-difficulty button.active { opacity: 1; outline: 2px solid currentColor; }

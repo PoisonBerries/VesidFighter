@@ -14,9 +14,9 @@
       <h1>VESID FIGHTER</h1>
       <p class="subtitle">A 2-player brawler -- couch or online</p>
       <div class="menu-buttons">
+        <button id="btn-cpu" class="btn-primary">Vs CPU</button>
         <button id="btn-start" class="btn-primary">Local Game</button>
         <button id="btn-online" class="btn-primary">Play Online</button>
-        <button id="btn-view-toggle" class="hidden">3D View: On</button>
       </div>
       <div class="controls-legend">
         <div class="controls-col">
@@ -75,6 +75,12 @@
           <div class="roster-grid" id="p2-cards"></div>
         </div>
       </div>
+      <div id="cpu-difficulty" class="cpu-difficulty hidden">
+        <span>CPU difficulty:</span>
+        <button data-level="easy">Easy</button>
+        <button data-level="normal">Normal</button>
+        <button data-level="hard">Hard</button>
+      </div>
       <div class="row-buttons">
         <button id="btn-select-back">Back</button>
         <button id="btn-fight" class="btn-primary">Fight!</button>
@@ -127,6 +133,7 @@
   <script src="js/renderer.js"></script>
   <script src="js/game.js"></script>
   <script src="js/rollback.js"></script>
+  <script src="js/cpu.js"></script>
   <script src="js/net.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/main.js"></script>

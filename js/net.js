@@ -80,8 +80,13 @@ const Net = (() => {
     return forSlot === localSlot() ? CONTROLS.p1 : null;
   }
 
+  // Online, and in vs-CPU games, fighters read virtual keys that net.js /
+  // rollback.js / cpu.js drive; in a local 2-player game, the real keys.
+  let localVirtual = false;
+  function setLocalVirtual(v) { localVirtual = !!v; }
+
   function controlsFor(slot) {
-    return isOnline() ? VCONTROLS[slot] : CONTROLS[slot];
+    return isOnline() || localVirtual ? VCONTROLS[slot] : CONTROLS[slot];
   }
 
   function randomCode() {
@@ -308,6 +313,6 @@ const Net = (() => {
   return {
     isOnline, isHost, isGuest, isServer, isRelay, isRemoteSim, isLeader, localSlot, controlsFor, controlLabelsFor,
     host, join, hostServer, joinServer, disconnect, on, sendCtrl,
-    isRollback, newMatchId, startRollback, rollbackTick, guestTick,
+    setLocalVirtual, isRollback, newMatchId, startRollback, rollbackTick, guestTick,
   };
 })();

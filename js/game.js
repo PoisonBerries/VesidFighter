@@ -450,10 +450,15 @@ const Game = (() => {
     return matchState;
   }
 
+  // Read-only view of the live match, for the CPU opponent (cpu.js).
+  function world() {
+    return { p1, p2, projectiles, matchState };
+  }
+
   // Freeze the sim (e.g. opponent disconnected mid-match).
   function stop() {
     matchState = 'idle';
   }
 
-  return { startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, saveState, loadState, stop };
+  return { startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, saveState, loadState, world, stop };
 })();

@@ -27,6 +27,8 @@
           Net.guestTick();
         } else if (Net.isRollback()) {
           Net.rollbackTick();
+        } else if (Cpu.isActive()) {
+          Cpu.tick();
         } else {
           Game.update(FIXED_STEP);
         }

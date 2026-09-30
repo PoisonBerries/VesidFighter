@@ -260,7 +260,7 @@ const Rollback = (() => {
   }
 
   return {
-    begin, end, tick, receive, inputBits,
+    begin, end, tick, receive, inputBits, applyInput,
     isActive: () => active,
     frame: () => frame,
     stats: () => Object.assign({ frame, remoteConfirmed }, stats),

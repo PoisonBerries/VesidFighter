@@ -27,18 +27,17 @@ after(async () => {
 // Opens the game and records every page error, console error and failed
 // local request. External requests (the PeerJS CDN) are ignored so the tests
 // also work offline.
-// The 2D/3D choice is remembered in localStorage; the pixel checks below read
-// the 2D canvas, so pages open in the 2D view unless a test asks for 3D.
+// The game renders in 3D; the pixel checks below read the 2D canvas, so
+// pages use the 2D fallback (?renderer=2d) unless a test asks for 3D.
 async function openGame({ view3d = false, on = browser } = {}) {
   const page = await on.newPage();
   await page.setViewport({ width: 1280, height: 720 });
-  await page.evaluateOnNewDocument((v) => { try { localStorage.setItem('vf_view3d', v); } catch (e) { /* ignore */ } }, view3d ? '1' : '0');
   const errors = [];
   const local = (url) => url.startsWith(base);
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push('console.error: ' + m.text()); });
   page.on('response', (r) => { if (local(r.url()) && r.status() >= 400 && !r.url().endsWith('favicon.ico')) errors.push(`HTTP ${r.status()} ${r.url()}`); });
-  await page.goto(base + '/index.html', { waitUntil: 'load' });
+  await page.goto(base + '/index.html' + (view3d ? '' : '?renderer=2d'), { waitUntil: 'load' });
   return { page, errors };
 }
 
@@ -205,7 +204,7 @@ test('sound defaults: effects are boosted well past the old maximum and the musi
 // `npm run test:all`. tools/needs-3d.js decides when a change makes it worth
 // running (used by CI and before pushing).
 const RUN_3D = process.env.RUN_3D === '1';
-test('3D view: every character is drawn in 3D and survives their move set, and the view toggle works', { skip: RUN_3D ? false : 'slow: run with `npm run test:3d` (see tools/needs-3d.js)' }, async (t) => {
+test('3D view: every character is drawn in 3D and survives their move set', { skip: RUN_3D ? false : 'slow: run with `npm run test:3d` (see tools/needs-3d.js)' }, async (t) => {
   browser3d = await puppeteer.launch({
     executablePath: findChrome(),
     headless: 'new',
@@ -279,14 +278,6 @@ test('3D view: every character is drawn in 3D and survives their move set, and t
     assert.ok(r.after > 0.01, `${r.id}: fighters vanished from the 3D view after the move set`);
   }
 
-  // The title-screen toggle switches back to the 2D renderer and remembers it.
-  const toggled = await page.evaluate(() => {
-    const btn = document.getElementById('btn-view-toggle');
-    const shown = !btn.classList.contains('hidden');
-    btn.click();
-    return { shown, label: btn.textContent, active: Renderer3D.isActive(), saved: localStorage.getItem('vf_view3d') };
-  });
-  assert.deepStrictEqual(toggled, { shown: true, label: '3D View: Off', active: false, saved: '0' });
   assert.deepStrictEqual(errors, []);
   await page.close();
 });

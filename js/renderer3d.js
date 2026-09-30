@@ -11,11 +11,14 @@
 
 import * as THREE from 'three';
 
-// Without WebGL (old GPUs, blocklisted drivers, some headless browsers) the
-// 3D view simply never registers: Game.render keeps using the 2D renderer
-// and the 3D toggle stays hidden. Checked up front because Three.js logs
-// console errors and throws if it can't get a context.
+// The game is 3D. The 2D renderer is only a fallback for machines without
+// WebGL (old GPUs, blocklisted drivers, some headless browsers): there the
+// 3D view never registers and Game.render keeps drawing in 2D. Checked up
+// front because Three.js logs console errors and throws without a context.
+// ?renderer=2d forces that fallback (the browser tests' pixel checks read
+// the 2D canvas).
 function webglAvailable() {
+  if (new URLSearchParams(location.search).get('renderer') === '2d') return false;
   try {
     const c = document.createElement('canvas');
     return !!(c.getContext('webgl2') || c.getContext('webgl'));
@@ -38,7 +41,6 @@ if (webglAvailable()) {
   const CARD_RES = 1.25; // texture pixels per game pixel
   const FLIP_SECONDS = 0.14;
 
-  const STORAGE_KEY = 'vf_view3d';
 
   const overlay = document.getElementById('game-canvas');
   const canvas = document.createElement('canvas');
@@ -500,14 +502,7 @@ if (webglAvailable()) {
 
   // ---- Public API ----
 
-  let active = true;
-  try { active = localStorage.getItem(STORAGE_KEY) !== '0'; } catch (e) { /* storage blocked */ }
-
-  function applyActive() {
-    canvas.style.display = active ? '' : 'none';
-    overlay.classList.toggle('overlay-3d', active);
-  }
-  applyActive();
+  overlay.classList.add('overlay-3d');
 
   function render(state) {
     const now = performance.now();
@@ -540,12 +535,7 @@ if (webglAvailable()) {
   }
 
   window.Renderer3D = {
-    isActive: () => active,
-    setActive(v) {
-      active = !!v;
-      try { localStorage.setItem(STORAGE_KEY, active ? '1' : '0'); } catch (e) { /* storage blocked */ }
-      applyActive();
-    },
+    isActive: () => true,
     render,
   };
   window.dispatchEvent(new Event('renderer3d-ready'));

@@ -12,6 +12,12 @@ const UI = (() => {
   };
 
   let selected = { p1: 'keenan', p2: 'artur' };
+  // Vs CPU: player 1 is you, player 2 is the computer.
+  let cpuMode = false;
+  let cpuLevel = 'normal';
+  try { cpuLevel = localStorage.getItem('vf_cpu_level') || 'normal'; } catch (e) { /* storage blocked */ }
+  if (!Cpu.LEVELS[cpuLevel]) cpuLevel = 'normal';
+  const LEVEL_NAMES = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
   let isPaused = false;
 
   function show(name) {
@@ -63,7 +69,8 @@ const UI = (() => {
 
   function renderPreview(slot, charId) {
     const char = CHARACTERS[charId];
-    const controls = Net.controlLabelsFor(slot); // null on the opponent's panel online
+    // null on the opponent's panel (online, or the CPU's side)
+    const controls = cpuMode ? (slot === 'p1' ? CONTROLS.p1 : null) : Net.controlLabelsFor(slot);
     const container = document.getElementById('preview-' + slot);
     // Mirror match: player 2 gets the alternate colours, as in the fight.
     const color = (slot === 'p2' && charId === selected.p1) ? swapPalette(char.color) : char.color;
@@ -149,6 +156,8 @@ const UI = (() => {
     document.getElementById('p1-cards').classList.toggle('locked', online && local !== 'p1');
     document.getElementById('p2-cards').classList.toggle('locked', online && local !== 'p2');
     document.getElementById('btn-fight').disabled = online && !Net.isLeader();
+    document.getElementById('cpu-difficulty').classList.toggle('hidden', !cpuMode);
+    syncDifficulty();
     buildCharCards('p1-cards', 'p1');
     buildCharCards('p2-cards', 'p2');
     refreshSelect();
@@ -162,7 +171,9 @@ const UI = (() => {
     const local = Net.localSlot();
     for (const slot of ['p1', 'p2']) {
       const el = document.querySelector('.' + slot + '-label');
-      el.textContent = 'Player ' + slot.slice(1) + (online ? (slot === local ? ' — You' : ' — Opponent') : '');
+      el.textContent = cpuMode
+        ? (slot === 'p1' ? 'Player 1 — You' : 'CPU — ' + LEVEL_NAMES[cpuLevel])
+        : 'Player ' + slot.slice(1) + (online ? (slot === local ? ' — You' : ' — Opponent') : '');
       el.style.color = PLAYER_COLORS[slot];
       renderPreview(slot, selected[slot]);
     }
@@ -171,6 +182,10 @@ const UI = (() => {
       const k = CONTROLS.p1;
       parts.push(Net.isLeader() ? 'You are Player 1. Press Fight! when you are both ready.'
         : 'You are Player 2. Waiting for the host to start...');
+      parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} block · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys + L ; ' work too)`);
+    }
+    if (cpuMode) {
+      const k = CONTROLS.p1;
       parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} block · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys + L ; ' work too)`);
     }
     if (selected.p1 === selected.p2) parts.push('Mirror match: Player 2 gets an alternate colour scheme.');
@@ -195,6 +210,7 @@ const UI = (() => {
     window.VF_setPaused(false);
     isPaused = false;
     Game.startMatch(selected.p1, selected.p2, onMatchEnd);
+    if (cpuMode) Cpu.start('p2', cpuLevel, Date.now() >>> 0); else Cpu.stop();
     // Direct matches: both sides simulate from this exact starting state.
     if (Net.isRollback()) Net.startRollback(matchId);
   }
@@ -205,7 +221,8 @@ const UI = (() => {
     document.getElementById('btn-rematch').disabled = online && !Net.isLeader();
     document.getElementById('btn-rematch').textContent = online && !Net.isLeader() ? 'P1 picks rematch' : 'Rematch';
     const winnerChar = CHARACTERS[selected[winnerSlot]];
-    const outcome = !online ? '' : (winnerSlot === Net.localSlot() ? ' — YOU WIN!' : ' — YOU LOSE');
+    const you = cpuMode ? 'p1' : online ? Net.localSlot() : null;
+    const outcome = !you ? '' : (winnerSlot === you ? ' — YOU WIN!' : ' — YOU LOSE');
     document.getElementById('matchend-title').textContent =
       `${winnerChar.name} (${winnerSlot.toUpperCase()}) WINS THE MATCH!${outcome}`;
     show('matchend');
@@ -222,7 +239,26 @@ const UI = (() => {
   }
 
   // ---- Wire up buttons ----
-  document.getElementById('btn-start').addEventListener('click', openSelect);
+  document.getElementById('btn-start').addEventListener('click', () => { cpuMode = false; Cpu.stop(); openSelect(); });
+  document.getElementById('btn-cpu').addEventListener('click', () => {
+    cpuMode = true;
+    if (selected.p2 === selected.p1) {
+      const others = CHARACTER_LIST.filter((c) => c.id !== selected.p1);
+      selected.p2 = others[Math.floor(Math.random() * others.length)].id;
+    }
+    openSelect();
+  });
+  function syncDifficulty() {
+    for (const b of document.querySelectorAll('#cpu-difficulty button')) b.classList.toggle('active', b.dataset.level === cpuLevel);
+  }
+  for (const b of document.querySelectorAll('#cpu-difficulty button')) {
+    b.addEventListener('click', () => {
+      cpuLevel = b.dataset.level;
+      try { localStorage.setItem('vf_cpu_level', cpuLevel); } catch (e) { /* storage blocked */ }
+      syncDifficulty();
+      refreshSelect();
+    });
+  }
 
   document.getElementById('btn-select-back').addEventListener('click', () => show('title'));
   document.getElementById('btn-fight').addEventListener('click', startFight);
@@ -253,6 +289,8 @@ const UI = (() => {
   }
 
   document.getElementById('btn-online').addEventListener('click', () => {
+    cpuMode = false;
+    Cpu.stop();
     setOnlineStatus('');
     show('online');
   });
@@ -326,20 +364,6 @@ const UI = (() => {
     window.VF_setPaused(false);
     show('title');
   });
-
-  // ---- 2D / 3D view toggle (button appears once the 3D renderer loads) ----
-  const viewBtn = document.getElementById('btn-view-toggle');
-  function syncViewBtn() {
-    if (!window.Renderer3D) return;
-    viewBtn.classList.remove('hidden');
-    viewBtn.textContent = '3D View: ' + (Renderer3D.isActive() ? 'On' : 'Off');
-  }
-  viewBtn.addEventListener('click', () => {
-    Renderer3D.setActive(!Renderer3D.isActive());
-    syncViewBtn();
-  });
-  window.addEventListener('renderer3d-ready', syncViewBtn);
-  syncViewBtn();
 
   show('title');
 
