@@ -18,9 +18,12 @@
 
 const Cpu = (() => {
   const LEVELS = {
-    easy: { reaction: 28, block: 0.2, punish: 0.15, iq: 0.35, mistake: 0.3, aggression: 0.35, spacing: 0.4, replan: [16, 32] },
-    normal: { reaction: 13, block: 0.62, punish: 0.6, iq: 0.8, mistake: 0.07, aggression: 0.55, spacing: 0.85, replan: [8, 18] },
-    hard: { reaction: 8, block: 0.85, punish: 0.9, iq: 1, mistake: 0.02, aggression: 0.62, spacing: 1, replan: [5, 12] },
+    // reaction: frames of delay before it sees what you do. anticipate: how
+    // well it predicts where a moving opponent will be (0-1). aim: how far
+    // off (px) its sense of range can be, so it swings early/late sometimes.
+    easy: { reaction: 32, block: 0.12, punish: 0.1, iq: 0.3, mistake: 0.38, aggression: 0.3, spacing: 0.35, anticipate: 0.3, aim: 45, replan: [18, 36] },
+    normal: { reaction: 18, block: 0.45, punish: 0.4, iq: 0.65, mistake: 0.14, aggression: 0.45, spacing: 0.7, anticipate: 0.6, aim: 25, replan: [10, 22] },
+    hard: { reaction: 12, block: 0.7, punish: 0.7, iq: 0.85, mistake: 0.06, aggression: 0.55, spacing: 0.9, anticipate: 0.8, aim: 12, replan: [7, 15] },
   };
 
   function rng(seed) {
@@ -54,7 +57,7 @@ const Cpu = (() => {
     const L = LEVELS[levelName] || LEVELS.normal;
     const rand = rng(seed || 1);
     const history = [];
-    let plan = { kind: 'neutral', until: 0, dir: 0 };
+    let plan = { kind: 'neutral', until: 0, dir: 0, aimError: 0 };
     let blockUntil = 0;
     let holdSpecial = 0;   // frames left to keep the special held (Owen's charge)
     let lastPress = -99;   // no button mashing: at most one press every few frames
@@ -137,13 +140,14 @@ const Cpu = (() => {
       // Anticipate: someone walking in keeps coming, so judge distance from
       // where they are *now* (probably), not where we last saw them.
       const moving = o.state === 'walk' || o.state === 'jump' || o.state === 'fall' || o.state === 'block';
-      const ox = moving ? o.x + o.vx * L.reaction * 0.85 : o.x;
+      const ox = moving ? o.x + o.vx * L.reaction * L.anticipate : o.x;
       const dx = ox - me.x;
       const dir = Math.sign(dx) || me.facing;
       const dist = Math.abs(dx);
       // ...and swing so the punch is out when they arrive, not when it starts.
       const st = c.attack.startup;
-      const hitDist = Math.abs((ox + (moving ? o.vx * st : 0)) - (me.x + me.vx * st));
+      // A misjudged range, re-rolled every plan change (not every frame).
+      const hitDist = Math.max(0, Math.abs((ox + (moving ? o.vx * st : 0)) - (me.x + me.vx * st)) + plan.aimError);
       const toward = dir < 0 ? B.left : B.right;
       const away = dir < 0 ? B.right : B.left;
       const toCenter = me.x < MID ? B.right : B.left;
@@ -271,6 +275,7 @@ const Cpu = (() => {
       if (tick >= plan.until) {
         plan = choosePlan(me, o, dist, myReach);
         plan.until = tick + between(L.replan[0], L.replan[1]);
+        plan.aimError = (rand() * 2 - 1) * L.aim;
       }
 
       // Don't walk off the stage.
