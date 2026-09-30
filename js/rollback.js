@@ -16,8 +16,12 @@
 
 const Rollback = (() => {
   const INPUT_DELAY = 2;   // frames between pressing a button and it applying (hides most rollbacks)
-  const MAX_AHEAD = 8;     // frames we may simulate past the opponent's last known input
+  const MAX_AHEAD = 20;    // frames we may simulate past the opponent's last known input (the
+                           // relay is TCP: inputs arrive late in bursts; freezing until they
+                           // land stutters your own fighter, a longer rollback doesn't)
   const HISTORY = 180;     // frames of saved states/inputs kept (for rollbacks and desync repair)
+  const ADV_SMOOTH = 0.02; // how fast the clock-gap estimate follows new samples
+  const ADV_WAIT = 2;      // pause a frame once we're this far ahead (smoothed)
   const MAX_PACKET = 120;  // max frames of our input per packet
   const SYNC_EVERY = 60;   // frames between desync checks
 
@@ -43,6 +47,7 @@ const Rollback = (() => {
   let rollbackFrom = Infinity;
   let remoteFrame = 0, remoteAdvantage = 0; // for keeping both clocks in step
   let lastWaitFrame = -Infinity;
+  let advDiff = 0; // smoothed (our advantage - theirs): packet jitter makes each sample noisy
   let nextSync = SYNC_EVERY;
   let myHashes = new Map(), theirHashes = new Map();
   let early = []; // packets for a match that hasn't started here yet
@@ -99,7 +104,7 @@ const Rollback = (() => {
     localIn = new Map(); remoteIn = new Map(); usedRemote = new Map(); states = new Map();
     myHashes = new Map(); theirHashes = new Map();
     remoteConfirmed = -1; localAcked = -1; rollbackFrom = Infinity;
-    remoteFrame = 0; remoteAdvantage = 0; lastWaitFrame = -Infinity;
+    remoteFrame = 0; remoteAdvantage = 0; lastWaitFrame = -Infinity; advDiff = 0;
     nextSync = SYNC_EVERY;
     // Both sides agree the first INPUT_DELAY frames are empty.
     for (let f = 0; f < INPUT_DELAY; f++) { localIn.set(f, 0); remoteIn.set(f, 0); }
@@ -226,9 +231,10 @@ const Rollback = (() => {
     // Keep both clocks in step: if we're consistently ahead of the opponent
     // (they started later, or their machine runs slower), pause one frame now
     // and then so neither side has to rollback much more than the other.
-    const ourAdvantage = frame - remoteFrame;
-    if (ourAdvantage - remoteAdvantage > 2 && frame - lastWaitFrame > 20) {
+    advDiff += (frame - remoteFrame - remoteAdvantage - advDiff) * ADV_SMOOTH;
+    if (advDiff > ADV_WAIT && frame - lastWaitFrame > 30) {
       lastWaitFrame = frame;
+      advDiff -= 2; // waiting a frame closes the gap by ~2 (we fall 1 behind, they gain 1)
       stats.waits++;
       sendInputs();
       return false;

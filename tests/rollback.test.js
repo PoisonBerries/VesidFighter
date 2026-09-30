@@ -47,14 +47,19 @@ function player(rand, BIT) {
   };
 }
 
-function runMatch({ seed, chars, latency, jitter, loss, startGap, ticks }) {
+function runMatch({ seed, chars, latency, jitter, loss, startGap, ticks, hiccups = 0, hiccupLen = 0, p2Drops = 0.02 }) {
   const rand = rng(seed);
+  // TCP-style hiccups (the WebSocket relay): now and then a link holds every
+  // packet for a while, then delivers them all at once, in order.
+  const heldUntil = [0, 0];
   const peers = [createSim(), createSim()];
   const inbox = [[], []]; // packets in flight to peer i: { at, msg }
   let now = 0;
   const sender = (to) => (msg) => {
+    if (hiccups && now >= heldUntil[to] && rand() < hiccups) heldUntil[to] = now + hiccupLen;
     if (rand() < loss) return;
-    inbox[to].push({ at: now + latency + Math.floor(rand() * (jitter + 1)), msg: JSON.parse(JSON.stringify(msg)) });
+    const at = Math.max(now + latency + Math.floor(rand() * (jitter + 1)), heldUntil[to] + latency);
+    inbox[to].push({ at, msg: JSON.parse(JSON.stringify(msg)) });
   };
   const inputs = [new Map(), new Map()]; // frame -> bits, as each side recorded them
   const players = [player(rng(seed + 1), peers[0].Rollback.BIT), player(rng(seed + 2), peers[1].Rollback.BIT)];
@@ -73,7 +78,7 @@ function runMatch({ seed, chars, latency, jitter, loss, startGap, ticks }) {
       inbox[i] = inbox[i].filter((p) => p.at > now);
       due.forEach((p) => P.Rollback.receive(p.msg));
       if (!started[i]) continue;
-      if (i === 1 && rand() < 0.02) continue; // player 2's machine drops a frame now and then
+      if (i === 1 && rand() < p2Drops) continue; // player 2's machine drops a frame now and then
       const f = P.Rollback.frame();
       const bits = players[i](now);
       if (P.Rollback.tick(bits)) inputs[i].set(f + 2, bits);
@@ -138,3 +143,16 @@ for (const sc of SCENARIOS) {
     assert.ok(r.stats[0].rollbacks + r.stats[1].rollbacks > 0, 'expected some rollbacks on a lagged connection');
   });
 }
+
+// The relay is a WebSocket (TCP): packets don't drop, they arrive late in
+// bursts. A burst shorter than the rollback window must not freeze the game
+// (your own fighter would stutter), and the clock sync must not pause often.
+test('rollback rides out TCP-style hiccups without freezing', () => {
+  const r = runMatch({ latency: 4, jitter: 1, loss: 0, startGap: 2, seed: 44, chars: ['keenan', 'owen'], ticks: 3600, hiccups: 0.004, hiccupLen: 12, p2Drops: 0 });
+  assert.strictEqual(r.peerHashes[0], r.refHash, 'player 1 diverged from the reference game');
+  assert.strictEqual(r.peerHashes[1], r.refHash, 'player 2 diverged from the reference game');
+  for (const s of r.stats) {
+    assert.ok(s.stalls < 10, `froze for ${s.stalls} ticks waiting on the opponent`);
+    assert.ok(s.waits < 15, `clock sync paused ${s.waits} times`);
+  }
+});
