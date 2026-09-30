@@ -22,6 +22,7 @@ const Game = (() => {
     const startX2 = STAGE_RIGHT_EDGE - 220;
     p1 = new Fighter('p1', CHARACTERS[char1Id], startX1, 1);
     p2 = new Fighter('p2', CHARACTERS[char2Id], startX2, -1);
+    p2.paletteSwap = char1Id === char2Id;
     p1.roundsWon = 0;
     p2.roundsWon = 0;
     Effects.reset();

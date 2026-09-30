@@ -70,6 +70,15 @@ const Net = (() => {
   // P1 drives menu flow (Fight!, Rematch) in every online mode.
   function isLeader() { return isOnline() && localSlot() === 'p1'; }
 
+  // Key labels to show on the HUD / select panel that belongs to `forSlot`.
+  // Offline each side shows its own keys. Online either key set drives your
+  // fighter, so we advertise the WASD set on *your* panel, whichever side
+  // you're on, and show nothing on the opponent's (those aren't your keys).
+  function controlLabelsFor(forSlot) {
+    if (!isOnline()) return CONTROLS[forSlot];
+    return forSlot === localSlot() ? CONTROLS.p1 : null;
+  }
+
   function controlsFor(slot) {
     return isOnline() ? VCONTROLS[slot] : CONTROLS[slot];
   }
@@ -305,7 +314,7 @@ const Net = (() => {
   window.addEventListener('beforeunload', () => disconnect());
 
   return {
-    isOnline, isHost, isGuest, isServer, isRemoteSim, isLeader, localSlot, controlsFor,
+    isOnline, isHost, isGuest, isServer, isRemoteSim, isLeader, localSlot, controlsFor, controlLabelsFor,
     host, join, hostServer, joinServer, disconnect, on, sendCtrl,
     hostPreTick, hostPostTick, guestTick,
   };

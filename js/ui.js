@@ -63,11 +63,13 @@ const UI = (() => {
 
   function renderPreview(slot, charId) {
     const char = CHARACTERS[charId];
-    const controls = CONTROLS[slot];
+    const controls = Net.controlLabelsFor(slot); // null on the opponent's panel online
     const container = document.getElementById('preview-' + slot);
+    // Mirror match: player 2 gets the alternate colours, as in the fight.
+    const color = (slot === 'p2' && charId === selected.p1) ? swapPalette(char.color) : char.color;
 
-    container.style.setProperty('--fp-color', char.color);
-    container.style.setProperty('--fp-glow', hexToRgba(char.color, 0.45));
+    container.style.setProperty('--fp-color', color);
+    container.style.setProperty('--fp-glow', hexToRgba(color, 0.45));
 
     const speedPct = statPct(char.moveSpeed, STAT_RANGES.speed);
     const atkSpeedPct = statPct(atkSpeedScore(char), STAT_RANGES.atkSpeed);
@@ -77,7 +79,7 @@ const UI = (() => {
 
     container.innerHTML = `
       <div class="preview-avatar-wrap">
-        <div class="avatar-fallback" style="background:${char.color}"></div>
+        <div class="avatar-fallback" style="background:${color}"></div>
         <img class="avatar-img" src="assets/heads/${char.id}.png" alt="" onerror="this.style.display='none'">
       </div>
       <div class="preview-name">${char.name}</div>
@@ -90,14 +92,14 @@ const UI = (() => {
         <div class="stat-row"><span class="stat-label">Size</span><div class="stat-bar"><div class="stat-fill" style="width:${sizePct}%"></div></div></div>
       </div>
       <div class="ability-row">
-        <span class="key-badge">${keyLabel(controls.special)}</span>
+        ${controls ? `<span class="key-badge">${keyLabel(controls.special)}</span>` : ''}
         <div>
           <div class="ability-name">Special: ${char.special.name}</div>
           <div class="ability-desc">${char.special.description}</div>
         </div>
       </div>
       <div class="ability-row">
-        <span class="key-badge">${keyLabel(controls.ultimate)}</span>
+        ${controls ? `<span class="key-badge">${keyLabel(controls.ultimate)}</span>` : ''}
         <div>
           <div class="ability-name">Ultimate: ${char.ultimate.name}</div>
           <div class="ability-desc">${char.ultimate.description}</div>
@@ -128,7 +130,7 @@ const UI = (() => {
         }
         selected[slot] = char.id;
         buildCharCards(containerId, slot);
-        renderPreview(slot, char.id);
+        refreshSelect();
       });
       container.appendChild(icon);
     }
@@ -140,14 +142,32 @@ const UI = (() => {
     document.getElementById('p1-cards').classList.toggle('locked', online && local !== 'p1');
     document.getElementById('p2-cards').classList.toggle('locked', online && local !== 'p2');
     document.getElementById('btn-fight').disabled = online && !Net.isLeader();
-    document.getElementById('select-online-note').textContent = !online ? ''
-      : (Net.isLeader() ? 'Online: you are Player 1. Press Fight! when you are both ready.'
-        : 'Online: you are Player 2. Waiting for the host to start...');
     buildCharCards('p1-cards', 'p1');
     buildCharCards('p2-cards', 'p2');
-    renderPreview('p1', selected.p1);
-    renderPreview('p2', selected.p2);
+    refreshSelect();
     show('select');
+  }
+
+  // Re-render both previews plus the side labels and the note under them
+  // (a pick on either side can change the other's preview -- mirror match).
+  function refreshSelect() {
+    const online = Net.isOnline();
+    const local = Net.localSlot();
+    for (const slot of ['p1', 'p2']) {
+      const el = document.querySelector('.' + slot + '-label');
+      el.textContent = 'Player ' + slot.slice(1) + (online ? (slot === local ? ' — You' : ' — Opponent') : '');
+      el.style.color = PLAYER_COLORS[slot];
+      renderPreview(slot, selected[slot]);
+    }
+    const parts = [];
+    if (online) {
+      const k = CONTROLS.p1;
+      parts.push(Net.isLeader() ? 'You are Player 1. Press Fight! when you are both ready.'
+        : 'You are Player 2. Waiting for the host to start...');
+      parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} block · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys + L ; ' work too)`);
+    }
+    if (selected.p1 === selected.p2) parts.push('Mirror match: Player 2 gets an alternate colour scheme.');
+    document.getElementById('select-online-note').innerHTML = parts.join('<br>');
   }
 
   // ---- Match flow ----
@@ -173,8 +193,9 @@ const UI = (() => {
     document.getElementById('btn-rematch').disabled = online && !Net.isLeader();
     document.getElementById('btn-rematch').textContent = online && !Net.isLeader() ? 'P1 picks rematch' : 'Rematch';
     const winnerChar = CHARACTERS[selected[winnerSlot]];
+    const outcome = !online ? '' : (winnerSlot === Net.localSlot() ? ' — YOU WIN!' : ' — YOU LOSE');
     document.getElementById('matchend-title').textContent =
-      `${winnerChar.name} (${winnerSlot.toUpperCase()}) WINS THE MATCH!`;
+      `${winnerChar.name} (${winnerSlot.toUpperCase()}) WINS THE MATCH!${outcome}`;
     show('matchend');
   }
 
@@ -269,7 +290,7 @@ const UI = (() => {
       selected[msg.slot] = msg.id;
       if (!screens.select.classList.contains('hidden')) {
         buildCharCards(msg.slot + '-cards', msg.slot);
-        renderPreview(msg.slot, msg.id);
+        refreshSelect();
       }
     } else if (msg.t === 'start' && Net.isRemoteSim() && CHARACTERS[msg.p1] && CHARACTERS[msg.p2]) {
       selected.p1 = msg.p1;

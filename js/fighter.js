@@ -35,6 +35,7 @@ class Fighter {
 
     this.blocking = false;
     this.facingLocked = false;
+    this.paletteSwap = false; // mirror match: player 2 wears the alternate colours
 
     this.roundsWon = 0;
 
@@ -92,11 +93,13 @@ class Fighter {
   }
 
   get displayColor() {
-    return (this.transformed && this.character.transformColor) ? this.character.transformColor : this.character.color;
+    const c = (this.transformed && this.character.transformColor) ? this.character.transformColor : this.character.color;
+    return this.paletteSwap ? swapPalette(c) : c;
   }
 
   get displayAccent() {
-    return (this.transformed && this.character.transformAccent) ? this.character.transformAccent : this.character.accent;
+    const c = (this.transformed && this.character.transformAccent) ? this.character.transformAccent : this.character.accent;
+    return this.paletteSwap ? swapPalette(c) : c;
   }
 
   get isPhased() {
