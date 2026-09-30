@@ -6,11 +6,24 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { spawnSync } = require('child_process');
 const { ROOT } = require('./helpers');
 
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const html = read('index.html');
-const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]).filter((s) => !/^https?:/.test(s));
+const localScripts = (page, re) => [...page.matchAll(re)].map((m) => m[1]).filter((s) => !/^https?:/.test(s));
+const scripts = localScripts(html, /<script src="([^"]+)"/g);
+// ES modules (the 3D view, which imports Three.js).
+const modules = localScripts(html, /<script type="module" src="([^"]+)"/g);
+// The sprite planner is its own page, sharing the game's scripts.
+const plannerHtml = fs.existsSync(path.join(ROOT, 'sprite-planner.html')) ? read('sprite-planner.html') : '';
+const plannerScripts = localScripts(plannerHtml, /<script src="([^"]+)"/g);
+
+// vm.Script can't parse import/export, so modules get node's own syntax check.
+function moduleSyntaxError(file) {
+  const r = spawnSync(process.execPath, ['--input-type=module', '--check', '-'], { input: read(file), encoding: 'utf8' });
+  return r.status === 0 ? null : r.stderr;
+}
 
 test('every local <script src> exists and parses', () => {
   assert.ok(scripts.length > 5);
@@ -18,17 +31,26 @@ test('every local <script src> exists and parses', () => {
     assert.ok(fs.existsSync(path.join(ROOT, s)), `missing script ${s}`);
     assert.doesNotThrow(() => new vm.Script(read(s), { filename: s }), `syntax error in ${s}`);
   }
+  for (const s of modules) {
+    assert.ok(fs.existsSync(path.join(ROOT, s)), `missing module ${s}`);
+    assert.strictEqual(moduleSyntaxError(s), null, `syntax error in module ${s}`);
+  }
+});
+
+test('every local <script src> in the sprite planner exists', () => {
+  for (const s of plannerScripts) assert.ok(fs.existsSync(path.join(ROOT, s)), `sprite-planner.html: missing script ${s}`);
 });
 
 test('every js file in js/ is loaded by index.html (no orphaned or forgotten scripts)', () => {
   const files = fs.readdirSync(path.join(ROOT, 'js')).map((f) => 'js/' + f);
-  for (const f of files) assert.ok(scripts.includes(f), `${f} is not included in index.html`);
+  const loaded = new Set([...scripts, ...modules, ...plannerScripts]);
+  for (const f of files) assert.ok(loaded.has(f), `${f} is not included in index.html (or sprite-planner.html)`);
 });
 
 test('every literal getElementById target exists in index.html', () => {
   const ids = new Set([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
   const missing = [];
-  for (const s of scripts) {
+  for (const s of [...scripts, ...modules]) {
     for (const m of read(s).matchAll(/getElementById\('([^']+)'\)/g)) {
       if (!ids.has(m[1])) missing.push(`${s}: #${m[1]}`);
     }

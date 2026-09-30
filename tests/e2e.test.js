@@ -6,7 +6,7 @@ const assert = require('node:assert');
 const puppeteer = require('puppeteer-core');
 const { startServer, findChrome } = require('./helpers');
 
-let server, browser, base;
+let server, browser, browser3d, base;
 
 before(async () => {
   server = await startServer();
@@ -20,15 +20,19 @@ before(async () => {
 
 after(async () => {
   if (browser) await browser.close();
+  if (browser3d) await browser3d.close();
   if (server) server.close();
 });
 
 // Opens the game and records every page error, console error and failed
 // local request. External requests (the PeerJS CDN) are ignored so the tests
 // also work offline.
-async function openGame() {
-  const page = await browser.newPage();
+// The 2D/3D choice is remembered in localStorage; the pixel checks below read
+// the 2D canvas, so pages open in the 2D view unless a test asks for 3D.
+async function openGame({ view3d = false, on = browser } = {}) {
+  const page = await on.newPage();
   await page.setViewport({ width: 1280, height: 720 });
+  await page.evaluateOnNewDocument((v) => { try { localStorage.setItem('vf_view3d', v); } catch (e) { /* ignore */ } }, view3d ? '1' : '0');
   const errors = [];
   const local = (url) => url.startsWith(base);
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
@@ -175,6 +179,96 @@ test('sound: every effect can play without throwing, and the soundtrack playlist
     return document.getElementById('now-playing').textContent;
   });
   assert.ok(info.length > 0);
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+});
+
+// ---- 3D view ----
+// A second browser with software WebGL (SwiftShader), since the main one runs
+// with the GPU disabled. The 3D view loads Three.js from a CDN; if it can't
+// load (offline) this test skips rather than fails.
+test('3D view: every character is drawn in 3D and survives their move set, and the view toggle works', async (t) => {
+  browser3d = await puppeteer.launch({
+    executablePath: findChrome(),
+    headless: 'new',
+    args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'],
+  });
+  const { page, errors } = await openGame({ view3d: true, on: browser3d });
+  const ready = await page.waitForFunction(() => !!window.Renderer3D, { timeout: 20000 }).then(() => true, () => false);
+  if (!ready) {
+    assert.deepStrictEqual(errors, [], 'the 3D view failed to start');
+    t.skip('3D view did not load (Three.js CDN unreachable?)');
+    await page.close();
+    return;
+  }
+  await page.setViewport({ width: 640, height: 360 }); // software WebGL: keep frames cheap
+  await page.evaluate(PAGE_HELPERS);
+  await page.evaluate(() => {
+    const T = window.__t;
+    const gl = document.getElementById('game-canvas-3d');
+    const grab = () => {
+      const c = document.createElement('canvas'); c.width = 320; c.height = 180;
+      const g = c.getContext('2d'); g.drawImage(gl, 0, 0, 320, 180);
+      return g.getImageData(0, 0, 320, 180).data;
+    };
+    // Fraction of the WebGL frame (per half: P1 starts left, P2 right) that
+    // changes when the fighters are hidden. Rendering twice in the same task
+    // keeps the camera still, so only the fighters/effects differ.
+    T.visible3d = () => {
+      Game.render(T.ctx);
+      const withF = grab();
+      Renderer3D.render(null);
+      const without = grab();
+      const half = [0, 0];
+      for (let i = 0; i < withF.length; i += 4) {
+        const d = Math.abs(withF[i] - without[i]) + Math.abs(withF[i + 1] - without[i + 1]) + Math.abs(withF[i + 2] - without[i + 2]);
+        if (d > 60) half[((i / 4) % 320) < 160 ? 0 : 1]++;
+      }
+      return half.map((n) => n / (160 * 180));
+    };
+    // Every sim frame runs; every 8th is rendered (a full software-WebGL
+    // frame is slow), which still exercises the 3D path all through each move.
+    T.step3d = (n = 1) => { for (let i = 0; i < n; i++) { Game.update(FIXED_STEP); if (i % 8 === 7 || i === n - 1) Game.render(T.ctx); } };
+  });
+  const ids = await page.evaluate(() => CHARACTER_LIST.map((c) => c.id));
+  const results = [];
+  for (const [n, id] of ids.entries()) {
+    const foe = ids[(n + 4) % ids.length];
+    results.push(await page.evaluate((id, foe) => {
+      const T = window.__t;
+      const tap = (code, frames = 1) => { T.key(code, true); T.step3d(1); T.key(code, false); T.step3d(frames); };
+      Game.startMatch(id, id === foe ? 'sam' : foe, () => {});
+      T.step3d(200);
+      const r = { id, active: Renderer3D.isActive(), start: T.visible3d() };
+      tap('KeyF', 40);
+      tap('KeyW', 30);
+      T.key('KeyS', true); T.step3d(15); T.key('KeyS', false);
+      tap('KeyG', 100);
+      Game.applySnapshot({ f: [{ ultCharge: 100 }, {}] });
+      tap('KeyH', 140);
+      Game.applySnapshot({ f: [{ state: 'knockdown', actionTimer: 0, knockdownTimer: 40, grounded: false, vy: -8, vx: -6 }, {}] });
+      T.step3d(180);
+      const after = T.visible3d();
+      r.after = after[0] + after[1];
+      Game.applySnapshot({ f: [{ state: 'ko', actionTimer: 0 }, {}] });
+      T.step3d(60);
+      return r;
+    }, id, foe));
+  }
+  for (const r of results) {
+    assert.ok(r.active, `${r.id}: 3D view was not active`);
+    assert.ok(r.start[0] > 0.01 && r.start[1] > 0.01, `${r.id}: fighters not drawn in 3D at fight start (${r.start.map((v) => (v * 100).toFixed(1) + '%')})`);
+    assert.ok(r.after > 0.01, `${r.id}: fighters vanished from the 3D view after the move set`);
+  }
+
+  // The title-screen toggle switches back to the 2D renderer and remembers it.
+  const toggled = await page.evaluate(() => {
+    const btn = document.getElementById('btn-view-toggle');
+    const shown = !btn.classList.contains('hidden');
+    btn.click();
+    return { shown, label: btn.textContent, active: Renderer3D.isActive(), saved: localStorage.getItem('vf_view3d') };
+  });
+  assert.deepStrictEqual(toggled, { shown: true, label: '3D View: Off', active: false, saved: '0' });
   assert.deepStrictEqual(errors, []);
   await page.close();
 });
