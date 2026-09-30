@@ -72,12 +72,12 @@ const Net = (() => {
   function isLeader() { return isOnline() && localSlot() === 'p1'; }
 
   // Key labels to show on the HUD / select panel that belongs to `forSlot`.
-  // Offline each side shows its own keys. Online either key set drives your
-  // fighter, so we advertise the WASD set on *your* panel, whichever side
-  // you're on, and show nothing on the opponent's (those aren't your keys).
+  // Offline each side shows its own keys. Online you play with the
+  // one-player keys, shown on *your* panel, whichever side you're on, and
+  // nothing on the opponent's (those aren't your keys).
   function controlLabelsFor(forSlot) {
     if (!isOnline()) return CONTROLS[forSlot];
-    return forSlot === localSlot() ? CONTROLS.p1 : null;
+    return forSlot === localSlot() ? CONTROLS.solo : null;
   }
 
   // Online, and in vs-CPU games, fighters read virtual keys that net.js /
@@ -250,13 +250,15 @@ const Net = (() => {
     if (fast && fast.open) fast.send(msg);
   }
 
-  // Either key set works for the local player online.
+  // The one-player keys (CONTROLS.solo, arrows too for moving) online.
+  const soloDown = (a) => InputManager.isDown(CONTROLS.solo[a]) || (!!SOLO_ALT_KEYS[a] && InputManager.isDown(SOLO_ALT_KEYS[a]));
+  const soloPressed = (a) => InputManager.isPressed(CONTROLS.solo[a]) || (!!SOLO_ALT_KEYS[a] && InputManager.isPressed(SOLO_ALT_KEYS[a]));
   function sampleLocal() {
-    const held = HELD.map(a => InputManager.isDown(CONTROLS.p1[a]) || InputManager.isDown(CONTROLS.p2[a]));
-    const taps = TAPS.map(a => InputManager.isPressed(CONTROLS.p1[a]) || InputManager.isPressed(CONTROLS.p2[a]));
+    const held = HELD.map(soloDown);
+    const taps = TAPS.map(soloPressed);
     taps.forEach((t, i) => { if (t) localTapCounts[i]++; });
     // Jump is a tap for jumping but also a hold (hover), so send both.
-    const jumpHeld = InputManager.isDown(CONTROLS.p1.jump) || InputManager.isDown(CONTROLS.p2.jump);
+    const jumpHeld = soloDown('jump');
     return { held, taps, jumpHeld };
   }
 
@@ -290,7 +292,7 @@ const Net = (() => {
   function guestTick() {
     checkTimeout();
     const local = sampleLocal();
-    const specialHeld = InputManager.isDown(CONTROLS.p1.special) || InputManager.isDown(CONTROLS.p2.special);
+    const specialHeld = soloDown('special');
     InputManager.endFrame();
     sendFast({ t: 'i', h: local.held, s: specialHeld, j: local.jumpHeld, c: localTapCounts.slice() });
     Effects.update();

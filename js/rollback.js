@@ -254,9 +254,9 @@ const Rollback = (() => {
     return true;
   }
 
-  // Current keyboard state as input bits. Either key set drives your fighter.
+  // Current keyboard state as input bits (the one-player keys, CONTROLS.solo).
   function inputBits() {
-    const any = (action, fn) => InputManager[fn](CONTROLS.p1[action]) || InputManager[fn](CONTROLS.p2[action]);
+    const any = (action, fn) => InputManager[fn](CONTROLS.solo[action]) || (!!SOLO_ALT_KEYS[action] && InputManager[fn](SOLO_ALT_KEYS[action]));
     let b = 0;
     if (any('left', 'isDown')) b |= BIT.left;
     if (any('right', 'isDown')) b |= BIT.right;

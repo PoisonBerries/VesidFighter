@@ -274,7 +274,32 @@ const Cpu = (() => {
 
     let opp = null;
 
+    // Fighters only turn by moving the other way, so the CPU turns to face
+    // the opponent first -- a tap towards them -- before swinging at them,
+    // and when it's standing still with its back to them.
     function think(me, other, projectiles, matchState, ball) {
+      const pressedBefore = lastPress;
+      let b = decide(me, other, projectiles, matchState, ball);
+      if (matchState !== 'fight' || me.facingLocked || me.state === 'block' || ACTING.has(me.state)) return b;
+      const dx = other.x - me.x, want = dx >= 0 ? 1 : -1;
+      if (me.facing === want || Math.abs(dx) < 8) return b;
+      const towardBit = want > 0 ? B.right : B.left;
+      const swing = B.attack | B.special | B.ultimate;
+      const reach = reachOf(me.character.attack.offset, me.character.attack.width, other.width / 2);
+      // (up close, turning to face them beats backing off with its back turned)
+      if (me.grounded && Math.abs(dx) < reach + 40 && !(b & B.jump)) {
+        if (b & swing) lastPress = pressedBefore;
+        return (b & ~swing & ~(B.left | B.right)) | towardBit;
+      }
+      if ((b & swing) && Math.abs(dx) < reach + 60) {
+        lastPress = pressedBefore; // the swing didn't happen: it can come right after the turn
+        return (b & ~swing & ~(B.left | B.right)) | towardBit;
+      }
+      if (!(b & (B.left | B.right | swing))) b |= towardBit;
+      return b;
+    }
+
+    function decide(me, other, projectiles, matchState, ball) {
       tick++;
       opp = other;
       history.push(viewOf(other));

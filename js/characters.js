@@ -35,13 +35,14 @@ const CHARACTERS = {
     // crouch TOGETHER to slip through the opponent and come out behind them.
     // Untouchable for the dash and a moment after; then a short cooldown.
     phaseStep: { window: 75, cooldown: 480, dashFrames: 9, invulnTail: 6, recovery: 6, behind: 85 },
+    faceAfterAbility: true, // turns back to face the opponent after a phase step / counter
     maxHp: 90,
     attack: {
       damage: 6, offset: 24, width: 60, height: 82,
       startup: 5, active: 3, recovery: 8,
       knockback: 6, knockbackUp: 3, hitstun: 11,
     },
-    // Airborne F: a standard front kick, a little lower and longer than his punch.
+    // Airborne attack: a standard front kick, a little lower and longer than his punch.
     airAttack: {
       damage: 7, offset: 22, width: 66, height: 48, high: false,
       startup: 5, active: 5, recovery: 10,
@@ -355,7 +356,7 @@ const CHARACTERS = {
     },
     // Hits play notes; a string of them is a tune (see game.js / audio.js).
     comboSong: true,
-    // Airborne F: a backflip kick, the foot coming round as he rotates.
+    // Airborne attack: a backflip kick, the foot coming round as he rotates.
     airAttack: {
       damage: 8, offset: 12, width: 78, height: 76, high: false, flip: true,
       startup: 7, active: 8, recovery: 10,

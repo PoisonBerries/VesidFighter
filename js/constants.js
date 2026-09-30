@@ -54,7 +54,19 @@ const CONTROLS = {
     special: 'Semicolon',
     ultimate: 'Quote',
   },
+  // One player on the keyboard (vs CPU, online): WASD or the arrows to
+  // move, J hit, K special, L ultimate. (Local 2-player uses p1/p2 above.)
+  solo: {
+    left: 'KeyA',
+    right: 'KeyD',
+    jump: 'KeyW',
+    block: 'KeyS',
+    attack: 'KeyJ',
+    special: 'KeyK',
+    ultimate: 'KeyL',
+  },
 };
+const SOLO_ALT_KEYS = { left: 'ArrowLeft', right: 'ArrowRight', jump: 'ArrowUp', block: 'ArrowDown' };
 
 // WebSocket URL of server/server.js for online play. Leave empty to fall
 // back to direct peer-to-peer connections. A ?server=wss://... query param

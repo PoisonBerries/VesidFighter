@@ -160,7 +160,7 @@ const UI = (() => {
     SelectArt.set(slot, charId);
     const char = CHARACTERS[charId];
     // null on the opponent's panel (online, or the CPU's side)
-    const controls = cpuMode ? (slot === 'p1' ? CONTROLS.p1 : null) : Net.controlLabelsFor(slot);
+    const controls = cpuMode ? (slot === 'p1' ? CONTROLS.solo : null) : Net.controlLabelsFor(slot);
     const container = document.getElementById('preview-' + slot);
     // Mirror match: player 2 gets the alternate colours, as in the fight.
     const color = (slot === 'p2' && charId === selected.p1) ? swapPalette(char.color) : char.color;
@@ -388,14 +388,14 @@ const UI = (() => {
     }
     const parts = [];
     if (online) {
-      const k = CONTROLS.p1;
+      const k = CONTROLS.solo;
       parts.push(Net.isLeader() ? 'You are Player 1. Press Fight! when you are both ready.'
         : 'You are Player 2. Waiting for the host to start...');
-      parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} block · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys + L ; ' work too)`);
+      parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} block · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys move too)`);
     }
     if (cpuMode) {
-      const k = CONTROLS.p1;
-      parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} block · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys + L ; ' work too)`);
+      const k = CONTROLS.solo;
+      parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} block · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys move too)`);
     }
     if (selected.p1 === selected.p2) parts.push('Mirror match: Player 2 gets an alternate colour scheme.');
     document.getElementById('select-online-note').innerHTML = parts.join('<br>');

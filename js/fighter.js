@@ -799,6 +799,7 @@ class Fighter {
     else if (held.right && !held.left) moveDir = 1;
 
     if (moveDir !== 0) {
+      if (!this.facingLocked && this.grounded) this.facing = moveDir; // turn when you switch direction (not mid-air)
       this.vx = moveDir * this.moveSpeedEff;
       if (this.grounded) this.state = 'walk';
     } else if (this.grounded) {
@@ -1339,10 +1340,15 @@ class Fighter {
     this.walkCycle += Math.abs(this.vx) * 0.05;
   }
 
+  // Fighters don't turn to face the opponent by themselves: they turn when
+  // they move the other way (_handleInput). Some come out of an ability
+  // facing the opponent again (Keenan, after dashing through them).
   _resolveFacing(opponent) {
-    if (this.facingLocked) return;
-    if (this.state === 'block') return;
-    this.facing = opponent.x >= this.x ? 1 : -1;
+    const inAbility = this.state === 'phasestep' || this.state === 'special';
+    const wasInAbility = this.abilityFacing;
+    this.abilityFacing = inAbility;
+    if (this.facingLocked || inAbility) return;
+    if (wasInAbility && this.character.faceAfterAbility) this.facing = opponent.x >= this.x ? 1 : -1;
   }
 
   hasFallenOff() {
