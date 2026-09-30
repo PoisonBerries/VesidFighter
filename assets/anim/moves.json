@@ -83,6 +83,9 @@
     },
     "walk-forward": {
       "fbx": "fbx/Walk Forward.fbx"
+    },
+    "swimming": {
+      "fbx": "fbx/Swimming.fbx"
     }
   },
   "use": {
@@ -109,7 +112,8 @@
     "sam": {
       "attack": "cross-punch",
       "victory": "backflip",
-      "jump2": "front-flip"
+      "jump2": "front-flip",
+      "swim": "swimming"
     },
     "carlos": {
       "attack": "quad-punch"

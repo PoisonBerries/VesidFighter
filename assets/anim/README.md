@@ -54,11 +54,15 @@ purely visual: hitboxes, timing and online play are unchanged.
 | `attack` | Only the clip's **action window** plays (the converter trims the standing around before and after). The wind-up is compressed so the clip's **impact** lands mid-way through the attack's active (hitbox) frames; the recovery then plays at real speed, carrying on after the attack while the fighter just stands or walks. |
 | `hitstun` | The action window, once, at real speed. |
 | `block` | Holds the clip's impact pose (its fullest guard). |
-| `walk` | Follows the walk cycle (one clip = one stride). |
+| `walk` | Follows the distance walked (one clip loop = the clip's own stride, so feet don't slide); walking backwards plays it in reverse. |
+| `stance` | The guard to stand and walk in when there's no idle/walk clip (the start of that clip's action). |
 | `idle`, `victory` | Loop in real time. |
+| `jump` | The clip's **airborne** stretch follows the jump (rising to falling); the landing plays after touchdown (at most ~0.3s). The clip's own travel is dropped -- the game moves the fighter. |
+| `jump2` | A double jump (e.g. a flip): the airborne stretch in ~0.6s, then the `jump` clip's fall. |
+| `knockdown`, `ko` | The fall, squeezed into at most 0.7s, then lying there (the clip's `down` point). Getting up from a knockdown plays the fall backwards. |
+| `swim` | Sam's crouch-swim along the floor: loops with the distance he covers, slow treading when still. |
 
-Anything not listed (specials, ultimates, jumps, knockdowns) keeps the built-in
-animation for now.
+Anything not listed (specials, ultimates) keeps the built-in animation for now.
 
 ## Per-clip options (in `clips`)
 

@@ -678,7 +678,7 @@ const Animator = (() => {
     // (an air attack is hand-posed: the punch clip would fight it)
     applyClip(T, fighter, an, now, rollFinish || (fighter.state === 'attack' && (fighter.airAttackActive || fighter.upAttackActive || fighter.downAttackActive)));
     if (fighter.rolling || rollFinish) T.headTilt = 38; // chin tucked into the chest
-    else if (fighter.state === 'block' && fighter.character.crouchSwim) T.headTilt = -22; // chin up, looking ahead as he swims
+    else if (fighter.state === 'block' && fighter.character.crouchSwim && !T.clip) T.headTilt = -22; // chin up, looking ahead as he swims
     // Long-armed characters (Nathan): every arm pose reaches proportionally further.
     if (profile.armScale !== 1 && !T.clip) {
       T.arms = T.arms.map((a) => ({
@@ -822,6 +822,11 @@ const Animator = (() => {
       return { clip: c, u, oneShot: true };
     }
 
+    // Sam's swim (his crouch): loops with the distance he covers -- backwards
+    // when he backs up -- and treads slowly in place.
+    const swim = st === 'block' && fighter.character.crouchSwim && Mocap.clipFor(id, 'swim');
+    if (swim) return { clip: swim, u: ((an.swimU || 0) % 1 + 1) % 1, loop: true, swim: true };
+
     const clip = Mocap.clipFor(id, st);
     if (!clip) {
       // No idle/walk clip: stand in the guard the attack clip starts from, so
@@ -956,7 +961,10 @@ const Animator = (() => {
     // torso keeps its length in clips (only the hips move), so this is
     // worked out on the whole body. In the air the game's jump decides.
     let shift = 0;
-    if (fighter.grounded && !pb.air) {
+    if (pb.swim) {
+      // Swimming along the floor: hips held just above it (the clip bobs in water).
+      shift = -H * 0.09 - hipY0;
+    } else if (fighter.grounded && !pb.air) {
       const torsoLen = H * (d.shoulderFrac - d.hipFrac);
       const rot = (x, y, a) => F(x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a));
       const nb = rot(0, -torsoLen, L);
@@ -1143,6 +1151,15 @@ const Animator = (() => {
     const down = st === 'knockdown' || st === 'ko';
     const airborne = !fighter.grounded;
     an.walkDist = (an.walkDist || 0) + Math.abs(fighter.vx) * f; // drives walk clips
+    if (fighter.character.crouchSwim && st === 'block' && typeof Mocap !== 'undefined') {
+      const sc = Mocap.clipFor(fighter.character.id, 'swim');
+      if (sc) { // swim clip: one loop per the clip's own travel; slow tread when still or gliding
+        const fr = sc.frames, travel = Math.abs(fr[fr.length - 1].root[0] - fr[0].root[0]) * fighter.height;
+        const idle = (0.35 / Math.max(0.1, sc.duration)) * (f / 60);
+        const moved = fighter.sliding ? 0 : (fighter.vx * fighter.facing * f) / Math.max(fighter.height * 0.5, travel);
+        an.swimU = (an.swimU || 0) + (Math.abs(moved) > idle ? moved : idle);
+      }
+    }
     // Spinning about its own long axis (the claw dive): seen from the side, the body's width swells and shrinks.
     an.axial = (st === 'hoverdive' && fighter._ability && fighter._ability.diving) || (st === 'whirlwind' && fighter._ability && !fighter._ability.landing) ? (an.axial || 0) + 0.75 * f : 0;
     // A crouch-roll turns in step with the distance covered (one turn per

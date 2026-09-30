@@ -16,7 +16,8 @@ const Mocap = (() => {
   // 'stance': the guard a fighter stands and walks in when there's no
   // idle/walk clip (the start of that clip's action is used).
   // 'jump2': a double jump (e.g. a flip). 'knockdown'/'ko': a fall, then lying there.
-  const STATES = ['stance', 'attack', 'hitstun', 'idle', 'walk', 'jump', 'jump2', 'block', 'knockdown', 'ko', 'victory'];
+  // 'swim': Sam's crawl along the floor (his crouch).
+  const STATES = ['stance', 'attack', 'hitstun', 'idle', 'walk', 'jump', 'jump2', 'block', 'knockdown', 'ko', 'swim', 'victory'];
 
   if (typeof fetch !== 'undefined') {
     fetch('assets/anim/moves.json')

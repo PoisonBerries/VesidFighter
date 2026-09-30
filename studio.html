@@ -416,7 +416,7 @@
     }
 
     // ---- Animations: try motion-capture clips on this character ----
-    const MOVE_NAMES = { stance: 'Stance', attack: 'Punch', hitstun: 'Hit', idle: 'Idle', walk: 'Walk', jump: 'Jump', jump2: 'Double jump', block: 'Block', knockdown: 'Knockdown', ko: 'KO', victory: 'Victory' };
+    const MOVE_NAMES = { stance: 'Stance', attack: 'Punch', hitstun: 'Hit', idle: 'Idle', walk: 'Walk', jump: 'Jump', jump2: 'Double jump', block: 'Block', knockdown: 'Knockdown', ko: 'KO', swim: 'Swim', victory: 'Victory' };
     const tried = {}; // state -> '' (as assigned) | 'builtin' | clip id
     function renderAnims() {
       const root = document.getElementById('anims');
