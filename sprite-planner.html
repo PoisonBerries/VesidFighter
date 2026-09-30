@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sprite Planner</title>
+<style>
+  :root {
+    --bg: #150d20;
+    --panel: #22172f;
+    --panel-2: #2c1f3d;
+    --text: #f1eaff;
+    --muted: #b7a8cf;
+    --accent: #e63946;
+    --ok: #57cc99;
+    --warn: #ffd166;
+    --line: #3d2d52;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 5;
+    background: rgba(21, 13, 32, 0.96);
+    border-bottom: 1px solid var(--line);
+    padding: 14px 20px 10px;
+  }
+  h1 { margin: 0 0 4px; font-size: 1.35rem; }
+  .sub { color: var(--muted); font-size: 0.9rem; margin: 0 0 10px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tab {
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+    border-radius: 999px; padding: 5px 12px; cursor: pointer; font-size: 0.9rem;
+  }
+  .tab.active { background: var(--accent); border-color: var(--accent); }
+  .tab .count { color: var(--muted); margin-left: 6px; font-size: 0.8rem; }
+  .tab.active .count { color: #ffe3e5; }
+  main { padding: 18px 20px 60px; max-width: 1400px; margin: 0 auto; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 16px; color: var(--muted);
+    font-size: 0.85rem; margin-bottom: 16px;
+  }
+  .swatch { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 6px; }
+  .rules {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 16px; margin-bottom: 18px; font-size: 0.9rem;
+  }
+  .rules code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+  .rules ul { margin: 6px 0 0; padding-left: 20px; }
+  .anim {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .anim-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+  .anim-head h3 { margin: 0; font-size: 1.05rem; }
+  .pill { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+  .pill.p1 { background: #5a1f2a; color: #ffc9cf; }
+  .status { margin-left: auto; font-size: 0.85rem; font-weight: 600; }
+  .status.missing { color: var(--muted); }
+  .status.done { color: var(--ok); }
+  .status.bad { color: var(--warn); }
+  .note { color: var(--muted); font-size: 0.88rem; margin: 4px 0 10px; }
+  .file { font-family: ui-monospace, Menlo, monospace; font-size: 0.8rem; color: var(--muted); }
+  .strip-wrap { overflow-x: auto; padding-bottom: 6px; }
+  .strip-wrap canvas, .strip-wrap img {
+    display: block; height: 220px; width: auto;
+    background:
+      repeating-conic-gradient(#2a2036 0% 25%, #231a2e 0% 50%) 0 0 / 20px 20px;
+    border-radius: 6px;
+  }
+  .drawn { margin-top: 10px; display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+  .preview {
+    height: 220px; width: 220px; border-radius: 6px;
+    background: repeating-conic-gradient(#2a2036 0% 25%, #231a2e 0% 50%) 0 0 / 20px 20px;
+  }
+  .actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+  button.small {
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+    border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 0.82rem;
+  }
+  button.small:hover { border-color: var(--accent); }
+  .char-summary { color: var(--muted); margin: 0 0 12px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Sprite Planner</h1>
+    <p class="sub" id="summary">Loading...</p>
+    <div class="tabs" id="tabs"></div>
+  </header>
+  <main>
+    <div class="rules">
+      <strong>How to use:</strong> open a template strip in Krita (or any art app) as a guide layer, draw each frame on a new layer over it, hide the guide, and export as
+      <code>assets/sprites/&lt;character&gt;/&lt;animation&gt;.png</code>. Refresh this page to check it.
+      <ul>
+        <li>Transparent background, same size as the template, frames left to right.</li>
+        <li>Draw facing <strong>right</strong>. Feet on the blue baseline, body centered on the dashed line.</li>
+        <li>The faint figure is the current puppet's pose, just for reference. <strong>Red</strong> = where that frame's attack hits. <strong>Blue dashed</strong> = where you can get hit.</li>
+        <li>Start with the <span class="pill p1">start here</span> animations. Anything you haven't drawn keeps using the puppet.</li>
+      </ul>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:#4ea8ff"></span>Baseline (feet)</span>
+      <span><span class="swatch" style="background:#9a8fb0"></span>Center line</span>
+      <span><span class="swatch" style="background:#4ea8ff;height:2px;border-top:1px dashed #4ea8ff"></span>Hurtbox</span>
+      <span><span class="swatch" style="background:#ff4d5e;height:8px;opacity:.6"></span>Attack hitbox</span>
+    </div>
+    <p class="char-summary" id="char-summary"></p>
+    <div id="anims"></div>
+  </main>
+
+  <script src="js/constants.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/characters.js"></script>
+  <script src="js/characterHeads.js"></script>
+  <script src="js/spriteManager.js"></script>
+  <script src="js/effects.js"></script>
+  <script src="js/fighter.js"></script>
+  <script src="js/animator.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/spritePlan.js"></script>
+  <script>
+  const SpritePlanner = (() => {
+    const plans = SpritePlan.all();
+    const drawnCache = {}; // path -> {img, ok, frames} | null
+    let current = plans[0].id;
+
+    // ---- Template rendering ----
+    function makeFighter(char, frame, isUlt) {
+      const f = new Fighter('p1', char, 640, 1);
+      const s = frame.setup;
+      if (s.state === 'special' || s.state === 'ultimate') {
+        f._beginAbility(s.state === 'ultimate' ? char.ultimate : char.special, s.state === 'ultimate');
+      }
+      f.state = s.state;
+      f.actionTimer = s.t || 0;
+      for (const k of ['vy', 'grounded', 'walkCycle', 'blocking', 'reflectTimer', 'invulnerableTimer', 'doubleJumpFlipTimer', 'hitFlashTimer']) {
+        if (s[k] !== undefined) f[k] = s[k];
+      }
+      if (s.ability) Object.assign(f._ability, s.ability);
+      return f;
+    }
+
+    function drawGhost(ctx, f, cell, ox) {
+      const off = document.createElement('canvas');
+      off.width = cell.w; off.height = cell.h;
+      const g = off.getContext('2d');
+      g.translate(cell.centerX, cell.baseline);
+      g.scale(cell.px, cell.px);
+      g.translate(-f.x, -f.y);
+      try { Renderer.drawFighter(g, f, { card: true, settle: true }); } catch (e) { console.warn('ghost failed', e); }
+      ctx.save();
+      ctx.globalAlpha = 0.28;
+      ctx.drawImage(off, ox, 0);
+      ctx.restore();
+    }
+
+    function renderTemplate(plan, anim) {
+      const cell = plan.cell;
+      const char = CHARACTERS[plan.id];
+      const c = document.createElement('canvas');
+      c.width = cell.w * anim.frames.length;
+      c.height = cell.h;
+      const ctx = c.getContext('2d');
+
+      anim.frames.forEach((frame, i) => {
+        const ox = i * cell.w;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ox, 0, cell.w, cell.h);
+        ctx.clip();
+
+        const f = makeFighter(char, frame);
+        drawGhost(ctx, f, cell, ox);
+
+        // Hitbox from the real sim, if this frame has one.
+        let hb = null;
+        try { hb = f.getHitbox(); } catch (e) { hb = null; }
+        if (hb) {
+          const x = ox + cell.centerX + (hb.x - f.x) * cell.px;
+          const y = cell.baseline + (hb.y - f.y) * cell.px;
+          ctx.fillStyle = 'rgba(255, 77, 94, 0.22)';
+          ctx.strokeStyle = 'rgba(255, 77, 94, 0.9)';
+          ctx.lineWidth = 2;
+          ctx.fillRect(x, y, hb.w * cell.px, hb.h * cell.px);
+          ctx.strokeRect(x, y, hb.w * cell.px, hb.h * cell.px);
+        }
+
+        // Hurtbox (standing size).
+        ctx.setLineDash([8, 6]);
+        ctx.strokeStyle = 'rgba(78, 168, 255, 0.75)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ox + cell.centerX - cell.bodyW / 2, cell.baseline - cell.bodyH, cell.bodyW, cell.bodyH);
+
+        // Center line.
+        ctx.strokeStyle = 'rgba(154, 143, 176, 0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(ox + cell.centerX, 0);
+        ctx.lineTo(ox + cell.centerX, cell.h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Baseline.
+        ctx.strokeStyle = 'rgba(78, 168, 255, 0.95)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(ox, cell.baseline);
+        ctx.lineTo(ox + cell.w, cell.baseline);
+        ctx.stroke();
+
+        // Cell border + label.
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ox + 1, 1, cell.w - 2, cell.h - 2);
+        const fs = Math.max(14, Math.round(cell.w / 26));
+        // Dark text with a light halo: readable on white canvases in art
+        // apps and on the planner's dark checkerboard alike.
+        const label = (text, y, size, weight) => {
+          ctx.font = `${weight} ${size}px system-ui, sans-serif`;
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = Math.max(3, size / 4);
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.strokeText(text, ox + 12, y);
+          ctx.fillStyle = '#2b1b3d';
+          ctx.fillText(text, ox + 12, y);
+        };
+        label(`${i + 1}. ${frame.phase}`, fs + 10, fs, 700);
+        const timing = frame.ms ? `${frame.ms} ms` : (anim.name === 'jump' ? 'by jump height' : 'held');
+        label(timing + (frame.loopPhase || frame.loop ? ' · loops' : ''), fs * 2 + 14, Math.round(fs * 0.85), 500);
+        ctx.restore();
+      });
+      return c;
+    }
+
+    // ---- Checking drawn strips ----
+    function loadDrawn(plan, anim) {
+      const path = SpritePlan.spritePath(plan.id, anim.name);
+      if (path in drawnCache) return Promise.resolve(drawnCache[path]);
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const want = { w: plan.cell.w * anim.frames.length, h: plan.cell.h };
+          const ok = img.naturalWidth === want.w && img.naturalHeight === want.h;
+          drawnCache[path] = { img, ok, want, got: { w: img.naturalWidth, h: img.naturalHeight } };
+          resolve(drawnCache[path]);
+        };
+        img.onerror = () => { drawnCache[path] = null; resolve(null); };
+        img.src = path + '?v=' + Date.now();
+      });
+    }
+
+    function animatePreview(canvas, img, plan, anim) {
+      const ctx = canvas.getContext('2d');
+      const cell = plan.cell;
+      canvas.width = cell.w; canvas.height = cell.h;
+      let i = 0;
+      const tick = () => {
+        if (!canvas.isConnected) return;
+        ctx.clearRect(0, 0, cell.w, cell.h);
+        ctx.drawImage(img, i * cell.w, 0, cell.w, cell.h, 0, 0, cell.w, cell.h);
+        const ms = anim.frames[i].ms || 250;
+        i = (i + 1) % anim.frames.length;
+        setTimeout(tick, ms);
+      };
+      tick();
+    }
+
+    // ---- Page ----
+    function download(canvas, name) {
+      canvas.toBlob((blob) => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      }, 'image/png');
+    }
+
+    function totalFrames(plan) {
+      return plan.anims.reduce((n, a) => n + a.frames.length, 0);
+    }
+
+    async function doneFrames(plan) {
+      let n = 0;
+      for (const a of plan.anims) {
+        const d = await loadDrawn(plan, a);
+        if (d && d.ok) n += a.frames.length;
+      }
+      return n;
+    }
+
+    async function renderTabs() {
+      const tabs = document.getElementById('tabs');
+      tabs.innerHTML = '';
+      let all = 0, done = 0;
+      for (const plan of plans) {
+        const total = totalFrames(plan);
+        const d = await doneFrames(plan);
+        all += total; done += d;
+        const b = document.createElement('button');
+        b.className = 'tab' + (plan.id === current ? ' active' : '');
+        b.innerHTML = `${plan.name}<span class="count">${d}/${total}</span>`;
+        b.onclick = () => { current = plan.id; renderTabs(); renderCharacter(); };
+        tabs.appendChild(b);
+      }
+      document.getElementById('summary').textContent =
+        `${done} of ${all} frames drawn across ${plans.length} characters. Frame counts come from each character's move timing in characters.js.`;
+    }
+
+    async function renderCharacter() {
+      const plan = plans.find(p => p.id === current);
+      const root = document.getElementById('anims');
+      root.innerHTML = '';
+      const c = plan.cell;
+      document.getElementById('char-summary').textContent =
+        `${plan.name}: ${plan.anims.length} animations, ${totalFrames(plan)} frames. Each frame is ${c.w}×${c.h} px; body is about ${c.bodyH} px tall.`;
+
+      const sorted = plan.anims.slice().sort((a, b) => a.priority - b.priority);
+      for (const anim of sorted) {
+        const box = document.createElement('section');
+        box.className = 'anim';
+        const path = SpritePlan.spritePath(plan.id, anim.name);
+        const w = c.w * anim.frames.length;
+        box.innerHTML = `
+          <div class="anim-head">
+            <h3>${anim.label}</h3>
+            <span class="pill">${anim.frames.length} frame${anim.frames.length > 1 ? 's' : ''}</span>
+            ${anim.loop ? '<span class="pill">loops</span>' : ''}
+            ${anim.priority === 1 ? '<span class="pill p1">start here</span>' : ''}
+            <span class="status missing">checking...</span>
+          </div>
+          <p class="note">${anim.note} <span class="file">${path} · ${w}×${c.h}</span></p>
+          <div class="strip-wrap"></div>
+          <div class="actions"><button class="small dl">Download template</button></div>
+        `;
+        const tpl = renderTemplate(plan, anim);
+        box.querySelector('.strip-wrap').appendChild(tpl);
+        box.querySelector('.dl').onclick = () => download(tpl, `${plan.id}-${anim.name}-template.png`);
+        root.appendChild(box);
+
+        loadDrawn(plan, anim).then((d) => {
+          const st = box.querySelector('.status');
+          if (!d) { st.textContent = 'Not drawn yet'; return; }
+          if (!d.ok) {
+            st.className = 'status bad';
+            st.textContent = `Wrong size: ${d.got.w}×${d.got.h}, needs ${d.want.w}×${d.want.h}`;
+          } else {
+            st.className = 'status done';
+            st.textContent = 'Drawn ✓';
+          }
+          const drawn = document.createElement('div');
+          drawn.className = 'drawn';
+          const stripWrap = document.createElement('div');
+          stripWrap.className = 'strip-wrap';
+          const img = d.img.cloneNode();
+          stripWrap.appendChild(img);
+          const prev = document.createElement('canvas');
+          prev.className = 'preview';
+          drawn.appendChild(prev);
+          drawn.appendChild(stripWrap);
+          box.insertBefore(drawn, box.querySelector('.actions'));
+          if (d.ok) animatePreview(prev, d.img, plan, anim);
+        });
+      }
+    }
+
+    function headsReady() {
+      return CHARACTER_LIST.every(ch => CharacterHeads.getImage(ch.id));
+    }
+
+    async function start() {
+      const t0 = performance.now();
+      while (!headsReady() && performance.now() - t0 < 4000) {
+        await new Promise(r => setTimeout(r, 100));
+      }
+      await renderTabs();
+      await renderCharacter();
+    }
+
+    // Used by the template export script: every template as a PNG data URL.
+    function exportAll() {
+      const out = {};
+      for (const plan of plans) {
+        for (const anim of plan.anims) {
+          out[SpritePlan.templatePath(plan.id, anim.name)] = renderTemplate(plan, anim).toDataURL('image/png');
+        }
+      }
+      return out;
+    }
+
+    start();
+    return { exportAll, headsReady };
+  })();
+  </script>
+</body>
+</html>

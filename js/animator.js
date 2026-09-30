@@ -552,7 +552,10 @@ const Animator = (() => {
     if (typeof Effects !== 'undefined' && Effects.spawnDust) Effects.spawnDust(fighter.x, GROUND_Y, count, power);
   }
 
-  function update(fighter, profile) {
+  // opts.settle: a one-off still (the sprite planner's reference ghosts) --
+  // jump straight to the target pose with no easing, sounds or dust.
+  function update(fighter, profile, opts) {
+    const settle = !!(opts && opts.settle);
     const now = performance.now();
     let an = fighter._visualPose;
     if (!an || an.c === undefined) an = fighter._visualPose = makeState();
@@ -565,7 +568,7 @@ const Animator = (() => {
     const airborne = !fighter.grounded;
 
     // Event detection from state transitions (render-side only).
-    if (an.prevAirborne && !airborne && fighter.y >= GROUND_Y - 1) {
+    if (!settle && an.prevAirborne && !airborne && fighter.y >= GROUND_Y - 1) {
       const impact = clamp(an.prevVy / 20, 0, 1);
       if (down || Math.abs(an.rot) > 0.8) {
         an.hopV = Math.max(an.hopV, clamp(an.prevVy * 0.35, 2.5, 8));
@@ -583,7 +586,7 @@ const Animator = (() => {
     // Sound cues from state transitions (render-side, so host, guest and
     // local play all hear the same thing).
     an.pan = (fighter.x - CANVAS_WIDTH / 2) / (CANVAS_WIDTH / 2);
-    if (typeof Sfx !== 'undefined') {
+    if (!settle && typeof Sfx !== 'undefined') {
       const restarted = st === an.prevState && fighter.actionTimer < an.prevT - 0.5;
       if (st !== an.prevState || (restarted && (st === 'attack' || st === 'special' || st === 'ultimate'))) {
         if (st === 'attack') Sfx.swing(an.pan);
@@ -610,7 +613,11 @@ const Animator = (() => {
     const k = 1 - Math.exp(-T.rate * dt);
     smoothInto(an.c, T, k);
 
-    stepRot(an, T, f, dt, fighter);
+    if (settle) {
+      an.rot = T.rot; an.rotVel = 0; an.toppling = false; an.prevSpin = T.spin;
+    } else {
+      stepRot(an, T, f, dt, fighter);
+    }
 
     // Secondary bounce after heavy impacts.
     if (an.hopV || an.hop > 0) {
@@ -623,7 +630,7 @@ const Animator = (() => {
     }
 
     // Dust trailing a ground slide (flying tackle).
-    if (T.slideDust && Math.abs(fighter.vx) > 6) {
+    if (!settle && T.slideDust && Math.abs(fighter.vx) > 6) {
       an.dustTimer += f;
       if (an.dustTimer >= 2) { an.dustTimer = 0; spawnLandingDust(fighter, 1, 1.4); }
     }

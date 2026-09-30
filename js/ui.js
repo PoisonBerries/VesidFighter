@@ -366,6 +366,20 @@ const UI = (() => {
     });
   });
 
+  // ---- 2D / 3D view toggle (button appears once the 3D renderer loads) ----
+  const viewBtn = document.getElementById('btn-view-toggle');
+  function syncViewBtn() {
+    if (!window.Renderer3D) return;
+    viewBtn.classList.remove('hidden');
+    viewBtn.textContent = '3D View: ' + (Renderer3D.isActive() ? 'On' : 'Off');
+  }
+  viewBtn.addEventListener('click', () => {
+    Renderer3D.setActive(!Renderer3D.isActive());
+    syncViewBtn();
+  });
+  window.addEventListener('renderer3d-ready', syncViewBtn);
+  syncViewBtn();
+
   show('title');
 
   return { togglePause };

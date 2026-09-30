@@ -69,14 +69,10 @@ const Renderer = (() => {
     }
   }
 
-  function buildStageCache() {
-    const cv = document.createElement('canvas');
-    cv.width = CANVAS_WIDTH;
-    cv.height = CANVAS_HEIGHT;
-    const c = cv.getContext('2d');
-    const rnd = seededRandom(1337);
-    const L = STAGE_LEFT_EDGE, R = STAGE_RIGHT_EDGE, mid = (L + R) / 2;
-
+  // Everything behind the island: sky, stars, moon, far ranges, ruined
+  // skyline and haze. Shared with the 3D view (as its distant backdrop), which
+  // passes bakeTwinkles since it has no per-frame 2D pass to twinkle them in.
+  function paintBackdrop(c, rnd, bakeTwinkles) {
     // Sky: deep indigo overhead melting to a warm magenta horizon glow.
     const sky = c.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
     sky.addColorStop(0, '#0d0820');
@@ -92,7 +88,7 @@ const Renderer = (() => {
     for (let i = 0; i < 140; i++) {
       const x = rnd() * CANVAS_WIDTH, y = rnd() * 380;
       const r = 0.4 + rnd() * 1.3, a = 0.25 + rnd() * 0.6;
-      if (r > 1.15 && twinkleStars.length < 26) {
+      if (!bakeTwinkles && r > 1.15 && twinkleStars.length < 26) {
         twinkleStars.push({ x, y, r, a, ph: rnd() * 6.28, sp: 1.2 + rnd() * 2 });
       } else {
         c.fillStyle = `rgba(255,245,255,${a})`;
@@ -135,6 +131,25 @@ const Renderer = (() => {
     haze.addColorStop(1, 'rgba(240,150,170,0.5)');
     c.fillStyle = haze;
     c.fillRect(0, 470, CANVAS_WIDTH, CANVAS_HEIGHT - 470);
+  }
+
+  function buildBackdropCanvas() {
+    const cv = document.createElement('canvas');
+    cv.width = CANVAS_WIDTH;
+    cv.height = CANVAS_HEIGHT;
+    paintBackdrop(cv.getContext('2d'), seededRandom(1337), true);
+    return cv;
+  }
+
+  function buildStageCache() {
+    const cv = document.createElement('canvas');
+    cv.width = CANVAS_WIDTH;
+    cv.height = CANVAS_HEIGHT;
+    const c = cv.getContext('2d');
+    const rnd = seededRandom(1337);
+    const L = STAGE_LEFT_EDGE, R = STAGE_RIGHT_EDGE, mid = (L + R) / 2;
+
+    paintBackdrop(c, rnd, false);
 
     // ---- The floating island ----
     const slabH = 38;
@@ -332,12 +347,18 @@ const Renderer = (() => {
     Effects.spawnAuraPuff(fighter.x + (Math.random() * 2 - 1) * fighter.width * 0.3, fighter.y - fighter.height * 0.9, color);
   }
 
-  function drawFighter(ctx, fighter) {
+  // opts.card: drawing onto a 3D paper card (renderer3d.js). The card is
+  // mirrored in 3D to face left, so draw facing right, and skip the fake
+  // ground shadow since the 3D scene casts a real one. Returns the frame's
+  // rig so the 3D view can shape its contact shadow the same way.
+  function drawFighter(ctx, fighter, opts) {
+    const card = !!(opts && opts.card);
+    const facing = card ? 1 : fighter.facing;
     const pose = fighter.currentPose();
     const customImg = SpriteManager.getImage(fighter.slot, pose)
       || SpriteManager.getImage(fighter.slot, 'idle');
 
-    const rig = Animator.update(fighter, getBodyProfile(fighter.character.id));
+    const rig = Animator.update(fighter, getBodyProfile(fighter.character.id), opts);
 
     const auraColor = getAuraColor(fighter);
     if (auraColor) drawAura(ctx, fighter, auraColor);
@@ -355,17 +376,19 @@ const Renderer = (() => {
     const heightAboveGround = Math.max(0, GROUND_Y - fighter.y) + rig.lift;
     const shadowScale = Math.max(0.35, 1 - heightAboveGround / 220);
     const lying = Math.abs(Math.sin(rig.rot)) * (1 - Math.min(1, rig.ball));
-    ctx.save();
-    ctx.globalAlpha = 0.32 * shadowScale;
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.ellipse(fighter.x, GROUND_Y + 3, fighter.width * 0.34 * shadowScale * (1 + 1.1 * lying), 7 * shadowScale, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    if (!card) {
+      ctx.save();
+      ctx.globalAlpha = 0.32 * shadowScale;
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.ellipse(fighter.x, GROUND_Y + 3, fighter.width * 0.34 * shadowScale * (1 + 1.1 * lying), 7 * shadowScale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
 
     ctx.save();
     ctx.translate(fighter.x, fighter.y);
-    ctx.scale(fighter.facing, 1);
+    ctx.scale(facing, 1);
 
     // Whole-body transform, in facing-relative space (positive angle =
     // head toward the opponent): rotate about the body's pivot, placed at
@@ -407,6 +430,7 @@ const Renderer = (() => {
     if (fighter.blocking) {
       drawShieldIcon(ctx, fighter.x, fighter.y - fighter.height - 18);
     }
+    return { lift: rig.lift, lying };
   }
 
   function drawProjectiles(ctx, projectiles) {
@@ -1180,6 +1204,7 @@ const Renderer = (() => {
 
   return {
     drawStage,
+    buildBackdropCanvas,
     drawFighter,
     drawProjectiles,
     drawHUD,

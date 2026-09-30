@@ -17,6 +17,7 @@
         <button id="btn-start" class="btn-primary">Local Game</button>
         <button id="btn-online" class="btn-primary">Play Online</button>
         <button id="btn-customize">Customize Sprites</button>
+        <button id="btn-view-toggle" class="hidden">3D View: On</button>
       </div>
       <div class="controls-legend">
         <div class="controls-col">
@@ -148,5 +149,9 @@
   <script src="js/net.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/main.js"></script>
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+  </script>
+  <script type="module" src="js/renderer3d.js"></script>
 </body>
 </html>
