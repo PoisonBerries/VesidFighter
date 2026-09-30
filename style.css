@@ -133,7 +133,7 @@ button:active {
 
 .controls-legend {
   display: flex;
-  gap: 60px;
+  gap: 40px;
 }
 
 .controls-col h3 {

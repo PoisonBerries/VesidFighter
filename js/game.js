@@ -129,6 +129,11 @@ const Game = (() => {
     p2.update(Net.controlsFor('p2'), p1);
     InputManager.endFrame();
 
+    // Toxic Rush: poison damage ticking this frame feeds whoever's cloud it is.
+    for (const v of [p1, p2]) {
+      if (v.poisonTickDamage > 0 && v.poisonFrom) (v.poisonFrom === 'p1' ? p1 : p2).gainFartPower(v.poisonTickDamage);
+    }
+
     resolveCombat();
     updateProjectiles();
     updateBall();
@@ -239,8 +244,12 @@ const Game = (() => {
       attacker.startGrabSlam(defender);
     }
 
+    if ((result === 'hit' || result === 'blocked') && stats.poisonDamage) attacker.gainFartPower(dmg);
+    // Sam's Second Wind: landing a hit from the air heals a little.
+    if (result === 'hit' && attacker.character.airLeech && !attacker.grounded) attacker.hp = Math.min(attacker.maxHp, attacker.hp + attacker.character.airLeech);
+
     if (result === 'hit' && stats.poisonDamage) {
-      defender.applyPoison(stats, box);
+      defender.applyPoison(stats, box, attacker.slot);
     }
 
     if (result === 'hit' || result === 'blocked') {
@@ -337,7 +346,7 @@ const Game = (() => {
       const dmg = p.damage * p.owner.damageMultiplier * fightDamageMul();
       const result = defender.applyHit({
         damage: dmg, knockback: p.knockback, knockbackUp: p.knockbackUp, hitstun: p.hitstun,
-        fromFacing: p.vx >= 0 ? 1 : -1,
+        fromFacing: p.vx >= 0 ? 1 : -1, projectile: true,
         knockdown, knockdownDuration: p.knockdownDuration,
       });
 
@@ -626,7 +635,7 @@ const Game = (() => {
     const result = f.applyHit({
       damage: (RALLY_DAMAGE + RALLY_DAMAGE_PER_HEAT * heat) * owner.damageMultiplier,
       knockback: 5 + heat * 1.2, knockbackUp: 5 + heat * 0.6, hitstun: 16 + heat * 2,
-      fromFacing: dir,
+      fromFacing: dir, projectile: true,
     });
     b.grace[f.slot] = 20;
     b.live = false;

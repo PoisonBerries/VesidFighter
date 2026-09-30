@@ -92,6 +92,10 @@ class Fighter {
     this.buffSpdMul = 1;
     this.buffSizeMul = 1;
     this.atkSpeedMul = 1;
+    this.fartPower = 0;       // Artur's Toxic Rush: bonus (0..max) earned from fart damage
+    this.jumpStacks = 0;      // John's Bounce Back: hits taken this round
+    this.poisonFrom = null;   // slot of whoever's cloud is poisoning us
+    this.poisonTickDamage = 0; // damage the poison dealt this frame
 
     // Robert-style permanent mid-match transformation.
     this.transformed = false;
@@ -128,6 +132,26 @@ class Fighter {
     return 1 - Math.max(0, Math.min(1, this.hp / this.maxHp));
   }
 
+  get ultFrac() { return Math.max(0, Math.min(1, this.ultCharge / ULT_METER_MAX)); }
+
+  // Jump strength, with the passives that change it: Ryan's Crescendo (ult
+  // meter) and John's Bounce Back (hits taken).
+  get jumpForceEff() {
+    let j = this.character.jumpForce;
+    const cr = this.character.ultCrescendo;
+    if (cr) j *= 1 + cr.jump * this.ultFrac;
+    const hj = this.character.hitJump;
+    if (hj) j *= 1 + hj.perHit * this.jumpStacks;
+    return j;
+  }
+
+  // Carlos's hover fuel tank: bigger the lower his health.
+  get hoverMax() {
+    const h = this.character.hover;
+    if (!h) return 0;
+    return h.frames * (1 + (h.lowHealthBonus || 0) * (1 - Math.max(0, Math.min(1, this.hp / this.maxHp))));
+  }
+
   get moveSpeedEff() {
     let s = this.character.moveSpeed * this.buffSpdMul;
     if (this.transformed && this.character.transform) s *= this.character.transform.spdMul;
@@ -139,6 +163,11 @@ class Fighter {
     let d = this.buffAtkMul;
     if (this.transformed && this.character.transform) d *= this.character.transform.dmgMul;
     if (this.character.bloodDonor) d *= 1 + this.character.bloodDonor.damage * this.bloodFactor;
+    const rt = this.character.retaliate;
+    if (rt && this.sinceHit < rt.frames) d *= 1 + rt.damage;
+    if (this.character.fartPower) d *= 1 + this.fartPower;
+    const cr = this.character.ultCrescendo;
+    if (cr && !this.grounded) d *= 1 + cr.air * this.ultFrac;
     return d;
   }
 
@@ -146,7 +175,9 @@ class Fighter {
   get actionSpeed() {
     let a = this.atkSpeedMul || 1;
     const bd = this.character.bloodDonor;
-    if (bd && (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate')) a *= 1 + bd.attackSpeed * this.bloodFactor;
+    const acting = this.state === 'attack' || this.state === 'special' || this.state === 'ultimate';
+    if (bd && acting) a *= 1 + bd.attackSpeed * this.bloodFactor;
+    if (this.character.fartPower && acting) a *= 1 + this.fartPower;
     return a;
   }
 
@@ -417,7 +448,14 @@ class Fighter {
     this.downAttackActive = false;
   }
 
-  applyPoison(def, cloud) {
+  // Artur's Toxic Rush: fart damage dealt feeds him.
+  gainFartPower(damage) {
+    const fp = this.character.fartPower;
+    if (fp) this.fartPower = Math.min(fp.max, this.fartPower + damage * fp.perDamage);
+  }
+
+  applyPoison(def, cloud, fromSlot) {
+    this.poisonFrom = fromSlot || null;
     // The poison is the cloud: it only hurts while you stand in it.
     this.poisonBox = cloud ? { x: cloud.x, y: cloud.y, w: cloud.w, h: cloud.h } : null;
     this.poisonLife = def.poisonTicks * def.poisonTickInterval;
@@ -437,6 +475,7 @@ class Fighter {
   // hit: { damage, knockback, knockbackUp, hitstun, fromFacing, knockdown, knockdownDuration }
   // Returns 'dodged' | 'phased' | 'reflected' | 'blocked' | 'hit'.
   applyHit(hit) {
+    if (hit.projectile && this.character.projectileResist) hit = Object.assign({}, hit, { damage: hit.damage * (1 - this.character.projectileResist) });
     if (this.state === 'grabbed') return 'phased'; // in Robert's grip: nothing else can touch them
     if (this.invulnerableTimer > 0) {
       if (this._dodging) this._dodgeSuccess = true;
@@ -466,6 +505,7 @@ class Fighter {
     this.comboHits = 0;
     this.plasmaJumping = false;
     this.jumpCharge = 0;
+    if (this.character.hitJump) this.jumpStacks = Math.min(this.character.hitJump.max, this.jumpStacks + 1);
     if (this.balanceMode) {
       // The shakier you are (after this hit), the further it sends you --
       // gently at first, steeply near the end -- and past a point you fly
@@ -547,6 +587,7 @@ class Fighter {
     this.downAttackActive = false;
     this.phaseCooldown = 0;
     this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false;
+    this.fartPower = 0; this.jumpStacks = 0; this.poisonFrom = null; this.poisonTickDamage = 0;
     this._comboHeld = false;
     this.blocking = false;
     this.guarding = false;
@@ -630,6 +671,7 @@ class Fighter {
     }
 
     this.inPoison = false;
+    this.poisonTickDamage = 0;
     if (this.poisonTicksLeft > 0) {
       const b = this.poisonBox, h = this.getHurtbox();
       this.inPoison = !b || (h.x < b.x + b.w && h.x + h.w > b.x && h.y < b.y + b.h && h.y + h.h > b.y);
@@ -640,6 +682,7 @@ class Fighter {
         this.poisonTickTimer--;
         if (this.poisonTickTimer <= 0) {
           this.hp = Math.max(0, this.hp - this.poisonDamagePerTick);
+          this.poisonTickDamage = this.poisonDamagePerTick;
           this.poisonTickTimer = this.poisonTickInterval;
           this.hitFlashTimer = Math.max(this.hitFlashTimer, 4);
           this._maybeTransform();
@@ -862,7 +905,7 @@ class Fighter {
       return;
     }
     if (pressed.jump && this.jumpsUsed < this.character.maxJumps) {
-      this.vy = -this.character.jumpForce;
+      this.vy = -this.jumpForceEff;
       this.jumpsUsed++;
       this.grounded = false;
       this.state = 'jump';
@@ -887,7 +930,7 @@ class Fighter {
     const full = this.jumpCharge >= cj.maxFrames;
     // A quick tap is the ordinary jump; charging only counts past tapFrames.
     const frac = Math.max(0, Math.min(1, (this.jumpCharge - cj.tapFrames) / (cj.maxFrames - cj.tapFrames)));
-    const force = full ? cj.plasmaForce : this.character.jumpForce + (cj.maxForce - this.character.jumpForce) * frac;
+    const force = full ? cj.plasmaForce : this.jumpForceEff + (cj.maxForce - this.jumpForceEff) * frac;
     this.vy = -force;
     this.grounded = false;
     this.jumpsUsed++;
@@ -1024,7 +1067,7 @@ class Fighter {
     const h = this.character.hover;
     if (!h) return;
     if (this.grounded) {
-      this.hoverLeft = h.frames;
+      this.hoverLeft = this.hoverMax;
       this.hovering = false;
       return;
     }

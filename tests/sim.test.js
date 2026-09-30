@@ -354,14 +354,14 @@ test('Robert transforms at half HP, and the transformation resets at the start o
   assert.strictEqual(s.f[0].hp, base.maxHp, 'and he starts the round at full base HP');
 });
 
-test('a transformed Robert hits as hard as before the base nerf (base got slightly weaker, transformed did not)', () => {
+test('a transformed Robert hits hard; base Robert is a touch weaker (base got slightly weaker, transformed did not)', () => {
   const sim = createSim();
   const r = sim.CHARACTERS.robert;
   const transformedBasic = r.attack.damage * r.transform.dmgMul;
   assert.ok(transformedBasic >= 16 && transformedBasic <= 17.5, `transformed basic attack ${transformedBasic}`);
   assert.ok(r.attack.damage <= 10, 'base Robert should be a touch weaker than before (was 11)');
-  assert.ok(r.maxHp < 115, 'base Robert should have a little less HP than before (was 115)');
-  assert.ok(r.maxHp + r.transform.bonusHp >= 170, 'transformed HP pool unchanged (~173)');
+  assert.ok(r.maxHp < 173, 'base Robert should have a little less HP than a mid-weight (was 115 before the +50%)');
+  assert.ok(r.maxHp + r.transform.bonusHp >= 255, 'transformed HP pool keeps its ratio (~260 after the +50%)');
 });
 
 test('nothing lingers between rounds: buffs, poison, shields, stun and transformations are all cleared', () => {
@@ -1601,4 +1601,75 @@ test('fighters can turn around in the air (Carlos hovering)', () => {
   for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], a === 'left', false);
   f.update(C, foe);
   assert.strictEqual(f.facing, -1);
+});
+
+// ---- Passives ----
+test('every fighter has 50% more HP than before', () => {
+  const sim = createSim();
+  const was = { keenan: 90, artur: 115, carlos: 115, nathan: 140, owen: 90, robert: 108, ryan: 92, sam: 90, john: 124 };
+  for (const [id, hp] of Object.entries(was)) assert.ok(Math.abs(sim.CHARACTERS[id].maxHp - hp * 1.5) <= 1, `${id}: ${sim.CHARACTERS[id].maxHp}`);
+});
+
+test('passives: Keenan hits harder after being hit; Artur\'s farts feed him; Carlos gets fuel at low health', () => {
+  const sim = createSim();
+  let { f } = startFighter(sim, 'keenan', 400);
+  const base = f.damageMultiplier;
+  f.applyHit({ damage: 5, knockback: 1, knockbackUp: 0, hitstun: 5, fromFacing: -1 });
+  assert.ok(f.damageMultiplier > base * 1.1, 'more damage just after a hit');
+  f.sinceHit = 999;
+  assert.strictEqual(f.damageMultiplier, base, 'and it wears off');
+
+  ({ f } = startFighter(sim, 'artur', 400));
+  assert.strictEqual(f.damageMultiplier, 1);
+  f.gainFartPower(10);
+  f.state = 'attack';
+  assert.ok(f.damageMultiplier > 1.1 && f.actionSpeed > 1.1, 'power and attack speed');
+  f.gainFartPower(10000);
+  assert.ok(Math.abs(f.damageMultiplier - (1 + sim.CHARACTERS.artur.fartPower.max)) < 1e-9, 'capped');
+  f.resetForRound();
+  assert.strictEqual(f.damageMultiplier, 1, 'fresh each round');
+
+  ({ f } = startFighter(sim, 'carlos', 400));
+  const full = f.hoverMax;
+  f.hp = f.maxHp * 0.25;
+  assert.ok(f.hoverMax > full * 1.5, `${f.hoverMax} vs ${full}`);
+});
+
+test('passives: Nathan resists projectiles; Ryan\'s ult meter boosts jumps and air attacks; Sam heals from air hits; John jumps higher per hit', () => {
+  const sim = createSim();
+  const dealt = (id, extra) => {
+    const { f } = startFighter(sim, id, 400);
+    const hp0 = f.hp;
+    f.applyHit(Object.assign({ damage: 10, knockback: 1, knockbackUp: 0, hitstun: 5, fromFacing: -1 }, extra));
+    return hp0 - f.hp;
+  };
+  assert.strictEqual(dealt('nathan', { projectile: true }), 10 * (1 - sim.CHARACTERS.nathan.projectileResist));
+  assert.strictEqual(dealt('nathan', {}), 10, 'melee is not reduced');
+  assert.strictEqual(dealt('keenan', { projectile: true }), 10);
+
+  let { f } = startFighter(sim, 'ryan', 400);
+  const j0 = f.jumpForceEff;
+  f.ultCharge = sim.ULT_METER_MAX;
+  assert.ok(f.jumpForceEff > j0 * 1.2);
+  f.grounded = false;
+  assert.ok(f.damageMultiplier > 1.3, 'airborne hits harder with a full meter');
+  f.grounded = true;
+  assert.strictEqual(f.damageMultiplier, 1, 'not on the ground');
+
+  ({ f } = startFighter(sim, 'john', 400));
+  const base = f.jumpForceEff;
+  for (let i = 0; i < 3; i++) f.applyHit({ damage: 1, knockback: 1, knockbackUp: 0, hitstun: 5, fromFacing: -1 });
+  assert.ok(Math.abs(f.jumpForceEff - base * (1 + 3 * sim.CHARACTERS.john.hitJump.perHit)) < 1e-9);
+
+  // Sam: an air hit through the real loop restores health.
+  const C = startGame(sim, 'sam', 'keenan', 400, 470);
+  sim.Game.applySnapshot({ f: [{ x: 400, hp: 50, y: sim.GROUND_Y - 50, grounded: false, state: 'fall', vy: 0 }, { x: 465 }] });
+  sim.InputManager.setVirtual(C.attack, false, true); step(sim, 1); sim.InputManager.setVirtual(C.attack, false, false);
+  for (let i = 0; i < 40; i++) step(sim, 1);
+  assert.ok(sim.Game.world().p1.hp > 50, 'healed a little from an air hit');
+});
+
+test('controls shown in vs-CPU mode are the one-keyboard keys', () => {
+  const src = require('fs').readFileSync(require('path').join(ROOT, 'js', 'net.js'), 'utf8');
+  assert.ok(/localVirtual\) return forSlot === 'p1' \? CONTROLS\.solo : null/.test(src));
 });

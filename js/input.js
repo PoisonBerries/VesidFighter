@@ -10,7 +10,7 @@ const InputManager = (() => {
 
   const PREVENT_DEFAULT_CODES = new Set([
     'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space',
-    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL', 'Semicolon', 'Quote',
+    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyI', 'KeyJ', 'KeyK', 'KeyL', 'KeyT', 'KeyP', 'Semicolon', 'Quote',
   ]);
 
   window.addEventListener('keydown', (e) => {

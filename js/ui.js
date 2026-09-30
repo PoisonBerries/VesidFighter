@@ -239,6 +239,12 @@ const UI = (() => {
           <div class="ability-desc">While being hit, press jump and crouch together to slip through your opponent and come out behind them. ${Math.round(char.phaseStep.cooldown / 60)}s cooldown.</div>
         </div>
       </div>` : ''}
+      ${char.passive ? `<div class="ability-row">
+        <div>
+          <div class="ability-name">Passive: ${char.passive.name}</div>
+          <div class="ability-desc">${char.passive.description}</div>
+        </div>
+      </div>` : ''}
       ${tf ? `<div class="ability-row">
         <div>
           <div class="ability-name">Passive: Transformation</div>

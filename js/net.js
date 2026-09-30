@@ -76,7 +76,11 @@ const Net = (() => {
   // one-player keys, shown on *your* panel, whichever side you're on, and
   // nothing on the opponent's (those aren't your keys).
   function controlLabelsFor(forSlot) {
-    if (!isOnline()) return CONTROLS[forSlot];
+    if (!isOnline()) {
+      // Vs CPU: one player on the one-keyboard keys; the CPU has none.
+      if (localVirtual) return forSlot === 'p1' ? CONTROLS.solo : null;
+      return CONTROLS[forSlot];
+    }
     return forSlot === localSlot() ? CONTROLS.solo : null;
   }
 

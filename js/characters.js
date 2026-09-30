@@ -8,7 +8,7 @@
 //   moveSpeed:    4.6 low, 5.0-5.6 medium, 6.4-6.6 high
 //   attackSpeed:  total basic-attack frames (startup+active+recovery), lower
 //                 is faster -- 16-19 fast, 24-27 normal, 29-32 slow, 38 slowest
-//   maxHp:        90-92 low, 108-115 medium, 124-140 high
+//   maxHp:        135-138 low, 162-173 medium, 186-210 high
 //   attack dmg:   6-7 low, 8-11 normal, 14-16 high
 //   attack.high:  punches are high by default (duckable by crouching); high: false = low attack
 //   blockDamageMul / blockKnockbackMul: how much of a blocked hit still gets through (default 0.15 / 0.25)
@@ -36,7 +36,10 @@ const CHARACTERS = {
     // Untouchable for the dash and a moment after; then a short cooldown.
     phaseStep: { window: 75, cooldown: 480, dashFrames: 9, invulnTail: 6, recovery: 6, behind: 85 },
     faceAfterAbility: true, // turns back to face the opponent after a phase step / counter
-    maxHp: 90,
+    // Passive: for a while after taking a hit, he hits harder.
+    retaliate: { damage: 0.15, frames: 300 },
+    passive: { name: 'Adrenaline', description: 'For 5 seconds after taking a hit he deals 15% more damage.' },
+    maxHp: 135,
     attack: {
       damage: 6, offset: 24, width: 60, height: 82,
       startup: 5, active: 3, recovery: 8,
@@ -85,7 +88,10 @@ const CHARACTERS = {
     // the crouch/guard (same hurtbox and block), but a fair bit quicker than
     // everyone's crouch-walk (which is CROUCH_SPEED_MULTIPLIER of run speed).
     crouchRoll: { speedMul: 0.55 },
-    maxHp: 115,
+    // Passive: damage his fart clouds do builds power and attack speed.
+    fartPower: { perDamage: 0.012, max: 0.4 },
+    passive: { name: 'Toxic Rush', description: 'Every point of damage his farts deal feeds him: up to +40% damage and attack speed for the rest of the round.' },
+    maxHp: 173,
     attack: {
       damage: 9, offset: 26, width: 70, height: 90,
       startup: 7, active: 4, recovery: 13,
@@ -130,7 +136,8 @@ const CHARACTERS = {
     // Instead of a double jump: hold jump in the air (once the rise has
     // mostly finished) to hang in place on the thrusters for a short time.
     // Refills on landing.
-    hover: { frames: 68, maxRiseSpeed: 3 },
+    hover: { frames: 68, maxRiseSpeed: 3, lowHealthBonus: 1.0 },
+    passive: { name: 'Desperate Fuel', description: 'The lower his health, the more hover fuel he has: up to double at no health.' },
     // Attack while hovering: a brief wind-up, then a spinning claw dive
     // forward and down (a drill of claws, in the spirit of Meta Knight's
     // Drill Rush). Ends on a hit or when he touches down; he can't hover
@@ -140,7 +147,7 @@ const CHARACTERS = {
       offset: 8, width: 110, height: 110,
       damage: 15, knockback: 10, knockbackUp: 4, hitstun: 18,
     },
-    maxHp: 115,
+    maxHp: 173,
     attack: {
       damage: 16, offset: 28, width: 78, height: 100,
       startup: 12, active: 5, recovery: 21,
@@ -190,7 +197,10 @@ const CHARACTERS = {
     // moves, stretches when it jumps, and stretches and rebounds when hit,
     // blocked or reflecting. reach = how far the arm is drawn out.
     elastic: { reach: true },
-    maxHp: 140,
+    // Passive: rubber shrugs off shots (and the ball).
+    projectileResist: 0.35,
+    passive: { name: 'Rubber Skin', description: 'Takes 35% less damage from projectiles, including the ball.' },
+    maxHp: 210,
     attack: {
       // Long-range punch: nearly twice a normal reach (the arm stretches out
       // to it), at a slightly lower damage and a touch slower to land than
@@ -254,7 +264,7 @@ const CHARACTERS = {
       // the crash at the bottom
       landing: { damage: 16, width: 230, height: 110, active: 4, recovery: 16, knockback: 15, knockbackUp: 8, hitstun: 26 },
     },
-    maxHp: 90,
+    maxHp: 135,
     attack: {
       damage: 8, offset: 26, width: 66, height: 88,
       startup: 8, active: 4, recovery: 17,
@@ -299,10 +309,10 @@ const CHARACTERS = {
     moveSpeed: 5.6,
     jumpForce: 15,
     maxJumps: 1,
-    maxHp: 108,
+    maxHp: 162,
     transform: {
       hpThreshold: 0.5,
-      bonusHp: 65, // raises max HP; current health keeps the same percentage (no heal)
+      bonusHp: 98, // raises max HP; current health keeps the same percentage (no heal)
       sizeMul: 1.3,
       spdMul: 0.75,
       dmgMul: 1.65,
@@ -348,7 +358,10 @@ const CHARACTERS = {
     moveSpeed: 6.6,
     jumpForce: 18,
     maxJumps: 1,
-    maxHp: 92,
+    // Passive: the fuller his ultimate meter, the higher he jumps and the harder his airborne attacks hit.
+    ultCrescendo: { jump: 0.25, air: 0.4 },
+    passive: { name: 'Crescendo', description: 'As his ultimate meter fills he jumps up to 25% higher and hits up to 40% harder with airborne attacks.' },
+    maxHp: 138,
     attack: {
       damage: 7, offset: 24, width: 64, height: 84,
       startup: 6, active: 3, recovery: 10,
@@ -412,7 +425,10 @@ const CHARACTERS = {
       speedMul: 0.5, height: 0.28, widthMul: 1.5,
       slide: { minSpeed: 3.2, boost: 1.12, friction: 0.965, endSpeed: 1.6 },
     },
-    maxHp: 90,
+    // Passive: hits landed from the air heal him a little.
+    airLeech: 3,
+    passive: { name: 'Second Wind', description: 'Landing a hit while airborne restores a little health.' },
+    maxHp: 135,
     attack: {
       damage: 7, offset: 22, width: 60, height: 80,
       startup: 6, active: 3, recovery: 9,
@@ -464,7 +480,10 @@ const CHARACTERS = {
     moveSpeed: 5.0,
     jumpForce: 13,
     maxJumps: 1,
-    maxHp: 124,
+    // Passive: every hit he takes makes him jump a little higher.
+    hitJump: { perHit: 0.04, max: 10 },
+    passive: { name: 'Bounce Back', description: 'Each hit he takes makes his jump about 4% higher (up to 10 hits, for the rest of the round).' },
+    maxHp: 186,
     attack: {
       damage: 14, offset: 32, width: 84, height: 106,
       startup: 9, active: 5, recovery: 18,

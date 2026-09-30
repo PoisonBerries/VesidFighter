@@ -1086,7 +1086,7 @@ const AbilityFX = (() => {
   function drawHoverMeter(ctx, f) {
     const hv = f.character.hover;
     if (!hv || f.grounded) return;
-    const frac = clamp(f.hoverLeft / hv.frames, 0, 1);
+    const frac = clamp(f.hoverLeft / f.hoverMax, 0, 1);
     if (frac >= 1) return;
     const cx = f.x, y = Math.max(140, f.y - f.height - 48) + 26, w = 46, h = 6;
     ctx.save();
