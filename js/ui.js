@@ -237,6 +237,16 @@ const UI = (() => {
     show('matchend');
   }
 
+  // Leaving a match for the main menu ends it. Nothing may keep simulating
+  // behind the title screen: the CPU carrying on fighting, sounds firing, or a
+  // round/match end popping its screen up over the menu.
+  function leaveMatch() {
+    Cpu.stop();
+    Game.stop();
+    isPaused = false;
+    window.VF_setPaused(false);
+  }
+
   function togglePause() {
     isPaused = !isPaused;
     window.VF_setPaused(isPaused);
@@ -299,6 +309,7 @@ const UI = (() => {
   });
   document.getElementById('btn-main-menu').addEventListener('click', () => {
     Net.disconnect();
+    leaveMatch();
     show('title');
   });
 
@@ -391,8 +402,7 @@ const UI = (() => {
     startFight();
   });
   document.getElementById('btn-quit-to-menu').addEventListener('click', () => {
-    isPaused = false;
-    window.VF_setPaused(false);
+    leaveMatch();
     show('title');
   });
 

@@ -92,6 +92,32 @@ test('starting a local game from the menus puts both fighters on screen', async 
   await page.close();
 });
 
+test('quitting to the main menu stops the match: nothing keeps running behind the title screen', async () => {
+  for (const mode of ['#btn-start', '#btn-cpu']) {
+    const { page, errors } = await openGame();
+    await page.click(mode);
+    await page.waitForSelector('#screen-select:not(.hidden)');
+    await page.click('#btn-fight');
+    await page.waitForFunction(() => Game.getState() === 'fight', { timeout: 15000 });
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('#pause-menu:not(.hidden)');
+    await page.click('#btn-quit-to-menu');
+    await page.waitForSelector('#screen-title:not(.hidden)');
+    const state = await page.evaluate(() => Game.getState());
+    assert.strictEqual(state, 'idle', `${mode}: the match must end when you quit to the menu`);
+    assert.strictEqual(await page.evaluate(() => Cpu.isActive()), false, `${mode}: the CPU must stop`);
+    // Let real time pass: the fighters must not move, take damage or change state.
+    const snap = () => page.evaluate(() => JSON.stringify(Game.getSnapshot().f.map((f) => [f.x, f.y, f.hp, f.state, f.actionTimer])));
+    const before = await snap();
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.strictEqual(await snap(), before, `${mode}: fighters kept moving behind the title screen`);
+    const shown = await page.$$eval('.screen', (els) => els.filter((e) => !e.classList.contains('hidden')).map((e) => e.id));
+    assert.deepStrictEqual(shown, ['screen-title'], `${mode}: only the title screen should be showing`);
+    assert.deepStrictEqual(errors, []);
+    await page.close();
+  }
+});
+
 test('every character is drawn, and survives attack/special/ultimate/jump/block/hit/KO with rendering on', async () => {
   const { page, errors } = await openGame();
   await page.evaluate(PAGE_HELPERS);
