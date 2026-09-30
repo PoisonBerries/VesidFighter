@@ -547,53 +547,6 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
-  // A small pill above a fighter who can Phase Step right now (in hitstun
-  // and ready), so the escape is discoverable in the moment it matters.
-  function drawPhaseHint(ctx, f) {
-    const now = performance.now();
-    const cx = f.x, y = Math.max(150, f.y - f.height - 96);
-    const pulse = 0.5 + 0.5 * Math.sin(now / 110);
-    ctx.save();
-    ctx.font = 'bold 15px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const label = '\u2191 + \u2193', w = 62, h = 24;
-    ctx.globalCompositeOperation = 'lighter';
-    glow(ctx, cx, y, 46, '#9fd8ff', 0.25 + 0.3 * pulse);
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(20,30,60,0.85)';
-    ctx.strokeStyle = `rgba(190,235,255,${0.6 + 0.4 * pulse})`;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx - w / 2 + 12, y - h / 2);
-    ctx.arcTo(cx + w / 2, y - h / 2, cx + w / 2, y + h / 2, 12);
-    ctx.arcTo(cx + w / 2, y + h / 2, cx - w / 2, y + h / 2, 12);
-    ctx.arcTo(cx - w / 2, y + h / 2, cx - w / 2, y - h / 2, 12);
-    ctx.arcTo(cx - w / 2, y - h / 2, cx + w / 2, y - h / 2, 12);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = '#fff';
-    ctx.fillText(label, cx, y + 1);
-    ctx.restore();
-  }
-
-  // Ripples spreading across the floor where Sam swims.
-  function drawRipple(ctx, e, t) {
-    ctx.save();
-    for (let i = 0; i < 2; i++) {
-      const tt = clamp((t - i * 0.18) / 0.82, 0, 1);
-      if (tt <= 0 || tt >= 1) continue;
-      const rx = 16 + 46 * easeOutCubic(tt);
-      ctx.strokeStyle = `rgba(190,240,255,${(1 - tt) * 0.8})`;
-      ctx.lineWidth = 3 * (1 - tt) + 1;
-      ctx.beginPath();
-      ctx.ellipse(e.x, e.y + 1, rx, rx * 0.17, 0, 0, TAU);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
   function drawTimed(ctx) {
     if (!timed.length) return;
     const now = performance.now();
@@ -1254,11 +1207,29 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // Owen's Blood Donor: a red glow that grows as his health drops, pulsing
+  // faster like a heartbeat, with a ring on each beat.
+  function drawBloodAura(ctx, f) {
+    const t = f.bloodFactor, now = performance.now(), H = f.height;
+    const rate = 1100 - 700 * t;                  // ms per beat: 1.1s calm -> 0.4s desperate
+    const beat = (now % rate) / rate;
+    const thump = Math.pow(Math.max(0, 1 - beat * 3), 2); // sharp pulse at the start of each beat
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    glow(ctx, f.x, f.y - H * 0.5, H * (0.55 + 0.25 * t + 0.15 * thump), '#ff2a3a', (0.12 + 0.3 * t) * (0.7 + 0.5 * thump));
+    ctx.strokeStyle = `rgba(255,70,80,${(1 - beat) * 0.7 * t})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(f.x, GROUND_Y + 3, f.width * (0.35 + beat * 0.8), 9 + beat * 10, 0, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function drawFront(ctx, f) {
+    if (f.character.bloodDonor && f.bloodFactor > 0.12) drawBloodAura(ctx, f);
     if (f.sliding && f.state === 'block') drawSlideFX(ctx, f);
     if (f.state === 'hoverdive' && f._ability && f._ability.diving && f.character.hoverDive) drawClawDrill(ctx, f);
     if (f.rolling && f.grounded) drawNinjaRoll(ctx, f);
-    if (f.character.phaseStep && (f.state === 'hitstun' || f.state === 'knockdown') && f.phaseCooldown <= 0 && f.y <= GROUND_Y + 1 && f.hp > 0) drawPhaseHint(ctx, f);
     if (f.hovering) drawHoverJets(ctx, f);
     if (f.character.hover) drawHoverMeter(ctx, f);
     if (f.reflectTimer > 0) drawReflectDome(ctx, f);
@@ -1481,6 +1452,15 @@ const AbilityFX = (() => {
         m.lastRipple = nowMs;
         add({ kind: 'ripple', dur: 560, x: f.x, y: GROUND_Y });
         Effects.spawn({ x: f.x + rnd(-1, 1) * f.width * 0.4, y: GROUND_Y - 4, vx: rnd(-0.8, 0.8), vy: -rnd(1, 2.4), size: rnd(1.5, 3), color: '#bfefff', life: rnd(18, 28), g: 0.25 });
+      }
+    }
+
+    // Blood Donor: blood drips off him, more the lower his health.
+    if (f.character.bloodDonor && f.bloodFactor > 0.2) {
+      const nowMs = performance.now();
+      if (nowMs - (m.lastDrip || 0) > 260 - 190 * f.bloodFactor) {
+        m.lastDrip = nowMs;
+        Effects.spawn({ x: f.x + rnd(-1, 1) * f.width * 0.35, y: f.y - rnd(0.2, 0.9) * H, vx: rnd(-0.4, 0.4), vy: rnd(0, 1), size: rnd(2, 3.4), color: Math.random() < 0.5 ? '#b3101f' : '#e8283a', life: rnd(26, 40), g: 0.35, drag: 0.98 });
       }
     }
 

@@ -1131,3 +1131,83 @@ test('Sam swims (a quicker crouch-crawl) and crouching while moving is a slide t
   assert.strictEqual(f.sliding, false, 'standing up ends the slide');
   keys([]);
 });
+
+// ---- Owen's Blood Donor ----
+test('Blood Donor: Owen\'s damage, attack speed and movement speed rise as his health falls; nobody else\'s do', () => {
+  const sim = createSim();
+  const bd = sim.CHARACTERS.owen.bloodDonor;
+  const at = (id, frac) => {
+    const f = new sim.Fighter('p1', sim.CHARACTERS[id], 500, 1);
+    f.hp = f.maxHp * frac;
+    return f;
+  };
+  // Multipliers scale linearly with health lost.
+  const full = at('owen', 1), half = at('owen', 0.5), empty = at('owen', 0);
+  assert.strictEqual(full.damageMultiplier, 1);
+  assert.strictEqual(full.moveSpeedEff, sim.CHARACTERS.owen.moveSpeed);
+  assert.strictEqual(full.actionSpeed, 1);
+  assert.ok(Math.abs(half.damageMultiplier - (1 + bd.damage * 0.5)) < 1e-9, 'half health: half the damage bonus');
+  assert.ok(Math.abs(half.moveSpeedEff - sim.CHARACTERS.owen.moveSpeed * (1 + bd.speed * 0.5)) < 1e-9);
+  assert.ok(Math.abs(empty.damageMultiplier - (1 + bd.damage)) < 1e-9, 'no health: the full bonus');
+  assert.ok(Math.abs(empty.moveSpeedEff - sim.CHARACTERS.owen.moveSpeed * (1 + bd.speed)) < 1e-9);
+  // Attack speed only applies while he is acting (not while being hit, for instance).
+  empty.state = 'attack';
+  assert.ok(Math.abs(empty.actionSpeed - (1 + bd.attackSpeed)) < 1e-9);
+  empty.state = 'hitstun';
+  assert.strictEqual(empty.actionSpeed, 1, 'no faster hit-stun recovery');
+  // Monotonic: less health is never weaker.
+  let prev = 0;
+  for (const frac of [1, 0.75, 0.5, 0.25, 0]) { const m = at('owen', frac).damageMultiplier; assert.ok(m >= prev); prev = m; }
+  // Everyone else is untouched by health.
+  for (const c of sim.CHARACTER_LIST.filter((c) => c.id !== 'owen')) {
+    const a = at(c.id, 1), b = at(c.id, 0.05);
+    assert.strictEqual(a.damageMultiplier, b.damageMultiplier, `${c.id}: damage must not depend on health`);
+    assert.strictEqual(a.moveSpeedEff, b.moveSpeedEff, `${c.id}: speed must not depend on health`);
+    b.state = 'attack';
+    assert.strictEqual(b.actionSpeed, 1);
+  }
+});
+
+test('Blood Donor in a real fight: a wounded Owen hits harder, attacks quicker and moves faster', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  // Damage dealt by one basic attack at a given health.
+  const punch = (hpFrac) => {
+    sim.Game.startMatch('owen', 'sam', () => {}, { ball: 'off' });
+    for (let i = 0; i < 200; i++) sim.Game.update(sim.FIXED_STEP);
+    const owen = sim.CHARACTERS.owen;
+    sim.Game.applySnapshot({ f: [{ x: 500, hp: owen.maxHp * hpFrac }, { x: 555 }] });
+    const hp0 = sim.Game.getSnapshot().f[1].hp;
+    sim.InputManager.setVirtual(C.attack, false, true);
+    sim.Game.update(sim.FIXED_STEP);
+    sim.InputManager.setVirtual(C.attack, false, false);
+    let frames = 1, hitFrame = null;
+    while (frames < 60 && sim.Game.getSnapshot().f[0].state === 'attack') {
+      sim.Game.update(sim.FIXED_STEP); frames++;
+      if (hitFrame === null && sim.Game.getSnapshot().f[1].hp < hp0) hitFrame = frames;
+    }
+    return { dmg: hp0 - sim.Game.getSnapshot().f[1].hp, frames, hitFrame };
+  };
+  const healthy = punch(1), hurt = punch(0.5), nearDead = punch(0.05);
+  const base = sim.CHARACTERS.owen.attack.damage;
+  assert.ok(Math.abs(healthy.dmg - base) < 0.01, `full health: normal damage (${healthy.dmg})`);
+  assert.ok(hurt.dmg > healthy.dmg * 1.2, `half health: clearly more damage (${hurt.dmg.toFixed(2)})`);
+  assert.ok(nearDead.dmg > hurt.dmg, 'and more again near death');
+  assert.ok(nearDead.dmg <= base * 1.5 + 0.01, 'never past the cap');
+  assert.ok(nearDead.frames < healthy.frames * 0.85, `the swing is over sooner (${nearDead.frames} vs ${healthy.frames} frames)`);
+  assert.ok(nearDead.hitFrame < healthy.hitFrame, 'and lands sooner');
+
+  // Walking speed.
+  const walk = (hpFrac) => {
+    const f = new sim.Fighter('p1', sim.CHARACTERS.owen, 300, 1);
+    const foe = new sim.Fighter('p2', sim.CHARACTERS.sam, 900, -1);
+    f.hp = f.maxHp * hpFrac;
+    for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], a === 'right', false);
+    for (let i = 0; i < 4; i++) f.update(C, foe);
+    const x0 = f.x;
+    for (let i = 0; i < 30; i++) f.update(C, foe);
+    for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], false, false);
+    return (f.x - x0) / 30;
+  };
+  assert.ok(walk(0.1) > walk(1) * 1.15, 'walks faster when hurt');
+});

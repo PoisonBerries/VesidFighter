@@ -98,16 +98,32 @@ class Fighter {
   get width() { return FIGHTER_WIDTH * this.sizeMultiplier; }
   get height() { return FIGHTER_HEIGHT * this.sizeMultiplier; }
 
+  // Blood Donor: 0 at full health up to 1 at none -- how much of the bonus applies.
+  get bloodFactor() {
+    if (!this.character.bloodDonor) return 0;
+    return 1 - Math.max(0, Math.min(1, this.hp / this.maxHp));
+  }
+
   get moveSpeedEff() {
     let s = this.character.moveSpeed * this.buffSpdMul;
     if (this.transformed && this.character.transform) s *= this.character.transform.spdMul;
+    if (this.character.bloodDonor) s *= 1 + this.character.bloodDonor.speed * this.bloodFactor;
     return s;
   }
 
   get damageMultiplier() {
     let d = this.buffAtkMul;
     if (this.transformed && this.character.transform) d *= this.character.transform.dmgMul;
+    if (this.character.bloodDonor) d *= 1 + this.character.bloodDonor.damage * this.bloodFactor;
     return d;
+  }
+
+  // How fast the action clock runs: Encore's buff, and Blood Donor's bonus while attacking.
+  get actionSpeed() {
+    let a = this.atkSpeedMul || 1;
+    const bd = this.character.bloodDonor;
+    if (bd && (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate')) a *= 1 + bd.attackSpeed * this.bloodFactor;
+    return a;
   }
 
   get displayColor() {
@@ -761,7 +777,7 @@ class Fighter {
   _updateActionState() {
     // Ryan's Encore ultimate speeds up whatever animation is currently
     // playing (his own) by advancing the action clock faster than realtime.
-    this.actionTimer += (this.atkSpeedMul || 1);
+    this.actionTimer += this.actionSpeed;
 
     if (this.state === 'attack') {
       const a = this.character.attack;

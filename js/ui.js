@@ -228,6 +228,12 @@ const UI = (() => {
           <div class="ability-desc">While being hit, press jump and crouch together to slip through your opponent and come out behind them. ${Math.round(char.phaseStep.cooldown / 60)}s cooldown.</div>
         </div>
       </div>` : ''}
+      ${char.bloodDonor ? `<div class="ability-row">
+        <div>
+          <div class="ability-name">Passive: Blood Donor</div>
+          <div class="ability-desc">The lower his health, the harder he hits and the faster he attacks and moves &mdash; up to +${Math.round(char.bloodDonor.damage * 100)}% damage, +${Math.round(char.bloodDonor.attackSpeed * 100)}% attack speed and +${Math.round(char.bloodDonor.speed * 100)}% movement speed at no health.</div>
+        </div>
+      </div>` : ''}
       ${char.crouchSwim ? `<div class="ability-row">
         ${controls ? `<span class="key-badge">${keyLabel(controls.block)}</span>` : ''}
         <div>

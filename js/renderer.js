@@ -432,6 +432,7 @@ const Renderer = (() => {
     else if (fighter.reflectTimer > 0) tint = { color: '#ff3c3c', alpha: 0.32 };
     else if (fighter.state === 'block') tint = { color: '#000000', alpha: 0.22 };
     else if (fighter.poisonTicksLeft > 0) tint = { color: '#78c85a', alpha: 0.3 };
+    else if (fighter.bloodFactor > 0.08) tint = { color: '#c8182b', alpha: 0.32 * fighter.bloodFactor }; // Blood Donor: flushing red
 
     drawPlaceholder(ctx, fighter, rig, tint);
 
@@ -1947,6 +1948,13 @@ const Renderer = (() => {
     cx -= drawSlotChip(ctx, cx, 15, 'P2', PLAYER_COLORS.p2, true) + 6;
     if (local === 'p2') drawSlotChip(ctx, cx, 15, 'YOU', '#2c2c3a', true);
     ctx.textAlign = 'left';
+    // Blood Donor readout beside the round pips, once the bonus is noticeable.
+    for (const [f, right] of [[p1, false], [p2, true]]) {
+      const bd = f.character.bloodDonor;
+      if (!bd || f.bloodFactor < 0.05) continue;
+      const pct = Math.round(bd.damage * f.bloodFactor * 100);
+      drawSlotChip(ctx, right ? CANVAS_WIDTH - margin - 62 : margin + 62, 99, `BLOOD DONOR +${pct}%`, '#a3121f', right);
+    }
   }
 
   // Floating tag above a fighter (Smash-style): a pill in the side colour,

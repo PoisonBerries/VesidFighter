@@ -223,6 +223,12 @@ const CHARACTERS = {
     moveSpeed: 4.6,
     jumpForce: 14,
     maxJumps: 1,
+    // Blood Donor (passive): the more health Owen has lost, the more of these
+    // bonuses he gets, scaling linearly up to the full amount at zero health.
+    // damage / speed multiply his damage and movement; attackSpeed makes his
+    // attacks, specials and ultimate play out faster (like Encore, but only
+    // while he's acting).
+    bloodDonor: { damage: 0.5, attackSpeed: 0.35, speed: 0.25 },
     maxHp: 90,
     attack: {
       damage: 8, offset: 26, width: 66, height: 88,
