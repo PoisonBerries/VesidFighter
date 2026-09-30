@@ -2,12 +2,14 @@
 // broker is only used to introduce the two browsers, then traffic goes
 // peer-to-peer.
 //
-// Two ways to connect:
-//  - "server" mode (default when GAME_SERVER_URL is set): both players
-//    connect by WebSocket to server/server.js, which runs the simulation.
-//    Both browsers behave like a guest below: stream inputs, render
-//    snapshots. The server's snapshots are deltas, merged by applySnapshot.
-//  - direct peer-to-peer (fallback), described below.
+// Ways to connect:
+//  - "relay" mode (default when GAME_SERVER_URL is set): both players
+//    connect by WebSocket to server/server.js, which just passes messages
+//    between them; both run the game with rollback, exactly like direct P2P.
+//  - "server" mode: the same connection, but the server runs the simulation
+//    and both browsers stream inputs and render its (delta) snapshots. Only
+//    used when the server predates relay rooms.
+//  - direct peer-to-peer (the "Direct connection" option), described below.
 //
 // P2P model: rollback netcode (js/rollback.js). Both players run the
 // simulation and exchange only their inputs, so your own fighter responds
@@ -32,7 +34,7 @@ const Net = (() => {
     for (const a of ACTIONS) VCONTROLS[slot][a] = 'V_' + slot + '_' + a;
   }
 
-  let mode = 'offline'; // offline | host | guest | server
+  let mode = 'offline'; // offline | host | guest | relay | server
   let slot = 'p1'; // our fighter in server mode
   let ws = null;
   let peer = null;
@@ -57,12 +59,13 @@ const Net = (() => {
   function isHost() { return mode === 'host'; }
   function isGuest() { return mode === 'guest'; }
   function isServer() { return mode === 'server'; }
+  function isRelay() { return mode === 'relay'; }
   // True when the server runs the simulation and we just render it.
   function isRemoteSim() { return mode === 'server'; }
   // Direct P2P: both players simulate, with rollback.
-  function isRollback() { return mode === 'host' || mode === 'guest'; }
+  function isRollback() { return mode === 'host' || mode === 'guest' || mode === 'relay'; }
   function localSlot() {
-    if (mode === 'server') return slot;
+    if (mode === 'server' || mode === 'relay') return slot;
     return mode === 'guest' ? 'p2' : 'p1';
   }
   // P1 drives menu flow (Fight!, Rematch) in every online mode.
@@ -186,6 +189,8 @@ const Net = (() => {
       Game.applySnapshot(msg);
     } else if (msg.t === 'room') {
       slot = msg.slot;
+      // An older server ignores the relay request and runs the game itself.
+      mode = msg.relay ? 'relay' : 'server';
       if (slot === 'p1') {
         emit('status', { code: msg.code, text: 'Room code: ' + msg.code + ' -- waiting for opponent...' });
       }
@@ -196,13 +201,15 @@ const Net = (() => {
       disconnect(msg.text);
     } else if (msg.t === 'left') {
       disconnect('Opponent disconnected.');
+    } else if (msg.t === 'ri' || msg.t === 'rh' || msg.t === 'rs') {
+      Rollback.receive(msg);
     } else {
       emit('ctrl', msg);
     }
   }
 
-  function hostServer() { serverConnect({ t: 'create' }); }
-  function joinServer(code) { serverConnect({ t: 'join', code: code.trim().toUpperCase() }); }
+  function hostServer() { serverConnect({ t: 'create', relay: true }); }
+  function joinServer(code) { serverConnect({ t: 'join', code: code.trim().toUpperCase(), relay: true }); }
 
   function onPeerError(err) {
     console.warn('peer error', err);
@@ -270,7 +277,7 @@ const Net = (() => {
     } else {
       InputManager.endFrame();
       const now = performance.now();
-      if (now - lastHeartbeat > 250) { lastHeartbeat = now; sendFast({ t: 'hb' }); }
+      if (!ws && now - lastHeartbeat > 250) { lastHeartbeat = now; sendFast({ t: 'hb' }); }
     }
   }
 
@@ -299,7 +306,7 @@ const Net = (() => {
   window.addEventListener('beforeunload', () => disconnect());
 
   return {
-    isOnline, isHost, isGuest, isServer, isRemoteSim, isLeader, localSlot, controlsFor, controlLabelsFor,
+    isOnline, isHost, isGuest, isServer, isRelay, isRemoteSim, isLeader, localSlot, controlsFor, controlLabelsFor,
     host, join, hostServer, joinServer, disconnect, on, sendCtrl,
     isRollback, newMatchId, startRollback, rollbackTick, guestTick,
   };

@@ -17,6 +17,7 @@ const { WebSocketServer } = require('ws');
 const PORT = Number(process.env.PORT) || 8080;
 const FIXED_STEP_MS = 1000 / 60;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const RELAYED = new Set(['ri', 'rh', 'rs', 'start', 'pick', 'select']);
 const SIM_FILES = ['constants.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js'];
 const HELD = ['left', 'right', 'block'];
 const TAPS = ['jump', 'attack', 'special', 'ultimate'];
@@ -64,13 +65,17 @@ function newInputState() {
   return { held: [false, false, false], specialHeld: false, jumpHeld: false, counts: [0, 0, 0, 0], consumed: [0, 0, 0, 0] };
 }
 
-function createRoom() {
+// Relay rooms (current clients): both players run the game themselves with
+// rollback netcode (js/rollback.js) and the server only passes messages
+// between them. Sim rooms (older clients): the server runs the game.
+function createRoom(relay) {
   const code = randomCode();
   const room = {
     code,
+    relay,
     players: { p1: null, p2: null },
     inputs: { p1: newInputState(), p2: newInputState() },
-    sim: createSim(),
+    sim: relay ? null : createSim(),
     lastSent: null,
     running: false,
   };
@@ -195,10 +200,10 @@ function onMessage(ws, msg) {
   const room = ws.room;
 
   if (msg.t === 'create' && !room) {
-    const r = createRoom();
+    const r = createRoom(!!msg.relay);
     r.players.p1 = ws;
     ws.room = r; ws.slot = 'p1';
-    send(ws, { t: 'room', code: r.code, slot: 'p1' });
+    send(ws, { t: 'room', code: r.code, slot: 'p1', relay: r.relay });
     return;
   }
 
@@ -206,15 +211,26 @@ function onMessage(ws, msg) {
     const r = rooms.get(String(msg.code || '').trim().toUpperCase());
     if (!r) return send(ws, { t: 'error', text: 'No room with that code.' });
     if (r.players.p2) return send(ws, { t: 'error', text: 'That room is full.' });
+    if (r.relay !== !!msg.relay) return send(ws, { t: 'error', text: 'That room was made with a different version of the game. Both players: refresh the page.' });
     r.players.p2 = ws;
     ws.room = r; ws.slot = 'p2';
-    send(ws, { t: 'room', code: r.code, slot: 'p2' });
+    send(ws, { t: 'room', code: r.code, slot: 'p2', relay: r.relay });
     broadcast(r, { t: 'connected' });
     return;
   }
 
   if (!room) return;
   const slot = ws.slot;
+
+  if (room.relay) {
+    // Rollback inputs/hashes/repairs and menu messages go straight to the
+    // other player. Match start comes from player 1 only.
+    if (RELAYED.has(msg.t) && (msg.t !== 'start' || slot === 'p1')) {
+      const to = room.players[other(slot)];
+      if (to && to.readyState === to.OPEN) to.send(JSON.stringify(msg));
+    }
+    return;
+  }
 
   if (msg.t === 'i' && Array.isArray(msg.h) && Array.isArray(msg.c)) {
     const inp = room.inputs[slot];

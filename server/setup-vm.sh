@@ -9,7 +9,7 @@
 set -euo pipefail
 
 HOST="${1:?usage: setup-vm.sh <hostname> [repo-url]}"
-REPO="${2:-https://github.com/remersong/VesidFighterMP.git}"
+REPO="${2:-https://github.com/PoisonBerries/VesidFighter.git}"
 APP_DIR=/opt/vesidfighter
 
 apt-get update -y
