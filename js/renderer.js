@@ -434,6 +434,7 @@ const Renderer = (() => {
 
   function drawProjectiles(ctx, projectiles) {
     for (const p of projectiles) {
+      if (AbilityFX.drawProjectile(ctx, p)) continue; // kinds with their own art
       const dir = p.vx >= 0 ? 1 : -1;
 
       // Fake motion trail -- a few fading, shrinking copies behind the

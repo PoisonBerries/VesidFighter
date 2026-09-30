@@ -283,7 +283,7 @@ const Sfx = (() => {
       const label = document.getElementById('now-playing');
       if (!label) return;
       if (!tracks.length) label.textContent = 'Add mp3s to assets/music/';
-      else if (idx >= 0) label.textContent = '♪ ' + tracks[order[idx]].title;
+      else if (idx >= 0) label.textContent = '\u266A ' + tracks[order[idx]].title;
       else label.textContent = tracks.length + ' track' + (tracks.length > 1 ? 's' : '');
     }
 
@@ -344,7 +344,7 @@ const Sfx = (() => {
   if (!btn) return;
 
   function refresh() {
-    btn.textContent = Sfx.settings.muted ? '🔇' : '🔊';
+    btn.textContent = Sfx.settings.muted ? '\uD83D\uDD07' : '\uD83D\uDD0A';
   }
   musicVol.value = Sfx.settings.music * 100;
   sfxVol.value = Sfx.settings.sfx * 100;

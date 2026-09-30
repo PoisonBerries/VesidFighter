@@ -65,6 +65,13 @@ const Effects = (() => {
     }
   }
 
+  // Generic particle for ability effects: droplets, debris, embers.
+  // Optional per-particle g (gravity), drag and shrink.
+  function spawn(o) {
+    const life = o.life || 30;
+    particles.push(Object.assign({ vx: 0, vy: 0, size: 3, color: '#fff', maxLife: life }, o, { life, maxLife: life }));
+  }
+
   function shake(magnitude, frames) {
     if (recording) events.push(['s', magnitude, frames]);
     shakeMagnitude = Math.max(shakeMagnitude, magnitude);
@@ -76,8 +83,8 @@ const Effects = (() => {
     for (const p of particles) {
       p.x += p.vx;
       p.y += p.vy;
-      if (!p.noGravity) p.vy += 0.2;
-      p.vx *= 0.95;
+      if (!p.noGravity) p.vy += (p.g === undefined ? 0.2 : p.g);
+      p.vx *= (p.drag === undefined ? 0.95 : p.drag);
       p.life--;
     }
     if (shakeTime > 0) shakeTime--;
@@ -98,7 +105,7 @@ const Effects = (() => {
       ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
       ctx.fillStyle = p.color;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, p.shrink ? Math.max(0.3, p.size * (p.life / p.maxLife)) : p.size, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
@@ -109,6 +116,7 @@ const Effects = (() => {
     particles = [];
     shakeTime = 0;
     shakeMagnitude = 0;
+    if (typeof AbilityFX !== 'undefined') AbilityFX.reset(); // absent on the sim server
   }
 
   function setRecording(v) { recording = v; events = []; }
@@ -127,5 +135,5 @@ const Effects = (() => {
     }
   }
 
-  return { setRecording, drainEvents, replayEvents, spawnHitSpark, spawnAuraPuff, spawnDust, shake, update, getShakeOffset, draw, reset };
+  return { setRecording, drainEvents, replayEvents, spawnHitSpark, spawnAuraPuff, spawnDust, spawn, shake, update, getShakeOffset, draw, reset };
 })();
