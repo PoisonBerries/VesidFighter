@@ -254,6 +254,8 @@ const Game = (() => {
       attacker.startGrabSlam(defender);
     }
 
+    // A basic punch or kick that lands (not specials, ultimates or projectiles): the defender's hit-taken line.
+    if (result === 'hit' && attacker.state === 'attack') Effects.voice(defender.character.id, 'hitTaken');
     if ((result === 'hit' || result === 'blocked') && stats.poisonDamage) attacker.gainFartPower(dmg);
     // Sam's Second Wind: landing a hit from the air heals a little.
     if (result === 'hit' && attacker.character.airLeech && !attacker.grounded) attacker.hp = Math.min(attacker.maxHp, attacker.hp + attacker.character.airLeech);

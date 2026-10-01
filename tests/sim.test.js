@@ -1830,3 +1830,24 @@ test('Keenan voice lines: phase step, winning the match, and the John matchup', 
   step(sim, 3);
   assert.ok(events().includes('keenan:victory'), 'after the deciding round');
 });
+
+test('Keenan voice lines: hit by a punch/kick (not by specials), and the Nathan matchup', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  sim.Effects.setRecording(true);
+  sim.Game.startMatch('keenan', 'nathan', () => {}, { ball: 'off' });
+  assert.ok(events().includes('keenan:vs:nathan'));
+  // A punch from Ryan lands on Keenan.
+  const C = startGame(sim, 'ryan', 'keenan', 500, 560);
+  sim.Effects.setRecording(true); events();
+  punch(sim, 'p1');
+  step(sim, 20);
+  assert.ok(events().includes('keenan:hitTaken'), 'hit taken line on a punch');
+  // But not a soundwave (that's a projectile).
+  startGame(sim, 'ryan', 'keenan', 400, 700);
+  sim.Effects.setRecording(true); events();
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false);
+  step(sim, 60);
+  const ev = events();
+  assert.ok(ev.includes('keenan:hitByProjectile') && !ev.includes('keenan:hitTaken'));
+});

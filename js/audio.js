@@ -328,6 +328,9 @@ const Sfx = (() => {
       hitByProjectile: 'KeenanHitByProjectile.mp3', // he's hit by a projectile
       phaseStep: 'KeenanPhaseStep.mp3',             // when he slips behind the opponent
       victory: 'KeenanVictory.mp3',                 // when he wins the match
+      hitTaken: 'KeenanHitTaken.mp3',               // someone lands a punch or kick on him
+      selected: 'KeenanSelected.mp3',               // he's clicked on in the character select menu
+      'vs:nathan': 'KeenanVsNathan.mp3',            // at the start of a match against Nathan (once per match)
       'vs:john': 'KeenanVsJohn.mp3',                // at the start of a match against John (once per match)
       'vs:robert': 'KeenanVsRob.mp3',               // at the start of a match against Robert (once per match)
     },

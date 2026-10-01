@@ -370,6 +370,7 @@ const UI = (() => {
           Net.sendCtrl({ t: 'pick', slot, id: char.id });
         }
         selected[slot] = char.id;
+        Sfx.voice(char.id, 'selected'); // the fighter's "picked me" line
         buildCharCards(containerId, slot);
         refreshSelect();
       });
