@@ -318,13 +318,15 @@ const Sfx = (() => {
 
   // ---- Voice lines (assets/voice/<character>/) ----
   // VOICE maps a character and an occasion to the file(s) that play; give a
-  // list to pick one at random. Occasions are triggered from the sim through
+  // list to pick one at random. 'vs:<character>' lines play once at the start
+  // of a match against that character. Occasions are triggered from the sim through
   // Effects.voice(characterId, occasion) (see effects.js), so they work
   // online and are skipped when the game replays frames for rollback.
   const VOICE = {
     keenan: {
       enemyFall: 'KeenanEnemyFall.mp3',            // the opponent falls off the map
       hitByProjectile: 'KeenanHitByProjectile.mp3', // he's hit by a projectile
+      'vs:robert': 'KeenanVsRob.mp3',               // at the start of a match against Robert (once per match)
     },
   };
   const voiceBuffers = {}; // path -> decoded audio (or null if it can't be loaded)

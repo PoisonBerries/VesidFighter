@@ -35,6 +35,9 @@ const Game = (() => {
     p1.roundsWon = 0;
     p2.roundsWon = 0;
     Effects.reset();
+    // Matchup lines, once per match (not every round): each fighter's "vs:<opponent>" line, if it has one.
+    Effects.voice(char1Id, 'vs:' + char2Id);
+    if (char2Id !== char1Id) Effects.voice(char2Id, 'vs:' + char1Id);
     startRound();
   }
 

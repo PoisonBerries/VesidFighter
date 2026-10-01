@@ -1789,3 +1789,22 @@ test('voice occasions fire as effect events: the opponent falling off, and being
   sim.Effects.setSuppressed(false);
   assert.strictEqual(sim.Effects.drainEvents().filter((e) => e[0] === 'v').length, 0);
 });
+
+test('matchup voice lines fire once per match, not every round', () => {
+  const sim = createSim();
+  const voices = (a, b) => {
+    sim.Effects.setRecording(true);
+    sim.Effects.drainEvents();
+    sim.Game.startMatch(a, b, () => {}, { ball: 'off' });
+    const first = sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.join(':'));
+    step(sim, 200); // through the countdown into the fight
+    sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 800, y: 5000, grounded: false, vy: 5 }] });
+    step(sim, 400); // round ends, next round starts
+    const later = sim.Effects.drainEvents().filter((e) => e[0] === 'v' && String(e[2]).startsWith('vs:'));
+    return { first, later };
+  };
+  const a = voices('keenan', 'robert');
+  assert.ok(a.first.includes('v:keenan:vs:robert'), 'Keenan has a line against Robert');
+  assert.strictEqual(a.later.length, 0, 'and it does not repeat on later rounds');
+  assert.ok(voices('robert', 'keenan').first.includes('v:keenan:vs:robert'), 'whichever side he is on');
+});
