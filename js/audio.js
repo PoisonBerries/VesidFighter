@@ -360,8 +360,10 @@ const Sfx = (() => {
   };
   VOICE.ryan = {
     'vs:john': 'RyanVsJohn.mp3',                    // at the start of a match against John (once per match)
+    ultimate: 'RyanYeah.mp3',                       // "Yeah!" as he kicks off Encore
   };
   VOICE.owen = {
+    'vs:john': 'OwenVsJohn.mp3',                    // at the start of a match against John (once per match)
     selected: 'OwenSelected.mp3',                   // he's clicked on in the character select menu
     enemyFall: 'OwenLaugh.mp3',                     // he laughs when the opponent falls off the map
     victory: 'OwenVictory.mp3',                     // when he wins the match

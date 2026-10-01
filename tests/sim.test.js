@@ -1971,3 +1971,15 @@ test('Owen laughs when his opponent falls off the map', () => {
   step(sim, 3);
   assert.ok(sim.Effects.drainEvents().some((e) => e[0] === 'v' && e[1] === 'owen' && e[2] === 'enemyFall'));
 });
+
+test('Owen vs John matchup line, and Ryan\'s "yeah" on his ultimate', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  sim.Effects.setRecording(true);
+  sim.Game.startMatch('john', 'owen', () => {}, { ball: 'off' });
+  assert.ok(events().includes('owen:vs:john'));
+  const { f } = startFighter(sim, 'ryan', 400);
+  f.ultCharge = sim.ULT_METER_MAX; events();
+  f.startUltimate();
+  assert.ok(events().includes('ryan:ultimate'));
+});
