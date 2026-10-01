@@ -1851,3 +1851,20 @@ test('Keenan voice lines: hit by a punch/kick (not by specials), and the Nathan 
   const ev = events();
   assert.ok(ev.includes('keenan:hitByProjectile') && !ev.includes('keenan:hitTaken'));
 });
+
+test('voice lines: getting up from a knockdown, and the Ryan / Artur matchups', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  sim.Effects.setRecording(true);
+  sim.Game.startMatch('keenan', 'ryan', () => {}, { ball: 'off' });
+  assert.ok(events().includes('keenan:vs:ryan'));
+  sim.Game.startMatch('artur', 'owen', () => {}, { ball: 'off' });
+  assert.ok(events().includes('owen:vs:artur'), 'Owen has a line against Artur');
+  const { f, foe } = startFighter(sim, 'keenan', 400);
+  events();
+  f.applyHit({ damage: 1, knockback: 1, knockbackUp: 0, hitstun: 5, fromFacing: -1, knockdown: true, knockdownDuration: 30 });
+  assert.strictEqual(f.state, 'knockdown');
+  const C = sim.VCONTROLS.p1;
+  for (let i = 0; i < 90 && f.state === 'knockdown'; i++) f.update(C, foe);
+  assert.ok(events().includes('keenan:recovery'), 'recovery line when he gets up');
+});

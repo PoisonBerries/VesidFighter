@@ -1146,6 +1146,7 @@ class Fighter {
     if (this.state === 'knockdown') {
       if (this.actionTimer > this.knockdownTimer && this.grounded) {
         this.state = 'idle';
+        Effects.voice(this.character.id, 'recovery'); // back on his feet
       }
     }
 
