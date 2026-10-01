@@ -1775,7 +1775,7 @@ test('voice occasions fire as effect events: the opponent falling off, and being
   sim.Effects.drainEvents();
   sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 800, y: 5000, grounded: false, vy: 5 }] });
   step(sim, 3);
-  assert.strictEqual(JSON.stringify(sim.Effects.drainEvents().filter((e) => e[0] === 'v')), JSON.stringify([['v', 'keenan', 'enemyFall']]));
+  assert.ok(sim.Effects.drainEvents().some((e) => e[0] === 'v' && e[1] === 'keenan' && e[2] === 'enemyFall'));
   // Hit by Ryan's soundwave.
   startGame(sim, 'ryan', 'keenan', 400, 700);
   sim.Effects.setRecording(true);
@@ -1899,4 +1899,27 @@ test('hit voice occasions: specials, ultimates and the ball are reported as thei
   sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false);
   step(sim, 40);
   assert.ok(events().includes('keenan:hitBySpecial'));
+});
+
+test('voice: falling off the map (the faller), and heavy blows (15% of max health in one hit)', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  startGame(sim, 'ryan', 'carlos', 500, 800);
+  sim.Effects.setRecording(true); events();
+  sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 800, y: 5000, grounded: false, vy: 5 }] });
+  step(sim, 3);
+  const ev = events();
+  assert.ok(ev.includes('carlos:fallOff') && ev.includes('ryan:enemyFall'));
+  // Owen's Plasma Nuke is a heavy blow on Carlos; a plain punch isn't.
+  startGame(sim, 'owen', 'carlos', 500, 600);
+  sim.Effects.setRecording(true); events();
+  sim.Game.applySnapshot({ f: [{ ultCharge: 100 }, {}] });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  step(sim, 80);
+  assert.ok(events().includes('carlos:bigHit'), 'the nuke is a big hit');
+  startGame(sim, 'ryan', 'carlos', 500, 560);
+  sim.Effects.setRecording(true); events();
+  punch(sim, 'p1'); step(sim, 20);
+  const punchEv = events();
+  assert.ok(punchEv.includes('carlos:hitTaken') && !punchEv.includes('carlos:bigHit'));
 });

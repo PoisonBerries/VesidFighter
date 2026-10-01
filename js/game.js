@@ -150,12 +150,14 @@ const Game = (() => {
 
     if (p1.hasFallenOff() && p1.state !== 'ko') {
       p1.koByRingOut();
+      Effects.voice(p1.character.id, 'fallOff'); // the one who fell
       Effects.voice(p2.character.id, 'enemyFall');
       endRound('p2');
       return;
     }
     if (p2.hasFallenOff() && p2.state !== 'ko') {
       p2.koByRingOut();
+      Effects.voice(p2.character.id, 'fallOff');
       Effects.voice(p1.character.id, 'enemyFall');
       endRound('p1');
       return;
@@ -256,6 +258,9 @@ const Game = (() => {
 
     // The defender's voice line for being hit: a punch or kick is 'hitTaken'; specials and ultimates
     // have their own occasions (a character without a line for one falls back to its hitTaken).
+    // A heavy blow (15% of max health or more) gets the defender's 'bigHit' line when they have one;
+    // otherwise the usual one below plays.
+    if (result === 'hit' && dmg >= defender.maxHp * 0.15) Effects.voice(defender.character.id, 'bigHit');
     if (result === 'hit') Effects.voice(defender.character.id, attacker.state === 'attack' ? 'hitTaken' : isUlt ? 'hitByUltimate' : 'hitBySpecial');
     if ((result === 'hit' || result === 'blocked') && stats.poisonDamage) attacker.gainFartPower(dmg);
     // Sam's Second Wind: landing a hit from the air heals a little.

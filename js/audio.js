@@ -342,6 +342,14 @@ const Sfx = (() => {
     hitTaken: 'ArturHitTaken.mp3',                  // someone lands a punch or kick on him
     selected: 'ArturSelected.mp3',                  // he's clicked on in the character select menu
   };
+  VOICE.carlos = {
+    hitTaken: ['CarlosHitTaken.mp3', 'CarlosHitTaken2.mp3'], // someone lands a punch or kick on him (one of two, at random)
+    bigHit: 'CarlosBigDamageTaken.mp3',             // a heavy blow: 15% of his health or more in one hit
+    fallOff: 'CarlosFallsOffMap.mp3',               // he falls off the map
+  };
+  VOICE.nathan = {
+    hitTaken: 'NathanHitTaken.mp3',                 // someone lands a punch or kick on him
+  };
   VOICE.owen = {
     'vs:artur': 'artur/OwenVsArtur.mp3',            // (the file is in Artur's folder) at the start of a match against Artur (once per match)
   };
