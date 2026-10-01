@@ -1923,3 +1923,15 @@ test('voice: falling off the map (the faller), and heavy blows (15% of max healt
   const punchEv = events();
   assert.ok(punchEv.includes('carlos:hitTaken') && !punchEv.includes('carlos:bigHit'));
 });
+
+test('Nathan voice lines: falling off the map and the John matchup', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  sim.Effects.setRecording(true);
+  sim.Game.startMatch('nathan', 'john', () => {}, { ball: 'off' });
+  assert.ok(events().includes('nathan:vs:john'));
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: 500, y: 5000, grounded: false, vy: 5 }, { x: 800 }] });
+  step(sim, 3);
+  assert.ok(events().includes('nathan:fallOff'));
+});
