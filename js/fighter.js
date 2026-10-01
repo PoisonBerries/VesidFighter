@@ -556,6 +556,7 @@ class Fighter {
       this.maxHp += t.bonusHp;
       this.hp = this.maxHp * fraction;
       this._justTransformed = true;
+      Effects.voice(this.character.id, 'transform');
     }
   }
 

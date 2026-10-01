@@ -365,6 +365,11 @@ const Sfx = (() => {
   };
   VOICE.robert = {
     selected: 'RobFunny.mp3',                       // he's clicked on in the character select menu
+    hitTaken: 'RobHitTaken.mp3',                    // someone lands a punch or kick on him
+    block: 'RobBlock.mp3',                          // he blocks a hit
+    dealsBigDamage: 'RobDealsBigDamage.mp3',        // he lands a heavy blow (15% of the target's health or more)
+    matchStart: 'RobMatchStart.mp3',                // at the start of a match (not if a matchup line is playing)
+    transform: 'RobWowWow.mp3',                     // when he transforms
   };
   VOICE.owen = {
     'vs:john': 'OwenVsJohn.mp3',                    // at the start of a match against John (once per match)
@@ -372,6 +377,8 @@ const Sfx = (() => {
     bigHit: 'OwenBigHitTaken.mp3',                  // a heavy blow: 15% of his health or more in one hit
     foeRunsAway: 'OwenOpponentRunsAwayAfterHit.mp3', // he lands a hit and the opponent backs off
     roundWin: 'OwenTaunting.mp3',                   // he wins a round (but not the match): a taunt
+    ultimate: 'OwenFinisher.mp3',                   // his finishing move: the ultimate
+    sing: 'OwenSmallChancetoSingAtRandom.mp3',      // a small chance, every so often in a fight, that he breaks into song
     selected: 'OwenSelected.mp3',                   // he's clicked on in the character select menu
     enemyFall: 'OwenLaugh.mp3',                     // he laughs when the opponent falls off the map
     victory: 'OwenVictory.mp3',                     // when he wins the match
@@ -401,10 +408,13 @@ const Sfx = (() => {
     return Math.min(want, VOICE_MAX_PEAK / peak, VOICE_MAX_GAIN);
   }
   const voiceBuffers = {}; // path -> decoded audio (or null if it can't be loaded)
+  let voiceVsAt = -1e9;    // when a matchup line last started
   const voiceLast = {};    // character -> when its last line started
 
   function voice(charId, occasion) {
     const lines = VOICE[charId] || {};
+    // A general match-start line gives way to a matchup line that's already playing.
+    if (occasion === 'matchStart' && performance.now() - voiceVsAt < 300) return;
     // Being hit by anything (projectile, special, ultimate, the ball...) without a line of its own plays the plain hit-taken line.
     const entry = lines[occasion] || (occasion.startsWith('hitBy') ? lines.hitTaken : null);
     if (!entry || !ensure()) return;
@@ -414,6 +424,7 @@ const Sfx = (() => {
     const now = performance.now();
     if (now - (voiceLast[charId] || 0) < 700 || settings.muted) return; // one voice at a time per fighter
     voiceLast[charId] = now;
+    if (occasion.startsWith('vs:')) voiceVsAt = now;
     const go = (buf) => {
       if (!buf) return;
       const src = ac.createBufferSource();

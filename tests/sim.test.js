@@ -2008,3 +2008,32 @@ test('voice: Sam\'s water attacks, round wins, and a foe running away after a hi
   step(sim, 2);
   assert.ok(events().includes('owen:foeRunsAway'));
 });
+
+test('voice: block, dealing a heavy blow, match start and Robert\'s transformation', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  sim.Effects.setRecording(true);
+  sim.Game.startMatch('robert', 'keenan', () => {}, { ball: 'off' });
+  const start = events();
+  assert.ok(start.includes('robert:matchStart'));
+  assert.ok(start.indexOf('keenan:vs:robert') < start.indexOf('robert:matchStart'), 'matchup lines are announced first');
+  // Block (guard) a punch.
+  startGame(sim, 'ryan', 'robert', 500, 560);
+  sim.Effects.setRecording(true); events();
+  setKey(sim, sim.VCONTROLS.p2.guard, true, false);
+  punch(sim, 'p1'); step(sim, 20);
+  setKey(sim, sim.VCONTROLS.p2.guard, false, false);
+  assert.ok(events().includes('robert:block'));
+  // Heavy blow dealt: Robert's Body Slam ultimate.
+  startGame(sim, 'robert', 'keenan', 500, 560);
+  sim.Effects.setRecording(true); events();
+  sim.Game.applySnapshot({ f: [{ ultCharge: 100 }, {}] });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  step(sim, 60);
+  assert.ok(events().includes('robert:dealsBigDamage'));
+  // Transformation.
+  const { f } = startFighter(sim, 'robert', 400);
+  events();
+  f.hp = f.maxHp * 0.4; f._maybeTransform();
+  assert.ok(events().includes('robert:transform'));
+});

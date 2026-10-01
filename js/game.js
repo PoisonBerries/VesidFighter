@@ -38,6 +38,9 @@ const Game = (() => {
     // Matchup lines, once per match (not every round): each fighter's "vs:<opponent>" line, if it has one.
     Effects.voice(char1Id, 'vs:' + char2Id);
     if (char2Id !== char1Id) Effects.voice(char2Id, 'vs:' + char1Id);
+    // Then each fighter's general match-start line (skipped by the audio if a matchup line is already playing).
+    Effects.voice(char1Id, 'matchStart');
+    if (char2Id !== char1Id) Effects.voice(char2Id, 'matchStart');
     startRound();
   }
 
@@ -279,7 +282,11 @@ const Game = (() => {
     // have their own occasions (a character without a line for one falls back to its hitTaken).
     // A heavy blow (15% of max health or more) gets the defender's 'bigHit' line when they have one;
     // otherwise the usual one below plays.
-    if (result === 'hit' && dmg >= defender.maxHp * 0.15) Effects.voice(defender.character.id, 'bigHit');
+    if (result === 'hit' && dmg >= defender.maxHp * 0.15) {
+      Effects.voice(attacker.character.id, 'dealsBigDamage'); // the attacker's line for landing a heavy blow
+      Effects.voice(defender.character.id, 'bigHit');
+    }
+    if (result === 'blocked') Effects.voice(defender.character.id, 'block');
     if (result === 'hit') Effects.voice(defender.character.id, attacker.state === 'attack' ? 'hitTaken' : attacker.character.id === 'sam' ? 'hitByWater' : isUlt ? 'hitByUltimate' : 'hitBySpecial');
     if ((result === 'hit' || result === 'blocked') && stats.poisonDamage) attacker.gainFartPower(dmg);
     // Sam's Second Wind: landing a hit from the air heals a little.
@@ -772,8 +779,20 @@ const Game = (() => {
     lastCarPhase = phase;
   }
 
+  // A small chance, every so often during a fight, that a fighter breaks into song (client-side only:
+  // it's flavour, not part of the simulation, so each player's machine rolls for itself).
+  let lastSingRoll = 0;
+  function maybeRandomVoice() {
+    if (matchState !== 'fight' || typeof Sfx === 'undefined' || !Sfx.voice) return;
+    const now = performance.now();
+    if (now - lastSingRoll < 1000) return;
+    lastSingRoll = now;
+    for (const f of [p1, p2]) if (Math.random() < 0.007) Sfx.voice(f.character.id, 'sing');
+  }
+
   function render(ctx) {
     if (p1 && p2) {
+      maybeRandomVoice();
       playCountdownSounds();
       playStageSounds();
       AbilityFX.update(p1);
