@@ -10,7 +10,7 @@ const { ROOT } = require('./helpers');
 function load() {
   let now = 1000;
   const ctx = vm.createContext({ console, Math, JSON, window: { addEventListener() {} }, performance: { now: () => now } });
-  const src = ['constants.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'animator.js']
+  const src = ['constants.js', 'stages.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'animator.js']
     .map((f) => fs.readFileSync(path.join(ROOT, 'js', f), 'utf8')).join('\n;\n');
   const api = vm.runInContext(src + '\n({ Animator, Fighter, CHARACTERS, InputManager })', ctx);
   return { ...api, tick: (ms = 1000 / 60) => { now += ms; } };

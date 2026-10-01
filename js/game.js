@@ -21,12 +21,13 @@ const Game = (() => {
 
   // opts.ball: 'rally' | 'bomb' | 'off' (or false) -- defaults to BALL_MODE.
   // opts.balance: balance mode (no KOs, ring-outs only) -- defaults to BALANCE_ENABLED.
+  // opts.stage: a stage id (stages.js) -- defaults to DEFAULT_STAGE.
   function startMatch(char1Id, char2Id, matchEndCallback, opts) {
     onMatchEnd = matchEndCallback;
     const m = opts && opts.ball;
     ballMode = m === false ? 'off' : BALL_MODES.includes(m) ? m : BALL_MODE;
-    const startX1 = STAGE_LEFT_EDGE + 220;
-    const startX2 = STAGE_RIGHT_EDGE - 220;
+    Stage.use(opts && opts.stage);
+    const [startX1, startX2] = Stage.def().spawns;
     p1 = new Fighter('p1', CHARACTERS[char1Id], startX1, 1);
     p2 = new Fighter('p2', CHARACTERS[char2Id], startX2, -1);
     p2.paletteSwap = char1Id === char2Id;
@@ -38,8 +39,8 @@ const Game = (() => {
   }
 
   function startRound() {
-    const startX1 = STAGE_LEFT_EDGE + 220;
-    const startX2 = STAGE_RIGHT_EDGE - 220;
+    const [startX1, startX2] = Stage.def().spawns;
+    Stage.reset();
     p1.resetForRound();
     p2.resetForRound();
     p1.x = startX1; p1.y = GROUND_Y; p1.vx = 0; p1.vy = 0;
@@ -125,6 +126,7 @@ const Game = (() => {
 
     roundTimeLeft -= dt;
 
+    Stage.update([p1, p2]);
     p1.update(Net.controlsFor('p1'), p2);
     p2.update(Net.controlsFor('p2'), p1);
     InputManager.endFrame();
@@ -309,7 +311,7 @@ const Game = (() => {
       const p = projectiles[i];
       p.x += p.vx;
       p.life--;
-      if (p.life <= 0 || p.x < -80 || p.x > CANVAS_WIDTH + 80) {
+      if (p.life <= 0 || p.x < WORLD_LEFT - 40 || p.x > WORLD_RIGHT + 40) {
         projectiles.splice(i, 1);
         continue;
       }
@@ -412,11 +414,11 @@ const Game = (() => {
     b.y += b.vy;
     b.spin += b.vx * 0.04;
 
-    // Invisible walls and a ceiling keep it in play: at the screen edges for
+    // Invisible walls and a ceiling keep it in play: at the world's edges for
     // the bomb, at the platform edges in rally (it never leaves the stage).
     const keep = live ? 0.95 : 0.8;
-    const left = mode === 'rally' ? STAGE_LEFT_EDGE + BALL_RADIUS : BALL_RADIUS;
-    const right = mode === 'rally' ? STAGE_RIGHT_EDGE - BALL_RADIUS : CANVAS_WIDTH - BALL_RADIUS;
+    const left = mode === 'rally' ? STAGE_LEFT_EDGE + BALL_RADIUS : WORLD_LEFT + 40 + BALL_RADIUS;
+    const right = mode === 'rally' ? STAGE_RIGHT_EDGE - BALL_RADIUS : WORLD_RIGHT - 40 - BALL_RADIUS;
     if (b.x < left) { b.x = left; b.vx = Math.abs(b.vx) * keep; b.wallHit = true; }
     if (b.x > right) { b.x = right; b.vx = -Math.abs(b.vx) * keep; b.wallHit = true; }
     if (b.y < BALL_RADIUS + 10) { b.y = BALL_RADIUS + 10; b.vy = Math.abs(b.vy) * (live ? 0.9 : 0.5); }
@@ -723,9 +725,20 @@ const Game = (() => {
     lastMatchState = matchState;
   }
 
+  // The stage's own sounds (the car's horn as it comes), also keyed off
+  // what's on screen.
+  let lastCarPhase = null;
+  function playStageSounds() {
+    const car = Stage.car();
+    const phase = car && matchState === 'fight' ? car.phase : null;
+    if (phase === 'warn' && lastCarPhase !== 'warn' && typeof Sfx !== 'undefined' && Sfx.horn) Sfx.horn(car.dir > 0 ? -1 : 1);
+    lastCarPhase = phase;
+  }
+
   function render(ctx) {
     if (p1 && p2) {
       playCountdownSounds();
+      playStageSounds();
       AbilityFX.update(p1);
       AbilityFX.update(p2);
     }
@@ -739,12 +752,15 @@ const Game = (() => {
       return;
     }
 
-    Renderer.drawStage(ctx);
+    // Stages bigger than the screen get a simple camera (the arena fits as is).
+    const view = Stage.id() === 'arena' ? null : view2D();
+    if (view) drawStage2D(ctx, view); else Renderer.drawStage(ctx);
     if (!p1 || !p2) return;
 
     const shakeOffset = Effects.getShakeOffset();
     ctx.save();
     ctx.translate(shakeOffset.x, shakeOffset.y);
+    if (view) ctx.transform(view.zoom, 0, 0, view.zoom, CANVAS_WIDTH / 2 - view.cx * view.zoom, GROUND_Y * (1 - view.zoom));
 
     AbilityFX.drawBack(ctx, p1);
     AbilityFX.drawBack(ctx, p2);
@@ -760,6 +776,56 @@ const Game = (() => {
     ctx.restore();
 
     drawOverlay(ctx);
+  }
+
+  // Fallback 2D camera for big stages: follows the fighters, zooming out to
+  // fit both (the floor stays put on screen).
+  function view2D() {
+    const a = p1 || { x: 640 }, b = p2 || { x: 640 };
+    const zoom = Math.max(0.45, Math.min(1, CANVAS_WIDTH / (Math.abs(a.x - b.x) + 520)));
+    const w = CANVAS_WIDTH / zoom, lo = STAGE_LEFT_EDGE - 120 + w / 2, hi = STAGE_RIGHT_EDGE + 120 - w / 2;
+    const cx = lo > hi ? (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2 : Math.max(lo, Math.min(hi, (a.x + b.x) / 2));
+    return { zoom, cx };
+  }
+
+  // Fallback 2D look for the other stages: sky, floor, platforms, the car.
+  function drawStage2D(ctx, view) {
+    ctx.save();
+    const sky = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+    sky.addColorStop(0, '#5fa8f0');
+    sky.addColorStop(0.7, '#dcecf2');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.transform(view.zoom, 0, 0, view.zoom, CANVAS_WIDTH / 2 - view.cx * view.zoom, GROUND_Y * (1 - view.zoom));
+    ctx.fillStyle = '#9a7652';
+    ctx.fillRect(STAGE_LEFT_EDGE, GROUND_Y, STAGE_RIGHT_EDGE - STAGE_LEFT_EDGE, 600);
+    ctx.fillStyle = '#86b35a';
+    ctx.fillRect(STAGE_LEFT_EDGE, GROUND_Y, STAGE_RIGHT_EDGE - STAGE_LEFT_EDGE, 14);
+    const plats = Stage.def().platforms;
+    if (plats.length) {
+      const top = Math.min(...plats.map((p) => p.y));
+      const mid = (Math.min(...plats.map((p) => p.x1)) + Math.max(...plats.map((p) => p.x2))) / 2;
+      ctx.fillStyle = '#4f8f3a';
+      ctx.beginPath();
+      ctx.arc(mid, top - 40, 110, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#7a5634';
+      ctx.fillRect(mid - 16, top, 32, GROUND_Y - top);
+    }
+    for (const p of plats) {
+      ctx.fillStyle = p.id === 'crown' ? '#5d9c44' : '#7a5634';
+      ctx.fillRect(p.x1, p.y, p.x2 - p.x1, 12);
+    }
+    const car = Stage.car(), c = Stage.def().car;
+    if (car && car.phase === 'drive') {
+      ctx.fillStyle = '#8aa1b8';
+      ctx.fillRect(car.x - c.width / 2, GROUND_Y - c.height, c.width, c.height - 12);
+      ctx.fillStyle = '#2b3440';
+      ctx.fillRect(car.x + car.dir * (c.width / 2 - 70) - 30, GROUND_Y - c.height + 12, 60, 28);
+      ctx.fillStyle = '#222';
+      for (const k of [-1, 1]) { ctx.beginPath(); ctx.arc(car.x + k * (c.width / 2 - 55), GROUND_Y - 14, 18, 0, Math.PI * 2); ctx.fill(); }
+    }
+    ctx.restore();
   }
 
   // The ball freezes with the round, so it's only shown mid-fight.
@@ -836,6 +902,7 @@ const Game = (() => {
 
   function drawOverlay(ctx) {
     Renderer.drawHUD(ctx, p1, p2);
+    if (matchState === 'fight') drawCarWarning(ctx);
 
     if (matchState === 'fight') {
       Renderer.drawTimer(ctx, roundTimeLeft);
@@ -848,6 +915,33 @@ const Game = (() => {
       const winner = p1.roundsWon > p2.roundsWon ? p1 : p2;
       Renderer.drawCenteredMessage(ctx, winner.character.name + ' WINS!', 'Match Over');
     }
+  }
+
+  // The orchard car's warning: a flashing sign on the side it's coming from.
+  function drawCarWarning(ctx) {
+    const car = Stage.car();
+    if (!car || car.phase !== 'warn' || car.timer % 20 >= 14) return;
+    const left = car.dir > 0;
+    const x = left ? 70 : CANVAS_WIDTH - 70, y = 330, a = left ? 1 : -1;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 214, 64, 0.95)';
+    ctx.strokeStyle = '#2b1d00';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x - a * 44, y - 34);
+    ctx.lineTo(x + a * 18, y - 34);
+    ctx.lineTo(x + a * 52, y);
+    ctx.lineTo(x + a * 18, y + 34);
+    ctx.lineTo(x - a * 44, y + 34);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#2b1d00';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('CAR!', x - a * 8, y + 1);
+    ctx.restore();
   }
 
   // ---- Online sync (see net.js) ----
@@ -868,6 +962,7 @@ const Game = (() => {
       f: p1 && p2 ? [serializeFighter(p1), serializeFighter(p2)] : null,
       pr: projectiles.map(p => Object.assign({}, p, { owner: p.owner.slot })),
       bl: ball,
+      sg: Stage.save(),
       fx: Effects.drainEvents(),
     };
   }
@@ -884,6 +979,7 @@ const Game = (() => {
     }
     if (s.pr) projectiles = s.pr.map(p => Object.assign(p, { owner: p.owner === 'p1' ? p1 : p2 }));
     if (s.bl !== undefined) ball = s.bl;
+    if (s.sg !== undefined) Stage.load(s.sg);
     Effects.replayEvents(s.fx);
   }
 
@@ -897,6 +993,7 @@ const Game = (() => {
       f: p1 && p2 ? [JSON.parse(JSON.stringify(serializeFighter(p1))), JSON.parse(JSON.stringify(serializeFighter(p2)))] : null,
       pr: projectiles.map((p) => Object.assign({}, p, { owner: p.owner.slot })),
       bl: ball ? JSON.parse(JSON.stringify(ball)) : null,
+      sg: Stage.save(),
     };
   }
 
@@ -912,6 +1009,7 @@ const Game = (() => {
     }
     projectiles = s.pr.map((p) => Object.assign({}, p, { owner: p.owner === 'p1' ? p1 : p2 }));
     ball = s.bl ? JSON.parse(JSON.stringify(s.bl)) : null;
+    Stage.load(s.sg);
   }
 
   function getState() {
@@ -920,7 +1018,7 @@ const Game = (() => {
 
   // Read-only view of the live match, for the CPU opponent (cpu.js).
   function world() {
-    return { p1, p2, projectiles, ball, ballMode, matchState };
+    return { p1, p2, projectiles, ball, ballMode, matchState, stage: Stage.id(), car: Stage.car(), platforms: Stage.platforms() };
   }
 
   // Freeze the sim (e.g. opponent disconnected mid-match).

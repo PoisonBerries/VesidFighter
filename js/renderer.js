@@ -370,7 +370,8 @@ const Renderer = (() => {
     // Ground contact shadow, drawn in world space (not the fighter's own
     // translated/rotated space) so it stays flat on the platform. It
     // shrinks/fades with height, and stretches out when the body lies down.
-    const heightAboveGround = Math.max(0, GROUND_Y - fighter.y) + rig.lift;
+    const floorY = fighter.platform && fighter.grounded ? fighter.y : GROUND_Y; // (on a branch, the car...)
+    const heightAboveGround = Math.max(0, floorY - fighter.y) + rig.lift;
     const shadowScale = Math.max(0.35, 1 - heightAboveGround / 220);
     const lying = Math.abs(Math.sin(rig.rot)) * (1 - Math.min(1, rig.ball));
     if (!card) {
@@ -378,7 +379,7 @@ const Renderer = (() => {
       ctx.globalAlpha = 0.32 * shadowScale;
       ctx.fillStyle = '#000';
       ctx.beginPath();
-      ctx.ellipse(fighter.x, GROUND_Y + 3, fighter.width * 0.34 * shadowScale * (1 + 1.1 * lying), 7 * shadowScale, 0, 0, Math.PI * 2);
+      ctx.ellipse(fighter.x, floorY + 3, fighter.width * 0.34 * shadowScale * (1 + 1.1 * lying), 7 * shadowScale, 0, 0, Math.PI * 2);
       ctx.fill();
       // Side-coloured ring under the feet: identifies P1/P2 even when both
       // fighters look the same.
@@ -386,7 +387,7 @@ const Renderer = (() => {
       ctx.strokeStyle = PLAYER_COLORS[fighter.slot];
       ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.ellipse(fighter.x, GROUND_Y + 3, fighter.width * 0.46 * shadowScale * (1 + 0.9 * lying), 9 * shadowScale, 0, 0, Math.PI * 2);
+      ctx.ellipse(fighter.x, floorY + 3, fighter.width * 0.46 * shadowScale * (1 + 0.9 * lying), 9 * shadowScale, 0, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
