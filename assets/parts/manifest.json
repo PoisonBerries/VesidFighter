@@ -1,4 +1,11 @@
 {
+  "artur": [
+    "neck",
+    "torso",
+    "upperArm",
+    "forearm",
+    "fist"
+  ],
   "keenan": [
     "torso",
     "upperArm",
