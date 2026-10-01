@@ -20,8 +20,6 @@ const UI = (() => {
   let ballMode = BALL_MODE;
   try { const m = localStorage.getItem('vf_ball_mode'); if (BALL_MODES.includes(m)) ballMode = m; } catch (e) { /* storage blocked */ }
   // Balance meter on/off. Online, player 1's choice is used.
-  let stageId = DEFAULT_STAGE;
-  try { const v = localStorage.getItem('vf_stage'); if (STAGE_IDS.includes(v)) stageId = v; } catch (e) { /* storage blocked */ }
   let balanceOn = BALANCE_ENABLED;
   try { const v = localStorage.getItem('vf_balance'); if (v === 'on' || v === 'off') balanceOn = v === 'on'; } catch (e) { /* storage blocked */ }
   if (!Cpu.LEVELS[cpuLevel]) cpuLevel = 'normal';
@@ -394,9 +392,8 @@ const UI = (() => {
     document.getElementById('btn-fight').disabled = online && !Net.isLeader();
     document.getElementById('cpu-difficulty').classList.toggle('hidden', !cpuMode);
     syncDifficulty();
-    syncStage();
     syncBallMode();
-    for (const b of document.querySelectorAll('#ball-mode button, #balance-mode button, #stage-mode button')) b.disabled = online && !Net.isLeader();
+    for (const b of document.querySelectorAll('#ball-mode button, #balance-mode button')) b.disabled = online && !Net.isLeader();
     syncBalance();
     buildCharCards('p1-cards', 'p1');
     buildCharCards('p2-cards', 'p2');
@@ -438,7 +435,7 @@ const UI = (() => {
     if (Net.isOnline()) {
       if (!Net.isLeader()) return; // P1 drives match start
       const mid = Net.isRollback() ? Net.newMatchId() : undefined;
-      Net.sendCtrl({ t: 'start', p1: selected.p1, p2: selected.p2, mid, ball: ballMode, balance: balanceOn, stage: stageId });
+      Net.sendCtrl({ t: 'start', p1: selected.p1, p2: selected.p2, mid, ball: ballMode, balance: balanceOn });
       if (Net.isServer()) return; // wait for the server to echo 'start'
       beginMatch(mid);
       return;
@@ -450,7 +447,7 @@ const UI = (() => {
     hideAll();
     window.VF_setPaused(false);
     isPaused = false;
-    Game.startMatch(selected.p1, selected.p2, onMatchEnd, { ball: ballMode, balance: balanceOn, stage: stageId });
+    Game.startMatch(selected.p1, selected.p2, onMatchEnd, { ball: ballMode, balance: balanceOn });
     if (cpuMode) Cpu.start('p2', cpuLevel, Date.now() >>> 0); else Cpu.stop();
     // Direct matches: both sides simulate from this exact starting state.
     if (Net.isRollback()) Net.startRollback(matchId);
@@ -510,16 +507,6 @@ const UI = (() => {
       balanceOn = b.dataset.balance === 'on';
       try { localStorage.setItem('vf_balance', balanceOn ? 'on' : 'off'); } catch (e) { /* storage blocked */ }
       syncBalance();
-    });
-  }
-  function syncStage() {
-    for (const b of document.querySelectorAll('#stage-mode button')) b.classList.toggle('active', b.dataset.stage === stageId);
-  }
-  for (const b of document.querySelectorAll('#stage-mode button')) {
-    b.addEventListener('click', () => {
-      stageId = b.dataset.stage;
-      try { localStorage.setItem('vf_stage', stageId); } catch (e) { /* storage blocked */ }
-      syncStage();
     });
   }
   function syncBallMode() {
@@ -629,7 +616,6 @@ const UI = (() => {
       selected.p2 = msg.p2;
       if (BALL_MODES.includes(msg.ball)) ballMode = msg.ball;
       if (typeof msg.balance === 'boolean') balanceOn = msg.balance;
-      stageId = STAGE_IDS.includes(msg.stage) ? msg.stage : DEFAULT_STAGE;
       beginMatch(msg.mid);
     } else if (msg.t === 'select') {
       openSelect();

@@ -41,7 +41,7 @@ const Cpu = (() => {
   }
 
   const ACTING = new Set(['attack', 'special', 'ultimate']);
-  const midX = () => (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2; // (per stage)
+  const MID = (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2;
 
   // What the brain remembers about the opponent each frame.
   function viewOf(f) {
@@ -326,7 +326,7 @@ const Cpu = (() => {
       const hitDist = Math.max(0, Math.abs((ox + (moving ? o.vx * st : 0)) - (me.x + me.vx * st)) + plan.aimError);
       const toward = dir < 0 ? B.left : B.right;
       const away = dir < 0 ? B.right : B.left;
-      const toCenter = me.x < midX() ? B.right : B.left;
+      const toCenter = me.x < MID ? B.right : B.left;
       const canAct = !ACTING.has(me.state) && me.state !== 'hitstun' && me.state !== 'knockdown' && me.state !== 'ko';
       // Recovering (getting back on the stage) isn't held back by pressGap.
       const press = (bit, urgent) => { if (tick - lastPress < (urgent ? 4 : L.pressGap)) return 0; lastPress = tick; return bit; };
@@ -364,17 +364,6 @@ const Cpu = (() => {
       // the dash would end on the stage even if it misses.
       const dashSafe = (distance) => me.grounded && safeX(me.x + dir * distance);
       if (!me.grounded && !safeX(landX(me.x, me.vx, me.vy))) return toCenter;
-
-      // ---- The stage (stages.js): the car, and platforms ----
-      const car = Stage.car(), cd = Stage.def().car;
-      if (car && me.platform === 'car') return press(B.jump, true); // hop off before it carries us away
-      if (car && car.phase === 'drive' && me.grounded && me.y > GROUND_Y - cd.height && !chance(L.mistake)) {
-        // Jump just before it reaches us: over it, or onto the roof.
-        const gap = (me.x - (car.x + car.dir * cd.width / 2)) * car.dir; // > 0 while it's still coming
-        if (gap > -me.width / 2 && gap < cd.speed * 8 + me.width / 2) return press(B.jump, true);
-      }
-      if (me.grounded && o.grounded && o.y < me.y - 60 && dist < 170) return press(B.jump) | toward; // up after them
-      if (me.platform && me.platform !== 'car' && o.y > me.y + 60 && dist < 110) return B.block | press(B.jump); // drop down to them
 
       // ---- 2. Defend what we can see coming ----
       const threat = threatFrom(me, o);

@@ -18,7 +18,7 @@ const PORT = Number(process.env.PORT) || 8080;
 const FIXED_STEP_MS = 1000 / 60;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const RELAYED = new Set(['ri', 'rh', 'rs', 'start', 'pick', 'select']);
-const SIM_FILES = ['constants.js', 'stages.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js'];
+const SIM_FILES = ['constants.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js'];
 const HELD = ['left', 'right', 'block', 'guard'];
 const TAPS = ['jump', 'attack', 'special', 'ultimate'];
 
@@ -256,7 +256,7 @@ function onMessage(ws, msg) {
     room.lastSent = null; // next snapshot is a full one
     Game.startMatch(msg.p1, msg.p2, (winner) => {
       broadcast(room, { t: 'matchEnd', winner });
-    }, { ball: msg.ball, balance: msg.balance, stage: msg.stage });
+    }, { ball: msg.ball, balance: msg.balance });
     room.running = true;
     broadcast(room, { t: 'start', p1: msg.p1, p2: msg.p2 });
   }

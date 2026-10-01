@@ -1137,7 +1137,7 @@ const Animator = (() => {
   function T0_TUMBLE(fighter, st) { return st === 'ko' && fighter.y > GROUND_Y + 6; }
 
   function spawnLandingDust(fighter, count, power) {
-    if (typeof Effects !== 'undefined' && Effects.spawnDust) Effects.spawnDust(fighter.x, fighter.platform ? fighter.y : GROUND_Y, count, power);
+    if (typeof Effects !== 'undefined' && Effects.spawnDust) Effects.spawnDust(fighter.x, GROUND_Y, count, power);
   }
 
   // opts.settle: a one-off still (the sprite planner's reference ghosts) --
@@ -1190,7 +1190,7 @@ const Animator = (() => {
     } else an.rollAngle = 0;
 
     // Event detection from state transitions (render-side only).
-    if (!settle && an.prevAirborne && !airborne && (fighter.y >= GROUND_Y - 1 || fighter.platform)) {
+    if (!settle && an.prevAirborne && !airborne && fighter.y >= GROUND_Y - 1) {
       const impact = clamp(an.prevVy / 20, 0, 1);
       if (down || Math.abs(an.rot) > 0.8) {
         an.hopV = Math.max(an.hopV, clamp(an.prevVy * 0.35, 2.5, 8));

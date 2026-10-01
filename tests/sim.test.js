@@ -7,7 +7,7 @@ const path = require('path');
 const vm = require('vm');
 const { ROOT } = require('./helpers');
 
-const SIM_FILES = ['constants.js', 'stages.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js'];
+const SIM_FILES = ['constants.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js'];
 const HELD = ['left', 'right', 'block', 'guard'];
 const TAPS = ['jump', 'attack', 'special', 'ultimate'];
 const ACTIONS = HELD.concat(TAPS);
@@ -19,7 +19,7 @@ const PRELUDE = `
   for (const slot of ['p1', 'p2']) { VCONTROLS[slot] = {}; for (const a of ${JSON.stringify(ACTIONS)}) VCONTROLS[slot][a] = 'V_' + slot + '_' + a; }
   const Net = { controlsFor: (slot) => VCONTROLS[slot] };
 `;
-const EXPORTS = '\n({ Game, InputManager, Effects, Fighter, Stage, STAGES, CHARACTERS, CHARACTER_LIST, VCONTROLS, GROUND_Y, STAGE_LEFT_EDGE, STAGE_RIGHT_EDGE, FIXED_STEP, ULT_METER_MAX, CROUCH_HEIGHT, HIGH_ATTACK_BOTTOM });';
+const EXPORTS = '\n({ Game, InputManager, Effects, Fighter, CHARACTERS, CHARACTER_LIST, VCONTROLS, GROUND_Y, STAGE_LEFT_EDGE, STAGE_RIGHT_EDGE, FIXED_STEP, ULT_METER_MAX, CROUCH_HEIGHT, HIGH_ATTACK_BOTTOM });';
 const script = new vm.Script(PRELUDE + source + EXPORTS, { filename: 'sim.js' });
 
 function createSim() {
@@ -1672,96 +1672,4 @@ test('passives: Nathan resists projectiles; Ryan\'s ult meter boosts jumps and a
 test('controls shown in vs-CPU mode are the one-keyboard keys', () => {
   const src = require('fs').readFileSync(require('path').join(ROOT, 'js', 'net.js'), 'utf8');
   assert.ok(/localVirtual\) return forSlot === 'p1' \? CONTROLS\.solo : null/.test(src));
-});
-
-// ---- Stages (stages.js) ----
-function orchard(sim, a = 'keenan', b = 'john') {
-  sim.Game.startMatch(a, b, () => {}, { ball: 'off', stage: 'orchard' });
-  step(sim, 200); // through the countdown
-  return sim.VCONTROLS.p1;
-}
-const press = (sim, C, keys, edges = []) => {
-  for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], keys.includes(a), edges.includes(a));
-};
-
-test('the arena is unchanged, and the orchard is a much bigger stage with its own spawns', () => {
-  const sim = createSim();
-  sim.Game.startMatch('keenan', 'john', () => {}, { ball: 'off' });
-  let w = sim.Game.world();
-  assert.deepStrictEqual(JSON.stringify([w.p1.x, w.p2.x]), '[380,900]');
-  assert.strictEqual(sim.Stage.id(), 'arena');
-  const arena = sim.STAGES.arena, o = sim.STAGES.orchard;
-  assert.ok(o.right - o.left >= 2 * (arena.right - arena.left), 'orchard floor at least twice as wide');
-  orchard(sim);
-  w = sim.Game.world();
-  assert.deepStrictEqual(JSON.stringify([w.p1.x, w.p2.x]), JSON.stringify(o.spawns));
-  // Well past where the arena ends, still on solid ground.
-  sim.Game.applySnapshot({ f: [{ x: arena.left - 300 }, {}] });
-  step(sim, 30);
-  assert.ok(w.p1.grounded && w.p1.y === sim.GROUND_Y, 'standing on the orchard floor');
-  // ...and its edges are still a ring-out.
-  sim.Game.applySnapshot({ f: [{ x: o.left - 60, y: sim.GROUND_Y - 1 }, {}] });
-  step(sim, 60);
-  assert.notStrictEqual(sim.Game.getState(), 'fight', 'fell off the orchard edge');
-});
-
-test('tree branches: jump up through them, land on top, crouch + jump to drop back down', () => {
-  const sim = createSim();
-  const C = orchard(sim, 'john', 'keenan'); // John has the lowest jump
-  const branch = sim.STAGES.orchard.platforms.find((p) => p.id === 'branchL');
-  const f = sim.Game.world().p1;
-  sim.Game.applySnapshot({ f: [{ x: (branch.x1 + branch.x2) / 2, facing: 1 }, { x: 1600 }] });
-  press(sim, C, ['jump'], ['jump']); step(sim, 1); press(sim, C, []);
-  step(sim, 60);
-  assert.strictEqual(f.platform, 'branchL', 'landed on the branch');
-  assert.strictEqual(f.y, branch.y);
-  assert.ok(f.grounded);
-  // Up again onto the crown from the branch.
-  const crown = sim.STAGES.orchard.platforms.find((p) => p.id === 'crown');
-  sim.Game.applySnapshot({ f: [{ x: crown.x1 + 20 }, {}] }); // still at branch height, under the crown's end
-  step(sim, 2);
-  press(sim, C, ['jump'], ['jump']); step(sim, 1); press(sim, C, []);
-  step(sim, 60);
-  assert.strictEqual(f.platform, 'crown', 'climbed to the crown');
-  // Crouch + jump drops through, all the way to the floor (not caught by the branch below? it may be).
-  press(sim, C, ['block', 'jump'], ['jump']); step(sim, 1); press(sim, C, []);
-  step(sim, 60);
-  assert.notStrictEqual(f.platform, 'crown', 'dropped through the crown');
-  assert.ok(f.grounded);
-  // Walk off the end of a branch: fall to the floor.
-  sim.Game.applySnapshot({ f: [{ x: branch.x1 + 10, y: branch.y, platform: 'branchL', grounded: true }, {}] });
-  press(sim, C, ['left']); step(sim, 40); press(sim, C, []); step(sim, 30);
-  assert.strictEqual(f.platform, null);
-  assert.strictEqual(f.y, sim.GROUND_Y, 'fell off the branch to the floor');
-});
-
-test('the car: a warning, then it runs over whoever is in its way (block or not) but carries anyone on its roof', () => {
-  const sim = createSim();
-  const C = orchard(sim);
-  const c = sim.STAGES.orchard.car;
-  const w = sim.Game.world();
-  // Keep the round going: nobody gets KO'd before the car.
-  const hold = () => sim.Game.applySnapshot({ f: [{ hp: 999 }, { hp: 999 }] });
-  while (!sim.Stage.car()) { hold(); step(sim, 30); }
-  assert.strictEqual(sim.Stage.car().phase, 'warn', 'lights on before it drives');
-  assert.strictEqual(sim.Stage.car().dir, 1, 'the first one comes from the left');
-  // p1 blocking in its lane, p2 standing on its roof path (placed on it once it's under them).
-  sim.Game.applySnapshot({ f: [{ x: 0, facing: -1 }, { x: 1700, hp: 999 }] });
-  press(sim, C, ['block']);
-  const hp0 = w.p1.hp;
-  let hit = false, rode = false, x2 = null;
-  for (let i = 0; i < 400 && sim.Stage.car(); i++) {
-    const car = sim.Stage.car();
-    // Drop p2 onto the roof once it's on the stage (well before it reaches them).
-    if (car.phase === 'drive' && !rode && car.x > 100 && car.x < 130) {
-      sim.Game.applySnapshot({ f: [{}, { x: car.x + 60, y: sim.GROUND_Y - c.height - 8, vy: 0, grounded: false, state: 'fall' }] });
-    }
-    step(sim, 1);
-    if (w.p1.state === 'knockdown') hit = true;
-    if (w.p2.platform === 'car') { if (!rode) x2 = w.p2.x; rode = true; }
-  }
-  assert.ok(hit, 'blocking does not stop a car');
-  assert.ok(w.p1.hp < hp0, 'and it hurts');
-  assert.ok(rode, 'landed on the roof');
-  assert.ok(w.p2.x > x2 + 200 || sim.Game.getState() !== 'fight', 'carried along by the car');
 });

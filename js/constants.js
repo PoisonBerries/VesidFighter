@@ -11,14 +11,8 @@ const CROUCH_SPEED_MULTIPLIER = 0.35; // how much slower crouch-walking is vs no
 
 // The stage is a raised platform with open air on either side. Walking past
 // these x values means there's no ground underfoot -> fighter falls.
-// These are the Sky Arena's; each stage sets its own when a match starts
-// (Stage.use in stages.js), so they're `let`.
-let STAGE_LEFT_EDGE = 160;
-let STAGE_RIGHT_EDGE = 1120;
-// How far past the edges anything can go (fighters in the air, the bomb,
-// projectiles) before it's out of the world.
-let WORLD_LEFT = STAGE_LEFT_EDGE - 200;
-let WORLD_RIGHT = STAGE_RIGHT_EDGE + 200;
+const STAGE_LEFT_EDGE = 160;
+const STAGE_RIGHT_EDGE = 1120;
 
 // Falling below this y means the fighter has fallen off the stage entirely
 // (ring-out) and the round ends immediately, Tough-Love-Arena style.

@@ -25,8 +25,6 @@ class Fighter {
     this.balanceMode = false;  // balance mode (constants.js): set by Game for the match
     this.launched = false;     // flying from a hit in balance mode: keeps its momentum until it lands
     this.grounded = true;
-    this.platform = null;   // id of the stage platform being stood on (stages.js), null on the floor
-    this.dropThrough = 0;   // frames left falling through platforms (crouch + jump on one)
     this.jumpsUsed = 0;
     this.doubleJumpFlipTimer = 0;
     this.doubleJumpFlipDir = 1; // +1 front flip, -1 backflip
@@ -487,7 +485,7 @@ class Fighter {
       this.noteImpact('reflected', hit.fromFacing, 0.9);
       return 'reflected';
     }
-    if (this.blocking && !hit.unblockable) {
+    if (this.blocking) {
       this.noteImpact('blocked', hit.fromFacing, 0.35);
       // Most blocks absorb 85% of the damage; a move can override that
       // (Artur's kick goes low, under the guard).
@@ -560,8 +558,6 @@ class Fighter {
   // (Overgrowth, Encore), poison, shields/dodge windows, stun, hover fuel and
   // any half-finished move. Position, HP and meters are set by the caller.
   resetForRound() {
-    this.platform = null;
-    this.dropThrough = 0;
     this.revertTransform();
     this.buffTimer = 0;
     this.buffAtkMul = 1;
@@ -827,15 +823,6 @@ class Fighter {
         return;
       }
       this.guarding = false;
-      // Crouch + jump on a platform: drop down through it.
-      if (held.block && pressed.jump && this.grounded && this.platform) {
-        this.platform = null;
-        this.dropThrough = 10;
-        this.grounded = false;
-        this.blocking = false;
-        this.state = 'fall';
-        return;
-      }
       if (held.block && this.grounded) {
         const swim = this.character.crouchSwim;
         // Crouching while already moving (Sam): slide on with that momentum.
@@ -1402,14 +1389,10 @@ class Fighter {
   }
 
   _applyPhysics() {
-    // Riding something that moves (the car's roof): go along with it.
-    const riding = this.platform ? Stage.platform(this.platform) : null;
-    if (riding && riding.dx) this.x += riding.dx;
     this.vy += GRAVITY * (this.character.gravityMul || 1);
     const prevY = this.y;
     this.x += this.vx;
     this.y += this.vy;
-    if (this.dropThrough > 0) this.dropThrough--;
 
     if (this.state !== 'walk' && !this._keepsAirMomentum()) {
       // Balance mode: the shakier you are, the more you slide. (A crouch-slide
@@ -1419,26 +1402,7 @@ class Fighter {
 
     const onStage = this.x > STAGE_LEFT_EDGE && this.x < STAGE_RIGHT_EDGE;
 
-    // One-way platforms (stages.js): land on top when coming down onto one;
-    // from below, or dropping through, you pass straight through.
-    let plat = null;
-    if (this.vy >= 0 && !(this.dropThrough > 0)) {
-      for (const p of Stage.platforms()) {
-        const top = prevY <= p.y + (p.id === this.platform ? 2 : 0);
-        if (top && this.y >= p.y && this.x >= p.x1 && this.x <= p.x2) { plat = p; break; }
-      }
-    }
-    if (plat) {
-      this.y = plat.y;
-      this.vy = 0;
-      this.platform = plat.id;
-      if (!this.grounded) {
-        this.grounded = true;
-        this.jumpsUsed = 0;
-        this.launched = false;
-        if (this.state === 'jump' || this.state === 'fall') this.state = 'idle';
-      }
-    } else if (onStage && this.y > GROUND_Y && prevY > GROUND_Y) {
+    if (onStage && this.y > GROUND_Y && prevY > GROUND_Y) {
       // Already below the platform's top surface (walked or was knocked off
       // the edge): the platform is a solid wall from here, not a floor.
       // Recovering means jumping up and landing on top, never sliding back
@@ -1450,20 +1414,20 @@ class Fighter {
     } else if (onStage && this.y >= GROUND_Y) {
       this.y = GROUND_Y;
       this.vy = 0;
-      this.platform = null;
       if (!this.grounded) {
         this.grounded = true;
         this.jumpsUsed = 0;
         this.launched = false;
         if (this.state === 'jump' || this.state === 'fall') this.state = 'idle';
       }
+    } else if (!onStage && this.y >= GROUND_Y) {
+      this.grounded = false;
     } else {
       this.grounded = false;
     }
-    if (!plat && this.y < GROUND_Y) this.platform = null; // walked, jumped or was knocked off it
 
-    // Keep fighters from flying fully out of the world while airborne.
-    this.x = Math.max(WORLD_LEFT, Math.min(WORLD_RIGHT, this.x));
+    // Keep fighters from flying fully off the visible canvas while airborne.
+    this.x = Math.max(-40, Math.min(CANVAS_WIDTH + 40, this.x));
 
     this.walkCycle += Math.abs(this.vx) * 0.05;
   }

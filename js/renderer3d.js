@@ -101,8 +101,7 @@ if (webglAvailable()) {
   scene.background = canvasTexture(Renderer.buildBackdropCanvas());
   scene.fog = new THREE.Fog('#7a3f86', 18, 62);
 
-  const hemi = new THREE.HemisphereLight('#c9b6ff', '#5a2f5a', 1.1);
-  scene.add(hemi);
+  scene.add(new THREE.HemisphereLight('#c9b6ff', '#5a2f5a', 1.1));
 
   // Moonlight from the moon's side of the sky (upper right).
   const sun = new THREE.DirectionalLight('#ffe9f6', 2.3);
@@ -113,21 +112,15 @@ if (webglAvailable()) {
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.02;
   scene.add(sun);
-  scene.add(sun.target); // (moved along with the camera, so shadows cover big stages)
 
   // Warm horizon glow as a rim from behind.
   const rim = new THREE.DirectionalLight('#e08aa8', 1.2);
   rim.position.set(-5, 3, -8);
   scene.add(rim);
 
-  // Everything below belongs to the Sky Arena; other stages have their own
-  // group (see "Stages" further down) and only one is shown at a time.
-  const arena = new THREE.Group();
-  scene.add(arena);
-
   // Platform: same footprint as the 2D stage (edges are where you fall off).
-  const PLAT_W = (STAGES.arena.right - STAGES.arena.left) * S;
-  const PLAT_X = toX((STAGES.arena.left + STAGES.arena.right) / 2);
+  const PLAT_W = (STAGE_RIGHT_EDGE - STAGE_LEFT_EDGE) * S;
+  const PLAT_X = toX((STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2);
   const PLAT_DEPTH = 3.4;
   const PLAT_Z = -0.5;
   const PLAT_THICK = 0.55;
@@ -206,21 +199,21 @@ if (webglAvailable()) {
   );
   platform.position.set(PLAT_X, -PLAT_THICK / 2, PLAT_Z);
   platform.receiveShadow = true;
-  arena.add(platform);
+  scene.add(platform);
 
   // Glowing trim along the front and side edges.
   const trimMat = new THREE.MeshStandardMaterial({ color: '#b3a5d9', emissive: '#6a4fb0', emissiveIntensity: 0.9, roughness: 0.4 });
   const frontTrim = new THREE.Mesh(new THREE.BoxGeometry(PLAT_W + 0.08, 0.07, 0.07), trimMat);
   frontTrim.position.set(PLAT_X, -0.02, PLAT_Z + PLAT_DEPTH / 2);
-  arena.add(frontTrim);
+  scene.add(frontTrim);
   for (const side of [-1, 1]) {
     const t = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, PLAT_DEPTH), trimMat);
     t.position.set(PLAT_X + side * (PLAT_W / 2 + 0.02), -0.02, PLAT_Z);
-    arena.add(t);
+    scene.add(t);
     // Corner posts, like the 2D stage's cliff caps.
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, PLAT_THICK + 0.1, 0.1), new THREE.MeshStandardMaterial({ color: '#a596cc', roughness: 0.6 }));
     post.position.set(PLAT_X + side * (PLAT_W / 2 + 0.04), -PLAT_THICK / 2 - 0.03, PLAT_Z + PLAT_DEPTH / 2);
-    arena.add(post);
+    scene.add(post);
   }
 
   // Rocky underside so it reads as a floating island.
@@ -229,7 +222,7 @@ if (webglAvailable()) {
   const underside = new THREE.Mesh(new THREE.CylinderGeometry(1, 0.12, 1, 7, 3), rockMat);
   underside.scale.set(PLAT_W * 0.5, UNDER_H, PLAT_DEPTH * 0.5);
   underside.position.set(PLAT_X, -PLAT_THICK - UNDER_H / 2, PLAT_Z);
-  arena.add(underside);
+  scene.add(underside);
 
   // Lit crystals studding the rock's front, each with a soft glow.
   {
@@ -248,11 +241,11 @@ if (webglAvailable()) {
       m.position.set(x, y, z);
       m.scale.set(1, 1.7, 1);
       m.rotation.set(rnd(), rnd() * 3, rnd());
-      arena.add(m);
+      scene.add(m);
       const glow = new THREE.Sprite(glowMat);
       glow.position.set(x, y, z + 0.05);
       glow.scale.setScalar(0.5);
-      arena.add(glow);
+      scene.add(glow);
     }
   }
 
@@ -268,7 +261,7 @@ if (webglAvailable()) {
     g.scale.setScalar(s);
     g.userData.bob = Math.random() * Math.PI * 2;
     g.userData.baseY = y;
-    arena.add(g);
+    scene.add(g);
     return g;
   }
   // Kept low and far so they sit around the horizon, clear of the HUD.
@@ -296,7 +289,7 @@ if (webglAvailable()) {
       const m = new THREE.Mesh(geo, mat);
       m.position.set(side * 9, 9.5, -7);
       m.userData.side = side;
-      arena.add(m);
+      scene.add(m);
       beams.push(m);
     }
   }
@@ -327,7 +320,7 @@ if (webglAvailable()) {
         z: -1 - ((seed * 7.3) % 9),
       };
       sp.scale.setScalar(0.09 + (i % 3) * 0.04);
-      arena.add(sp);
+      scene.add(sp);
       embers.push(sp);
     }
   }
@@ -340,364 +333,6 @@ if (webglAvailable()) {
       sp.material.opacity = Math.sin(life * Math.PI) * 0.7;
     }
   }
-
-  // ---- Stages ----
-  // Each stage is a group of scenery plus its sky, fog and light; only the
-  // current one is shown. Gameplay positions (floor edges, branches, the
-  // car) come from stages.js, so the scenery always lines up with the game.
-  //
-  // The Orchard is a grey-box: simple placeholder shapes, each named for
-  // what it stands in for, to be swapped for real models (the Blender
-  // template is built from this same layout).
-
-  const orchard = new THREE.Group();
-  orchard.visible = false;
-  scene.add(orchard);
-
-  const LOOKS = {
-    arena: {
-      group: arena, background: scene.background, fog: scene.fog,
-      hemi: ['#c9b6ff', '#5a2f5a', 1.1], sun: ['#ffe9f6', 2.3], rim: ['#e08aa8', 1.2],
-      maxDist: 16,
-    },
-    orchard: {
-      group: orchard,
-      background: canvasTexture(gradientCanvas([[0, '#5fa8f0'], [0.55, '#a9d6f7'], [0.8, '#e6f1ea'], [1, '#f4efd8']])),
-      fog: new THREE.Fog('#dcecf2', 30, 110),
-      hemi: ['#eaf5ff', '#6f8f4a', 1.3], sun: ['#fff3da', 2.7], rim: ['#ffe6b8', 0.5],
-      maxDist: 24,
-    },
-  };
-  let currentLook = 'arena';
-  function useStageLook(id) {
-    if (!LOOKS[id] || id === currentLook) return;
-    currentLook = id;
-    const look = LOOKS[id];
-    for (const l of Object.values(LOOKS)) l.group.visible = l === look;
-    scene.background = look.background;
-    scene.fog = look.fog;
-    hemi.color.set(look.hemi[0]); hemi.groundColor.set(look.hemi[1]); hemi.intensity = look.hemi[2];
-    sun.color.set(look.sun[0]); sun.intensity = look.sun[1];
-    rim.color.set(look.rim[0]); rim.intensity = look.rim[1];
-  }
-
-  // Grey-box parts. Each is named after what it stands in for.
-  const box = (name, w, h, d, color, x, y, z) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, roughness: 0.9, flatShading: true }));
-    m.name = name;
-    m.position.set(x, y, z);
-    m.castShadow = m.receiveShadow = true;
-    return m;
-  };
-
-  // Where the car joins the fight line at each end (3D x).
-  const orchardDef = STAGES.orchard;
-  const CAR = orchardDef.car;
-  const carJoin = (side) => toX(side < 0 ? orchardDef.left + CAR.width / 2 + 20 : orchardDef.right - CAR.width / 2 - 20);
-  const ROAD_BACK = -26; // how far back the farm roads come from
-
-  {
-    const L = toX(orchardDef.left), R = toX(orchardDef.right), W = R - L, CX = (L + R) / 2;
-    const HILL_DEPTH = 50, HILL_FRONT = 18, HILL_H = 5; // (runs well forward, so the view is grass, not a wall of dirt)
-
-    // The hilltop: flat grass on top, steep dirt drops at the ends (the ring-out edges).
-    const dirt = new THREE.MeshStandardMaterial({ color: '#9a7652', roughness: 1, flatShading: true });
-    const grass = new THREE.MeshStandardMaterial({ color: '#86b35a', roughness: 1 });
-    const hill = new THREE.Mesh(new THREE.BoxGeometry(W, HILL_H, HILL_DEPTH), [dirt, dirt, grass, dirt, dirt, dirt]);
-    hill.name = 'ground_hilltop';
-    hill.position.set(CX, -HILL_H / 2, HILL_FRONT - HILL_DEPTH / 2);
-    hill.receiveShadow = true;
-    orchard.add(hill);
-
-    // The valley far below, beyond the edges.
-    const valley = new THREE.Mesh(new THREE.PlaneGeometry(260, 200), new THREE.MeshStandardMaterial({ color: '#6f9a4a', roughness: 1 }));
-    valley.name = 'backdrop_valley';
-    valley.rotation.x = -Math.PI / 2;
-    valley.position.set(0, -9, -40);
-    orchard.add(valley);
-
-    // Dirt road along the fight line, and the farm roads that join it from the back.
-    const roadMat = new THREE.MeshStandardMaterial({ color: '#c2a57a', roughness: 1 });
-    const road = new THREE.Mesh(new THREE.PlaneGeometry(W, 1.6), roadMat);
-    road.name = 'road_main';
-    road.rotation.x = -Math.PI / 2;
-    road.position.set(CX, 0.004, 0);
-    road.receiveShadow = true;
-    orchard.add(road);
-    for (const side of [-1, 1]) {
-      const back = new THREE.Mesh(new THREE.PlaneGeometry(1.6, -ROAD_BACK + 1), roadMat);
-      back.name = side < 0 ? 'road_back_left' : 'road_back_right';
-      back.rotation.x = -Math.PI / 2;
-      back.position.set(carJoin(side), 0.003, ROAD_BACK / 2);
-      back.receiveShadow = true;
-      orchard.add(back);
-    }
-
-    // The apple tree: branches and crown exactly where the platforms are.
-    const tree = new THREE.Group();
-    tree.name = 'tree_platform';
-    const bark = '#7a5634', leaf = '#4f8f3a';
-    const crown = orchardDef.platforms.find((p) => p.id === 'crown');
-    const crownY = toY(crown.y);
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.32, crownY + 0.2, 8), new THREE.MeshStandardMaterial({ color: bark, roughness: 1, flatShading: true }));
-    trunk.name = 'tree_trunk';
-    trunk.position.set(toX(640), (crownY + 0.2) / 2, -0.55);
-    trunk.castShadow = true;
-    tree.add(trunk);
-    for (const p of orchardDef.platforms) {
-      const x1 = toX(p.x1), x2 = toX(p.x2), y = toY(p.y);
-      if (p.id === 'crown') {
-        tree.add(box('tree_crown_top', x2 - x1, 0.16, 1.1, '#5d9c44', (x1 + x2) / 2, y - 0.08, -0.25));
-      } else {
-        tree.add(box('tree_' + p.id, x2 - x1, 0.12, 0.6, bark, (x1 + x2) / 2, y - 0.06, -0.15));
-        // The limb from the trunk out to the branch.
-        const near = Math.abs(x1 - toX(640)) < Math.abs(x2 - toX(640)) ? x1 : x2;
-        const limb = box('tree_limb', Math.abs(near - toX(640)) + 0.2, 0.14, 0.18, bark, (near + toX(640)) / 2, y - 0.2, -0.5);
-        limb.rotation.z = 0.25 * Math.sign(near - toX(640));
-        tree.add(limb);
-      }
-    }
-    // Leaves, all behind the fight line so they never hide a fighter.
-    const leafMat = new THREE.MeshStandardMaterial({ color: leaf, roughness: 1, flatShading: true });
-    for (const [x, y, z, r] of [[0, 2.55, -1.3, 1.25], [-1.0, 2.2, -1.1, 0.9], [1.0, 2.25, -1.1, 0.9], [-1.6, 1.25, -0.9, 0.55], [1.6, 1.25, -0.9, 0.55], [0.4, 3.1, -1.6, 0.8]]) {
-      const s = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), leafMat);
-      s.name = 'tree_leaves';
-      s.position.set(toX(640) + x, y, z);
-      s.castShadow = true;
-      tree.add(s);
-    }
-    orchard.add(tree);
-
-    // Rows of fruit trees behind (one mesh each for trunks and tops).
-    const spots = [];
-    for (const z of [-4.5, -7.5, -10.5, -14, -18, -22.5]) {
-      for (let x = L + 1.2; x < R - 1; x += 2.6) {
-        if (Math.abs(x - carJoin(-1)) < 1.4 || Math.abs(x - carJoin(1)) < 1.4) continue; // keep the roads clear
-        if (z > -14 && z < -7 && Math.abs(x - (-8)) < 2.8) continue; // the barn
-        spots.push([x + Math.sin(x * 12.9 + z) * 0.35, z]);
-      }
-    }
-    const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.1, 0.14, 1, 6), new THREE.MeshStandardMaterial({ color: bark, roughness: 1 }), spots.length);
-    const tops = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.75, 0), new THREE.MeshStandardMaterial({ color: '#5c9a40', roughness: 1, flatShading: true }), spots.length);
-    trunks.name = 'orchard_rows_trunks';
-    tops.name = 'orchard_rows_tops';
-    const mtx = new THREE.Matrix4();
-    spots.forEach(([x, z], i) => {
-      mtx.makeTranslation(x, 0.5, z); trunks.setMatrixAt(i, mtx);
-      mtx.makeTranslation(x, 1.35, z); tops.setMatrixAt(i, mtx);
-    });
-    trunks.castShadow = tops.castShadow = true;
-    orchard.add(trunks, tops);
-
-    // Fence along the back of the fight area.
-    const fence = new THREE.Group();
-    fence.name = 'fence';
-    for (let x = L + 0.3; x < R; x += 1.5) {
-      if (Math.abs(x - carJoin(-1)) < 1.1 || Math.abs(x - carJoin(1)) < 1.1) continue;
-      fence.add(box('fence_post', 0.1, 0.7, 0.1, '#a88a62', x, 0.35, -2.3));
-      fence.add(box('fence_rail', 1.5, 0.07, 0.05, '#b89a70', x + 0.75, 0.52, -2.3));
-    }
-    orchard.add(fence);
-
-    // A barn, far hills, and the sun's warmth.
-    const barn = new THREE.Group();
-    barn.name = 'barn';
-    barn.add(box('barn_walls', 3.4, 2.2, 2.6, '#b5473a', 0, 1.1, 0));
-    const roof = new THREE.Mesh(new THREE.CylinderGeometry(1.95, 1.95, 3.6, 3, 1), new THREE.MeshStandardMaterial({ color: '#6b5a52', roughness: 1, flatShading: true }));
-    roof.name = 'barn_roof';
-    roof.rotation.set(-Math.PI / 2, 0, Math.PI / 2); // a triangular prism lying along x, ridge up
-    roof.scale.set(1, 1, 0.55);
-    roof.position.set(0, 2.74, 0);
-    roof.castShadow = true;
-    barn.add(roof);
-    barn.position.set(-8, 0, -10.5);
-    orchard.add(barn);
-
-    const hillMat = new THREE.MeshStandardMaterial({ color: '#7fa65a', roughness: 1, flatShading: true });
-    for (const [x, z, sx, sy] of [[-40, -70, 26, 9], [-8, -80, 30, 12], [26, -72, 24, 8], [55, -65, 22, 10], [-65, -60, 20, 7]]) {
-      const h = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), hillMat);
-      h.name = 'backdrop_hill';
-      h.scale.set(sx, sy, sx * 0.6);
-      h.position.set(x, -9, z);
-      orchard.add(h);
-    }
-  }
-
-  // Cows grazing and wandering behind the fence (scenery only).
-  const cows = [];
-  {
-    const white = '#f2efe8', black = '#2c2a28';
-    for (const [z, xa, xb, speed, phase] of [[-3.4, -9, -3, 0.35, 0], [-6, 2.5, 9, 0.28, 2], [-9, -4, 4, 0.22, 4.5], [-12.5, 5, 11, 0.3, 1]]) {
-      const cow = new THREE.Group();
-      cow.name = 'cow';
-      cow.add(box('cow_body', 1.2, 0.55, 0.5, white, 0, 0.75, 0));
-      cow.add(box('cow_patch', 0.45, 0.4, 0.52, black, -0.15, 0.8, 0));
-      cow.add(box('cow_head', 0.35, 0.35, 0.34, white, 0.72, 0.95, 0));
-      cow.add(box('cow_nose', 0.12, 0.18, 0.3, '#e8a8a0', 0.9, 0.88, 0));
-      const legs = [];
-      for (const [lx, lz] of [[0.45, 0.17], [0.45, -0.17], [-0.45, 0.17], [-0.45, -0.17]]) {
-        const leg = box('cow_leg', 0.1, 0.5, 0.1, white, lx, 0.25, lz);
-        legs.push(leg);
-        cow.add(leg);
-      }
-      cow.position.set(xa, 0, z);
-      orchard.add(cow);
-      cows.push({ cow, legs, z, xa, xb, speed, phase });
-    }
-  }
-  function updateCows(now) {
-    const t = now / 1000;
-    for (const c of cows) {
-      // Wander back and forth, stopping to graze at each end.
-      const span = c.xb - c.xa, period = (span / c.speed) * 2 + 8;
-      const u = ((t + c.phase * 3) % period) / period;
-      const walkOut = (span / c.speed) / period;
-      let x, dir, walking;
-      if (u < walkOut) { x = c.xa + span * (u / walkOut); dir = 1; walking = true; }
-      else if (u < 0.5) { x = c.xb; dir = 1; walking = false; }
-      else if (u < 0.5 + walkOut) { x = c.xb - span * ((u - 0.5) / walkOut); dir = -1; walking = true; }
-      else { x = c.xa; dir = -1; walking = false; }
-      c.cow.position.x = x;
-      c.cow.rotation.y = dir > 0 ? 0 : Math.PI;
-      if (c.custom) continue; // (a real cow model animates itself)
-      c.legs.forEach((leg, i) => { leg.rotation.z = walking ? Math.sin(t * 6 + (i % 2) * Math.PI) * 0.35 : 0; });
-      c.cow.children[2].position.y = walking ? 0.95 : 0.62; // head down to graze
-    }
-  }
-
-  // The car (a van -- its roof is the platform you can ride).
-  const car = new THREE.Group();
-  car.name = 'car';
-  {
-    const w = CAR.width * S, h = CAR.height * S;
-    car.add(box('car_body', w, h - 0.15, 1.3, '#8aa1b8', 0, 0.15 + (h - 0.15) / 2, 0));
-    car.add(box('car_windshield', 0.08, 0.3, 1.1, '#2b3440', w / 2 - 0.02, h - 0.25, 0));
-    for (const side of [-1, 1]) car.add(box('car_window', 1.4, 0.26, 0.04, '#2b3440', 0.3, h - 0.25, side * 0.66));
-    for (const [x, z] of [[w / 2 - 0.55, 0.6], [w / 2 - 0.55, -0.6], [-w / 2 + 0.55, 0.6], [-w / 2 + 0.55, -0.6]]) {
-      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.18, 12), new THREE.MeshStandardMaterial({ color: '#222', roughness: 0.8 }));
-      wheel.name = 'car_wheel';
-      wheel.rotation.x = Math.PI / 2;
-      wheel.position.set(x, 0.2, z);
-      car.add(wheel);
-    }
-    const lightMat = new THREE.MeshStandardMaterial({ color: '#fff6c8', emissive: '#fff2a0', emissiveIntensity: 2 });
-    for (const z of [0.45, -0.45]) {
-      const l = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.22), lightMat);
-      l.name = 'car_headlight';
-      l.position.set(w / 2 + 0.01, 0.4, z);
-      car.add(l);
-    }
-    const glowMat = new THREE.SpriteMaterial({ map: glowTexture('rgba(255,245,190,1)', 'rgba(255,245,190,0)'), blending: THREE.AdditiveBlending, depthWrite: false });
-    for (const z of [0.45, -0.45]) {
-      const g = new THREE.Sprite(glowMat);
-      g.name = 'car_glow';
-      g.position.set(w / 2 + 0.2, 0.4, z);
-      g.scale.setScalar(0.9);
-      car.add(g);
-    }
-    car.traverse((m) => { if (m.isMesh) m.castShadow = true; });
-  }
-  car.visible = false;
-  orchard.add(car);
-
-  // Where the car is on screen: coming down a farm road during the warning,
-  // along the fight line (where the game has it) while it drives, then off
-  // down the other farm road (scenery only, once the game is done with it).
-  let carShown = null; // { side, t0 } while it drives away after the game drops it
-  function updateCar(c, now) {
-    const faceTo = (dx, dz) => Math.atan2(-dz, dx); // rotation.y that points +x along (dx, dz)
-    const turnTo = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k; // the short way round
-    if (c && c.phase === 'warn') {
-      const side = c.dir > 0 ? -1 : 1;
-      const u = 1 - c.timer / CAR.warn;
-      const k = 1 - Math.pow(1 - Math.min(1, u / 0.85), 2);
-      car.position.set(carJoin(side), 0, ROAD_BACK * (1 - k));
-      // Heading down the farm road towards us, then turning onto the fight line.
-      const turn = Math.max(0, (u - 0.8) / 0.2);
-      car.rotation.y = turnTo(faceTo(0, 1), faceTo(c.dir, 0), turn);
-      car.visible = true;
-      carShown = { side: -side, dir: c.dir, t0: null };
-      return;
-    }
-    if (c && c.phase === 'drive') {
-      car.position.set(toX(c.x), 0, 0);
-      car.rotation.y = faceTo(c.dir, 0);
-      car.visible = true;
-      carShown = { side: c.dir, dir: c.dir, t0: null };
-      return;
-    }
-    // Gone from the game: turn off up the farm road at the far end.
-    if (carShown) {
-      if (carShown.t0 === null) carShown.t0 = now;
-      const u = (now - carShown.t0) / 1400;
-      if (u >= 1) { carShown = null; car.visible = false; return; }
-      const turn = Math.min(1, u / 0.2);
-      car.position.set(carJoin(carShown.side), 0, ROAD_BACK * Math.pow(Math.max(0, u - 0.1) / 0.9, 1.4));
-      car.rotation.y = turnTo(faceTo(carShown.dir, 0), faceTo(0, -1), turn);
-      return;
-    }
-    car.visible = false;
-  }
-
-  // Real scenery from Blender: a stage listed in assets/stages/manifest.json
-  // has assets/stages/<id>.glb (exported from the template in blender/),
-  // which replaces its grey-box. Its 'car' and 'cow_1'... 'cow_4' objects take
-  // over from the placeholders and move the same way (a cow's own animation
-  // plays if it has one). Anything named GUIDE_... is a layout aid, never shown.
-  const mixers = [];
-  function takeOver(slot, node) {
-    node.removeFromParent();
-    node.position.set(0, 0, 0);
-    node.rotation.set(0, 0, 0);
-    for (const c of [...slot.children]) slot.remove(c);
-    slot.add(node);
-  }
-  async function loadStageScenes() {
-    let list = [];
-    try {
-      const r = await fetch('assets/stages/manifest.json');
-      if (r.ok) list = (await r.json()).scenes || [];
-    } catch (e) { return; }
-    if (!list.includes('orchard')) return;
-    try {
-      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
-      const gltf = await new GLTFLoader().loadAsync('assets/stages/orchard.glb');
-      const root = gltf.scene;
-      const guides = [];
-      root.traverse((o) => {
-        if (o.name.startsWith('GUIDE_')) guides.push(o);
-        if (o.isMesh) o.castShadow = o.receiveShadow = true;
-      });
-      guides.forEach((o) => o.removeFromParent());
-      const carNode = root.getObjectByName('car');
-      if (carNode) takeOver(car, carNode);
-      cows.forEach((c, i) => {
-        const node = root.getObjectByName('cow_' + (i + 1));
-        if (!node) return;
-        takeOver(c.cow, node);
-        c.legs = []; c.custom = true;
-      });
-      // Out with the grey-box scenery; the moving parts stay (now wearing the new models).
-      const keep = new Set([car, ...cows.map((c) => c.cow)]);
-      for (const child of [...orchard.children]) if (!keep.has(child)) orchard.remove(child);
-      orchard.add(root);
-      // Each animation plays on whichever object holds what it moves (the
-      // scenery, the car, or a cow as it wanders).
-      const owners = [root, car, ...cows.map((c) => c.cow)];
-      const byOwner = new Map();
-      for (const clip of gltf.animations) {
-        const target = clip.tracks.length ? clip.tracks[0].name.split('.')[0] : null;
-        const owner = owners.find((o) => target && o.getObjectByName(target));
-        if (!owner) continue;
-        if (!byOwner.has(owner)) byOwner.set(owner, new THREE.AnimationMixer(owner));
-        byOwner.get(owner).clipAction(clip).play();
-      }
-      mixers.push(...byOwner.values());
-    } catch (e) {
-      console.warn('[stage] could not load assets/stages/orchard.glb -- showing the grey-box', e);
-    }
-  }
-  loadStageScenes();
 
   // ---- Fighter cards ----
 
@@ -767,19 +402,16 @@ if (webglAvailable()) {
     m.rotation.z = shaky && f.state !== 'ko' ? Math.sin(performance.now() / (110 - 50 * shaky)) * 0.09 * shaky : 0;
 
     const overStage = f.x > STAGE_LEFT_EDGE && f.x < STAGE_RIGHT_EDGE;
-    // Standing on a branch or the car: the shadow and ring go on that, not the floor.
-    const floorY = f.platform && f.grounded ? f.y : GROUND_Y;
-    const floor3 = toY(floorY);
-    const height = (Math.max(0, floorY - f.y) + rig.lift) * S;
+    const height = (Math.max(0, GROUND_Y - f.y) + rig.lift) * S;
     const k = Math.max(0.25, 1 - height / 2.4);
     const stretch = 1 + 1.1 * rig.lying;
-    card.blob.visible = (overStage || !!f.platform) && f.y <= floorY + 1;
-    card.blob.position.set(toX(f.x), floor3 + 0.004, card.z);
+    card.blob.visible = overStage && f.y <= GROUND_Y + 1;
+    card.blob.position.set(toX(f.x), 0.004, card.z);
     card.blob.scale.set(f.width * S * 0.42 * k * stretch, f.width * S * 0.16 * k, 1);
     card.blob.material.opacity = 0.38 * k;
 
     card.ring.visible = card.blob.visible;
-    card.ring.position.set(toX(f.x), floor3 + 0.006, card.z);
+    card.ring.position.set(toX(f.x), 0.006, card.z);
     card.ring.scale.set(f.width * S * 0.52 * k * (1 + 0.9 * rig.lying), f.width * S * 0.2 * k, 1);
     card.ring.material.opacity = 0.85 * k;
   }
@@ -818,32 +450,13 @@ if (webglAvailable()) {
   backFxSheet.renderOrder = 1;
   scene.add(backFxSheet);
 
-  // Which part of the game world the sheets cover. The arena fits the
-  // screen; on bigger stages they follow the camera, covering what it sees
-  // at a resolution that drops as it zooms out (nothing is lost on screen).
-  function fxView() {
-    if (currentLook === 'arena') return { x0: 0, y0: 0, k: 1 };
-    const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    const seen = (2 * camPos.z * tanV * camera.aspect) / S;
-    const vw = THREE.MathUtils.clamp(seen * 1.25, CANVAS_WIDTH, 3400);
-    const k = fxCanvas.width / vw, vh = fxCanvas.height / k;
-    return { x0: camTarget.x / S + CANVAS_WIDTH / 2 - vw / 2, y0: CANVAS_HEIGHT + FX_PAD - vh, k }; // (bottom edge where the arena's is)
-  }
-
   function updateFx(state) {
-    const v = fxView();
-    for (const [sheet, c] of [[fxSheet, fxCanvas], [backFxSheet, backFxCanvas]]) {
-      c.getContext('2d').setTransform(1, 0, 0, 1, 0, 0);
-      c.getContext('2d').clearRect(0, 0, c.width, c.height);
-      c.getContext('2d').setTransform(v.k, 0, 0, v.k, -v.x0 * v.k, -v.y0 * v.k);
-      sheet.scale.setScalar(1 / v.k);
-      sheet.position.x = toX(v.x0 + c.width / v.k / 2);
-      sheet.position.y = toY(v.y0 + c.height / v.k / 2);
-    }
+    backFxCtx.clearRect(0, 0, backFxCanvas.width, backFxCanvas.height);
     AbilityFX.drawBack(backFxCtx, state.p1);
     AbilityFX.drawBack(backFxCtx, state.p2);
     backFxTex.needsUpdate = true;
 
+    fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
     AbilityFX.drawFront(fxCtx, state.p1);
     AbilityFX.drawFront(fxCtx, state.p2);
     AbilityFX.drawTimed(fxCtx);
@@ -1021,9 +634,8 @@ if (webglAvailable()) {
       const spanY = Math.abs(ay - by) + tallest + 1.6;
       const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
       dist = Math.max(spanY / 2 / tanV, spanX / 2 / (tanV * camera.aspect));
-      dist = THREE.MathUtils.clamp(dist, 7, LOOKS[currentLook].maxDist);
-      // Keep the view over the stage (the arena's: +-3.2).
-      tx = THREE.MathUtils.clamp((ax + bx) / 2, toX(STAGE_LEFT_EDGE) + 1.6, toX(STAGE_RIGHT_EDGE) - 1.6);
+      dist = THREE.MathUtils.clamp(dist, 7, 16);
+      tx = THREE.MathUtils.clamp((ax + bx) / 2, -3.2, 3.2);
       ty = Math.max((ay + by) / 2 + tallest * 0.55, 0.9);
       // Pull back to keep a high ball in shot (below the HUD, which covers
       // the top of the screen), holding the floor in place.
@@ -1062,13 +674,6 @@ if (webglAvailable()) {
     const dt = Math.min((now - lastRender) / 1000, 0.1);
     lastRender = now;
 
-    // The stage being played (or last played, behind the menus).
-    useStageLook(Stage.id());
-    frameCamera(state, dt, now);
-    // The sun follows the view, so its shadows cover wherever the fight is.
-    sun.position.set(camTarget.x + 3, 9, 7);
-    sun.target.position.set(camTarget.x, 0, 0);
-
     if (state) {
       updateCard(cards.p1, state.p1, dt);
       updateCard(cards.p2, state.p2, dt);
@@ -1077,28 +682,22 @@ if (webglAvailable()) {
     } else {
       updateBall(null, null, now);
       for (const c of Object.values(cards)) { c.mesh.visible = false; c.blob.visible = false; c.ring.visible = false; }
-      fxCtx.setTransform(1, 0, 0, 1, 0, 0);
       fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
       fxTex.needsUpdate = true;
     }
     fxSheet.visible = backFxSheet.visible = !!state;
 
-    if (currentLook === 'arena') {
-      for (const isl of islands) {
-        isl.position.y = isl.userData.baseY + Math.sin(now * 0.0005 + isl.userData.bob) * 0.25;
-      }
-      updateBeams(now);
-      updateEmbers(now);
-      // Pulsing runes and lip glow, in step with the 2D stage.
-      const pulse = 0.35 + 0.25 * Math.sin(now / 1000 * 2);
-      faceMat.emissiveIntensity = 0.3 + pulse * 1.1;
-      trimMat.emissiveIntensity = 0.6 + pulse * 0.8;
-    } else if (currentLook === 'orchard') {
-      for (const m of mixers) m.update(dt);
-      updateCows(now);
-      updateCar(state ? Stage.car() : null, now);
+    for (const isl of islands) {
+      isl.position.y = isl.userData.baseY + Math.sin(now * 0.0005 + isl.userData.bob) * 0.25;
     }
+    updateBeams(now);
+    updateEmbers(now);
+    // Pulsing runes and lip glow, in step with the 2D stage.
+    const pulse = 0.35 + 0.25 * Math.sin(now / 1000 * 2);
+    faceMat.emissiveIntensity = 0.3 + pulse * 1.1;
+    trimMat.emissiveIntensity = 0.6 + pulse * 0.8;
 
+    frameCamera(state, dt, now);
     renderer.render(scene, camera);
   }
 
