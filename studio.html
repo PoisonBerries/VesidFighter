@@ -17,6 +17,8 @@
     .tabs .count { opacity: 0.7; font-size: 12px; margin-left: 4px; }
     main { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 16px; padding: 8px 20px 24px; align-items: start; }
     @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+    /* Preview stays in view while you drag the shape sliders or scroll the parts. */
+    @media (min-width: 801px) { .left { position: sticky; top: 8px; } }
     .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
     .preview canvas { width: 100%; height: auto; display: block; background: radial-gradient(circle at 50% 70%, #3a2860, #1b1230); border-radius: 8px; }
     .pose-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
@@ -38,7 +40,10 @@
     .part .size { color: var(--dim); font-size: 11px; margin-bottom: 6px; overflow-wrap: anywhere; }
     .part .row { display: flex; gap: 6px; flex-wrap: wrap; }
     .part input[type=file] { display: none; }
-    .left { display: flex; flex-direction: column; gap: 16px; }
+    .left, .right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    #sliders { columns: 300px; column-gap: 24px; }
+    #sliders .slider { break-inside: avoid; }
+    #sliders .slider-group { break-after: avoid; }
     .shape h2 { font-size: 16px; margin: 0 0 4px; color: var(--accent); }
     .shape .unsaved { color: var(--dim); font-size: 12px; font-weight: normal; }
     .shape .note { color: var(--dim); font-size: 12px; margin: 4px 0 10px; }
@@ -77,6 +82,8 @@
           <button class="btn" id="clear-all">Clear previews</button>
         </div>
       </section>
+    </div>
+    <div class="right">
       <section class="card shape">
         <h2>Body shape <span class="unsaved" id="unsaved" hidden>(unsaved)</span></h2>
         <p class="note">Set this character's proportions first: the templates follow them. Looks only; hitboxes don't change.</p>
@@ -87,8 +94,8 @@
         </div>
         <p class="note">To keep it: save as <code id="shape-path"></code>, then run <code>python3 tools/update-parts.py</code>.</p>
       </section>
+      <section class="parts" id="parts"></section>
     </div>
-    <section class="parts" id="parts"></section>
   </main>
   <section class="card how">
     <h2>How to draw a part</h2>
