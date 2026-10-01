@@ -9,7 +9,7 @@ const path = require('path');
 const vm = require('vm');
 const { ROOT } = require('./helpers');
 
-const FILES = ['constants.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js', 'rollback.js', 'cpu.js'];
+const FILES = ['constants.js', 'stages.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js', 'rollback.js', 'cpu.js'];
 const ACTIONS = ['left', 'right', 'block', 'guard', 'jump', 'attack', 'special', 'ultimate'];
 const source = FILES.map((f) => fs.readFileSync(path.join(ROOT, 'js', f), 'utf8')).join('\n;\n');
 const PRELUDE = `
@@ -18,7 +18,7 @@ const PRELUDE = `
   for (const slot of ['p1', 'p2']) { VCONTROLS[slot] = {}; for (const a of ${JSON.stringify(ACTIONS)}) VCONTROLS[slot][a] = 'V_' + slot + '_' + a; }
   const Net = { controlsFor: (slot) => VCONTROLS[slot], setLocalVirtual() {} };
 `;
-const script = new vm.Script(PRELUDE + source + '\n({ Game, Cpu, Rollback, CHARACTER_LIST, FIXED_STEP });', { filename: 'cpu-sim.js' });
+const script = new vm.Script(PRELUDE + source + '\n({ Game, Cpu, Rollback, Stage, CHARACTER_LIST, FIXED_STEP });', { filename: 'cpu-sim.js' });
 const createSim = () => script.runInContext(vm.createContext({ console, Math, JSON, performance: { now: () => 0 } }));
 
 function rng(seed) {
@@ -58,10 +58,10 @@ const BOTS = {
 };
 
 // ball / balance: the match's modes (default: the game's defaults).
-function playMatch(kinds, chars, seed, ball, balance) {
+function playMatch(kinds, chars, seed, ball, balance, stage) {
   const sim = createSim();
   let winner = null;
-  sim.Game.startMatch(chars[0], chars[1], (w) => { winner = w; }, { ball, balance });
+  sim.Game.startMatch(chars[0], chars[1], (w) => { winner = w; }, { ball, balance, stage });
   const brains = kinds.map((k, i) => (k.startsWith('cpu:')
     ? sim.Cpu.createBrain(i ? 'p2' : 'p1', k.slice(4), seed + i)
     : BOTS[k](sim, seed + i)));
@@ -159,3 +159,13 @@ test('rally mode: CPUs really play the ball -- shots both ways, and it does real
   assert.ok(ballDamage / damage >= 0.1, `the ball did only ${(ballDamage / damage * 100).toFixed(0)}% of the damage`);
 });
 
+
+test('on the orchard (bigger floor, tree, car) the CPU still never walks itself off the edge', () => {
+  const ids = createSim().CHARACTER_LIST.map((c) => c.id);
+  const selfKO = [0, 0];
+  ids.forEach((id, i) => {
+    const r = playMatch(['cpu:normal', 'cpu:hard'], [id, ids[(i + 3) % ids.length]], 500 + i, 'off', false, 'orchard');
+    selfKO[0] += r.selfKO[0]; selfKO[1] += r.selfKO[1];
+  });
+  assert.deepStrictEqual(selfKO, [0, 0], `self ring-outs: ${selfKO}`);
+});

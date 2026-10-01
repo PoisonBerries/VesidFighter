@@ -9,7 +9,7 @@ const path = require('path');
 const vm = require('vm');
 const { ROOT } = require('./helpers');
 
-const FILES = ['constants.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js', 'rollback.js'];
+const FILES = ['constants.js', 'stages.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js', 'rollback.js'];
 const ACTIONS = ['left', 'right', 'block', 'guard', 'jump', 'attack', 'special', 'ultimate'];
 const source = FILES.map((f) => fs.readFileSync(path.join(ROOT, 'js', f), 'utf8')).join('\n;\n');
 const PRELUDE = `
@@ -18,7 +18,7 @@ const PRELUDE = `
   for (const slot of ['p1', 'p2']) { VCONTROLS[slot] = {}; for (const a of ${JSON.stringify(ACTIONS)}) VCONTROLS[slot][a] = 'V_' + slot + '_' + a; }
   const Net = { controlsFor: (slot) => VCONTROLS[slot] };
 `;
-const script = new vm.Script(PRELUDE + source + '\n({ Game, Rollback, InputManager, FIXED_STEP });', { filename: 'rollback-sim.js' });
+const script = new vm.Script(PRELUDE + source + '\n({ Game, Rollback, InputManager, Stage, FIXED_STEP });', { filename: 'rollback-sim.js' });
 const createSim = () => script.runInContext(vm.createContext({ console: { warn() {}, log() {} }, Math, JSON, performance: { now: () => 0 } }));
 
 function rng(seed) {
@@ -47,7 +47,7 @@ function player(rand, BIT) {
   };
 }
 
-function runMatch({ seed, chars, latency, jitter, loss, startGap, ticks, hiccups = 0, hiccupLen = 0, p2Drops = 0.02 }) {
+function runMatch({ seed, chars, latency, jitter, loss, startGap, ticks, hiccups = 0, hiccupLen = 0, p2Drops = 0.02, stage }) {
   const rand = rng(seed);
   // TCP-style hiccups (the WebSocket relay): now and then a link holds every
   // packet for a while, then delivers them all at once, in order.
@@ -69,7 +69,7 @@ function runMatch({ seed, chars, latency, jitter, loss, startGap, ticks, hiccups
     for (let i = 0; i < 2; i++) {
       const P = peers[i];
       if (!started[i] && now >= (i === 1 ? startGap : 0)) {
-        P.Game.startMatch(chars[0], chars[1], () => {});
+        P.Game.startMatch(chars[0], chars[1], () => {}, { stage });
         P.Rollback.begin(i === 0 ? 'p1' : 'p2', 1, sender(1 - i));
         started[i] = true;
       }
@@ -99,7 +99,7 @@ function runMatch({ seed, chars, latency, jitter, loss, startGap, ticks, hiccups
   // Reference: one plain local game fed the same inputs frame by frame.
   const ref = createSim();
   const target = Math.min(peers[0].Rollback.frame(), peers[1].Rollback.frame()) - 60;
-  ref.Game.startMatch(chars[0], chars[1], () => {});
+  ref.Game.startMatch(chars[0], chars[1], () => {}, { stage });
   const apply = (sim, slot, b) => {
     const B = sim.Rollback.BIT, set = (a, d, p) => sim.InputManager.setVirtual('V_' + slot + '_' + a, d, p);
     set('left', !!(b & B.left), false); set('right', !!(b & B.right), false); set('block', !!(b & B.block), false);
@@ -128,6 +128,8 @@ const SCENARIOS = [
   // Found a real bug: a rollback across the end of a match used to leave the game stuck on the match-over screen.
   { name: 'rollback across the end of a match (~370 ms ping, 10% loss)', latency: 10, jitter: 5, loss: 0.1, startGap: 8, seed: 22, chars: ['owen', 'robert'], minFrames: 2000 },
   { name: 'mirror match, awful connection (~370 ms ping, 20% loss)', latency: 10, jitter: 5, loss: 0.2, startGap: 12, seed: 33, chars: ['sam', 'sam'], minFrames: 2000 },
+  // The orchard: tree platforms, and the car (it comes through ~20s in).
+  { name: 'orchard, with the car (~200 ms ping, 10% loss)', latency: 5, jitter: 3, loss: 0.1, startGap: 8, seed: 44, chars: ['ryan', 'john'], minFrames: 3000, stage: 'orchard' },
 ];
 
 for (const sc of SCENARIOS) {

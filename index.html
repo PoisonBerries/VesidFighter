@@ -99,6 +99,11 @@
           <button data-level="normal">Normal</button>
           <button data-level="hard">Hard</button>
         </div>
+        <div id="stage-mode" class="cpu-difficulty">
+          <span>Stage:</span>
+          <button data-stage="arena" title="The floating sky arena.">Sky Arena</button>
+          <button data-stage="orchard" title="A big hilltop orchard: climb the apple tree, and watch out for the car.">Orchard</button>
+        </div>
         <div id="ball-mode" class="cpu-difficulty">
           <span>Ball:</span>
           <button data-ball="rally" title="One ball all round. Hit it at your opponent -- every hit makes it hotter. Block just as it arrives to catch it.">Rally</button>
@@ -152,6 +157,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script src="js/constants.js"></script>
+  <script src="js/stages.js"></script>
   <script src="js/input.js"></script>
   <script src="js/characters.js"></script>
   <script src="js/characterHeads.js"></script>
@@ -170,7 +176,7 @@
   <script src="js/ui.js"></script>
   <script src="js/main.js"></script>
   <script type="importmap">
-    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
   </script>
   <script type="module" src="js/renderer3d.js"></script>
 </body>

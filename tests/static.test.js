@@ -134,3 +134,9 @@ test('transformed head images belong to characters that transform, and Robert ha
     assert.ok(/transform:\s*\{/.test(block), `${f}: "${id}" has no transformation, so the image would never be used`);
   }
 });
+
+test('stage scenes: the manifest parses and every scene it lists exists', () => {
+  const m = JSON.parse(read('assets/stages/manifest.json'));
+  assert.ok(Array.isArray(m.scenes));
+  for (const id of m.scenes) assert.ok(fs.existsSync(path.join(ROOT, 'assets', 'stages', id + '.glb')), `assets/stages/${id}.glb is listed but missing`);
+});

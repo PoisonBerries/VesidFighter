@@ -211,6 +211,13 @@ const Sfx = (() => {
       tone({ type: 'sawtooth', f0: 70, f1: 30, dur: 0.5, vol: 0.2, pan });
     },
     tick() { tone({ type: 'square', f0: 520, dur: 0.11, vol: 0.13 }); },
+    // The orchard car's horn: two honks, from the side it's coming in on.
+    horn(pan) {
+      for (const delay of [0, 0.32]) {
+        tone({ type: 'sawtooth', f0: 392, dur: 0.22, vol: 0.13, attack: 0.02, delay, pan });
+        tone({ type: 'sawtooth', f0: 494, dur: 0.22, vol: 0.1, attack: 0.02, delay, pan });
+      }
+    },
     go() {
       tone({ type: 'square', f0: 780, dur: 0.32, vol: 0.16 });
       tone({ type: 'square', f0: 1170, dur: 0.32, vol: 0.1 });
@@ -325,6 +332,7 @@ const Sfx = (() => {
     fall: (pan) => play('fall', pan),
     victory: () => play('victory'),
     tick: () => play('tick'),
+    horn: (pan) => play('horn', pan),
     go: () => play('go'),
     click: () => play('click'),
     transform: (pan) => play('transform', pan),
