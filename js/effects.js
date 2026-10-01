@@ -126,6 +126,15 @@ const Effects = (() => {
     if (typeof AbilityFX !== 'undefined') AbilityFX.reset(); // absent on the sim server
   }
 
+  // A character's voice line for an occasion (see Sfx.voice in audio.js). Like
+  // hit sparks it's recorded for online play and skipped while the game
+  // replays frames for rollback.
+  function voice(charId, occasion) {
+    if (suppressed) return;
+    if (recording) events.push(['v', charId, occasion]);
+    if (typeof Sfx !== 'undefined' && Sfx.voice) Sfx.voice(charId, occasion); // absent on the sim server
+  }
+
   function setRecording(v) { recording = v; events = []; }
   function setSuppressed(v) { suppressed = !!v; }
 
@@ -139,9 +148,10 @@ const Effects = (() => {
     for (const e of list || []) {
       if (e[0] === 'h') spawnHitSpark(e[1], e[2], e[3], e[4]);
       else if (e[0] === 's') shake(e[1], e[2]);
+      else if (e[0] === 'v') voice(e[1], e[2]);
       else if (e[0] === 'r') reset();
     }
   }
 
-  return { setRecording, setSuppressed, drainEvents, replayEvents, spawnHitSpark, spawnAuraPuff, spawnDust, spawn, shake, update, getShakeOffset, draw, reset };
+  return { voice, setRecording, setSuppressed, drainEvents, replayEvents, spawnHitSpark, spawnAuraPuff, spawnDust, spawn, shake, update, getShakeOffset, draw, reset };
 })();

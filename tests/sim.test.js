@@ -1765,3 +1765,27 @@ test('the car: a warning, then it runs over whoever is in its way (block or not)
   assert.ok(rode, 'landed on the roof');
   assert.ok(w.p2.x > x2 + 200 || sim.Game.getState() !== 'fight', 'carried along by the car');
 });
+
+// ---- Voice lines ----
+test('voice occasions fire as effect events: the opponent falling off, and being hit by a projectile', () => {
+  const sim = createSim();
+  // Keenan wins by ring-out: he says his enemy-fall line.
+  startGame(sim, 'keenan', 'ryan', 500, 800);
+  sim.Effects.setRecording(true);
+  sim.Effects.drainEvents();
+  sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 800, y: 5000, grounded: false, vy: 5 }] });
+  step(sim, 3);
+  assert.strictEqual(JSON.stringify(sim.Effects.drainEvents().filter((e) => e[0] === 'v')), JSON.stringify([['v', 'keenan', 'enemyFall']]));
+  // Hit by Ryan's soundwave.
+  startGame(sim, 'ryan', 'keenan', 400, 700);
+  sim.Effects.setRecording(true);
+  sim.Effects.drainEvents();
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false);
+  step(sim, 60);
+  assert.ok(sim.Effects.drainEvents().some((e) => e[0] === 'v' && e[1] === 'keenan' && e[2] === 'hitByProjectile'), 'Keenan reacts to the projectile');
+  // Not while the game is replaying frames for rollback.
+  sim.Effects.setSuppressed(true);
+  sim.Effects.voice('keenan', 'enemyFall');
+  sim.Effects.setSuppressed(false);
+  assert.strictEqual(sim.Effects.drainEvents().filter((e) => e[0] === 'v').length, 0);
+});

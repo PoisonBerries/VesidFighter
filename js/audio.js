@@ -316,7 +316,46 @@ const Sfx = (() => {
     SOUNDS[name](...args);
   }
 
+  // ---- Voice lines (assets/voice/<character>/) ----
+  // VOICE maps a character and an occasion to the file(s) that play; give a
+  // list to pick one at random. Occasions are triggered from the sim through
+  // Effects.voice(characterId, occasion) (see effects.js), so they work
+  // online and are skipped when the game replays frames for rollback.
+  const VOICE = {
+    keenan: {
+      enemyFall: 'KeenanEnemyFall.mp3',            // the opponent falls off the map
+      hitByProjectile: 'KeenanHitByProjectile.mp3', // he's hit by a projectile
+    },
+  };
+  const voiceBuffers = {}; // path -> decoded audio (or null if it can't be loaded)
+  const voiceLast = {};    // character -> when its last line started
+
+  function voice(charId, occasion) {
+    const entry = VOICE[charId] && VOICE[charId][occasion];
+    if (!entry || !ensure()) return;
+    const file = Array.isArray(entry) ? entry[Math.floor(Math.random() * entry.length)] : entry;
+    const path = `assets/voice/${charId}/${file}`;
+    const now = performance.now();
+    if (now - (voiceLast[charId] || 0) < 700 || settings.muted) return; // one voice at a time per fighter
+    voiceLast[charId] = now;
+    const go = (buf) => {
+      if (!buf) return;
+      const src = ac.createBufferSource();
+      src.buffer = buf;
+      src.connect(sfxBus);
+      src.start();
+    };
+    if (path in voiceBuffers) { go(voiceBuffers[path]); return; }
+    voiceBuffers[path] = null;
+    fetch(encodeURI(path))
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('missing'))))
+      .then((data) => new Promise((resolve, reject) => ac.decodeAudioData(data, resolve, reject)))
+      .then((buf) => { voiceBuffers[path] = buf; go(buf); })
+      .catch(() => { delete voiceBuffers[path]; });
+  }
+
   const api = {
+    voice,
     swing: (pan) => play('swing', pan),
     hover: (pan) => play('hover', pan),
     roll: (pan) => play('roll', pan),

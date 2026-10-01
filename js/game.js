@@ -144,11 +144,13 @@ const Game = (() => {
 
     if (p1.hasFallenOff() && p1.state !== 'ko') {
       p1.koByRingOut();
+      Effects.voice(p2.character.id, 'enemyFall');
       endRound('p2');
       return;
     }
     if (p2.hasFallenOff() && p2.state !== 'ko') {
       p2.koByRingOut();
+      Effects.voice(p1.character.id, 'enemyFall');
       endRound('p1');
       return;
     }
@@ -352,6 +354,7 @@ const Game = (() => {
         knockdown, knockdownDuration: p.knockdownDuration,
       });
 
+      if (result === 'hit') Effects.voice(defender.character.id, 'hitByProjectile');
       if (result === 'hit' || result === 'blocked') {
         grantUltCharge(p.owner, defender, true);
       }
