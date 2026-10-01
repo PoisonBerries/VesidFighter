@@ -338,7 +338,7 @@ const Sfx = (() => {
     },
   };
   VOICE.owen = {
-    'vs:artur': 'OwenVsArtur.mp3',                  // at the start of a match against Artur (once per match)
+    'vs:artur': 'artur/OwenVsArtur.mp3',            // (the file is in Artur's folder) at the start of a match against Artur (once per match)
   };
   const voiceBuffers = {}; // path -> decoded audio (or null if it can't be loaded)
   const voiceLast = {};    // character -> when its last line started
@@ -347,7 +347,8 @@ const Sfx = (() => {
     const entry = VOICE[charId] && VOICE[charId][occasion];
     if (!entry || !ensure()) return;
     const file = Array.isArray(entry) ? entry[Math.floor(Math.random() * entry.length)] : entry;
-    const path = `assets/voice/${charId}/${file}`;
+    // (a file name with a folder in it, like 'artur/Line.mp3', is taken from that folder instead)
+    const path = file.includes('/') ? `assets/voice/${file}` : `assets/voice/${charId}/${file}`;
     const now = performance.now();
     if (now - (voiceLast[charId] || 0) < 700 || settings.muted) return; // one voice at a time per fighter
     voiceLast[charId] = now;
