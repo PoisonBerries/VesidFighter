@@ -349,7 +349,9 @@ const Sfx = (() => {
   const voiceLast = {};    // character -> when its last line started
 
   function voice(charId, occasion) {
-    const entry = VOICE[charId] && VOICE[charId][occasion];
+    const lines = VOICE[charId] || {};
+    // Being hit by anything (projectile, special, ultimate, the ball...) without a line of its own plays the plain hit-taken line.
+    const entry = lines[occasion] || (occasion.startsWith('hitBy') ? lines.hitTaken : null);
     if (!entry || !ensure()) return;
     const file = Array.isArray(entry) ? entry[Math.floor(Math.random() * entry.length)] : entry;
     // (a file name with a folder in it, like 'artur/Line.mp3', is taken from that folder instead)

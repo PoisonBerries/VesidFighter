@@ -1889,3 +1889,14 @@ test('Artur voice lines: the fart special and ultimate, and being hit by a punch
   punch(sim, 'p1'); step(sim, 20);
   assert.ok(events().includes('artur:hitTaken'));
 });
+
+test('hit voice occasions: specials, ultimates and the ball are reported as their own occasions (audio falls back to hitTaken)', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  // John's Momentum Roll (a special) hits Keenan.
+  startGame(sim, 'john', 'keenan', 500, 560);
+  sim.Effects.setRecording(true); events();
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false);
+  step(sim, 40);
+  assert.ok(events().includes('keenan:hitBySpecial'));
+});

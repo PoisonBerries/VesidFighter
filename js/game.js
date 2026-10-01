@@ -254,8 +254,9 @@ const Game = (() => {
       attacker.startGrabSlam(defender);
     }
 
-    // A basic punch or kick that lands (not specials, ultimates or projectiles): the defender's hit-taken line.
-    if (result === 'hit' && attacker.state === 'attack') Effects.voice(defender.character.id, 'hitTaken');
+    // The defender's voice line for being hit: a punch or kick is 'hitTaken'; specials and ultimates
+    // have their own occasions (a character without a line for one falls back to its hitTaken).
+    if (result === 'hit') Effects.voice(defender.character.id, attacker.state === 'attack' ? 'hitTaken' : isUlt ? 'hitByUltimate' : 'hitBySpecial');
     if ((result === 'hit' || result === 'blocked') && stats.poisonDamage) attacker.gainFartPower(dmg);
     // Sam's Second Wind: landing a hit from the air heals a little.
     if (result === 'hit' && attacker.character.airLeech && !attacker.grounded) attacker.hp = Math.min(attacker.maxHp, attacker.hp + attacker.character.airLeech);
@@ -650,6 +651,7 @@ const Game = (() => {
       knockback: 5 + heat * 1.2, knockbackUp: 5 + heat * 0.6, hitstun: 16 + heat * 2,
       fromFacing: dir, projectile: true,
     });
+    if (result === 'hit') Effects.voice(f.character.id, 'hitByBall');
     b.grace[f.slot] = 20;
     b.live = false;
     b.vx = -dir * 2.5;
