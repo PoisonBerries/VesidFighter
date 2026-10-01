@@ -305,6 +305,38 @@ test('sound: every effect can play without throwing, and the soundtrack playlist
   await page.close();
 });
 
+test('voice lines are levelled: every file in assets/voice ends up at about the same loudness, without clipping', async () => {
+  const fs = require('fs'), path = require('path');
+  const { ROOT } = require('./helpers');
+  const dir = path.join(ROOT, 'assets', 'voice');
+  const files = fs.readdirSync(dir).flatMap((c) => (fs.statSync(path.join(dir, c)).isDirectory() ? fs.readdirSync(path.join(dir, c)).filter((f) => /\.(mp3|ogg|wav|m4a)$/i.test(f)).map((f) => `assets/voice/${c}/${f}`) : []));
+  const { page, errors } = await openGame();
+  const rows = await page.evaluate(async (files) => {
+    Sfx.ensure();
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const out = [];
+    for (const f of files) {
+      const buf = await ac.decodeAudioData(await (await fetch(encodeURI(f))).arrayBuffer());
+      const g = Sfx.loudnessGain(buf);
+      const a = buf.getChannelData(0), win = Math.round(buf.sampleRate * 0.05), r = [];
+      let peak = 0;
+      for (let i = 0; i + win <= a.length; i += win) { let sum = 0; for (let j = i; j < i + win; j++) { sum += a[j] * a[j]; peak = Math.max(peak, Math.abs(a[j])); } r.push(Math.sqrt(sum / win)); }
+      const top = Math.max(...r), live = r.filter((x) => x > top * 0.03);
+      const mean = Math.sqrt(live.reduce((t, x) => t + x * x, 0) / live.length);
+      out.push({ f, db: 20 * Math.log10(mean * g), peak: peak * g, gain: g });
+    }
+    return out;
+  }, files);
+  assert.ok(rows.length >= 20, `found ${rows.length} voice files`);
+  for (const r of rows) assert.ok(r.peak <= 0.9, `${r.f} would clip (peak ${r.peak.toFixed(2)})`);
+  // Everything lands within a few dB of the target (only a file too quiet to reach it without clipping may sit lower).
+  for (const r of rows) assert.ok(r.db > -27 && r.db < -19.5, `${r.f} ends up at ${r.db.toFixed(1)} dB`);
+  const spread = Math.max(...rows.map((r) => r.db)) - Math.min(...rows.map((r) => r.db));
+  assert.ok(spread < 6, `levels still spread ${spread.toFixed(1)} dB apart`);
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+});
+
 test('sound defaults: effects are boosted well past the old maximum and the music sits quieter than the effects', async () => {
   const { page, errors } = await openGame();
   const d = await page.evaluate(() => ({ music: Sfx.settings.music, sfx: Sfx.settings.sfx, boost: Sfx.sfxBoost, sliderMusic: +document.getElementById('vol-music').value, sliderSfx: +document.getElementById('vol-sfx').value }));

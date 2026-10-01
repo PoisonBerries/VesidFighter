@@ -377,6 +377,29 @@ const Sfx = (() => {
     victory: 'OwenVictory.mp3',                     // when he wins the match
     'vs:artur': 'artur/OwenVsArtur.mp3',            // (the file is in Artur's folder) at the start of a match against Artur (once per match)
   };
+  // Voice files are recorded at very different levels, so each is levelled when
+  // it's loaded: measure its loudness (RMS over the stretches that aren't
+  // silence) and scale it to a common target, without letting the peaks clip.
+  // Nothing is changed in the files themselves.
+  const VOICE_TARGET_DB = -21;   // gated RMS every line is brought to
+  const VOICE_MAX_PEAK = 0.89;   // about -1 dBFS
+  const VOICE_MAX_GAIN = 12;     // (+21.6 dB) so a near-silent file isn't blown up into noise
+  function loudnessGain(buf) {
+    const a = buf.getChannelData(0), win = Math.max(1, Math.round(buf.sampleRate * 0.05));
+    const rms = [];
+    let peak = 0;
+    for (let i = 0; i + win <= a.length; i += win) {
+      let sum = 0;
+      for (let j = i; j < i + win; j++) { const v = a[j]; sum += v * v; const m = v < 0 ? -v : v; if (m > peak) peak = m; }
+      rms.push(Math.sqrt(sum / win));
+    }
+    const top = Math.max(1e-9, ...rms);
+    const live = rms.filter((r) => r > top * 0.03); // skip silence and breaths
+    if (!live.length || peak <= 0) return 1;
+    const mean = Math.sqrt(live.reduce((t, r) => t + r * r, 0) / live.length);
+    const want = Math.pow(10, VOICE_TARGET_DB / 20) / mean;
+    return Math.min(want, VOICE_MAX_PEAK / peak, VOICE_MAX_GAIN);
+  }
   const voiceBuffers = {}; // path -> decoded audio (or null if it can't be loaded)
   const voiceLast = {};    // character -> when its last line started
 
@@ -395,7 +418,11 @@ const Sfx = (() => {
       if (!buf) return;
       const src = ac.createBufferSource();
       src.buffer = buf;
-      src.connect(sfxBus);
+      if (buf.leveled === undefined) buf.leveled = loudnessGain(buf);
+      const g = ac.createGain();
+      g.gain.value = buf.leveled;
+      src.connect(g);
+      g.connect(sfxBus);
       src.start();
     };
     if (path in voiceBuffers) { go(voiceBuffers[path]); return; }
@@ -408,7 +435,7 @@ const Sfx = (() => {
   }
 
   const api = {
-    voice,
+    voice, loudnessGain,
     swing: (pan) => play('swing', pan),
     hover: (pan) => play('hover', pan),
     roll: (pan) => play('roll', pan),
