@@ -328,6 +328,7 @@ const Sfx = (() => {
       hitByProjectile: 'KeenanHitByProjectile.mp3', // he's hit by a projectile
       phaseStep: 'KeenanPhaseStep.mp3',             // when he slips behind the opponent
       victory: 'KeenanVictory.mp3',                 // when he wins the match
+      hitByWater: 'KeenanHitByWaterAttack.mp3',     // hit by one of Sam's water attacks (his special or ultimate)
       recovery: 'KeenanRecovery.mp3',               // when he gets back up after being knocked down
       hitTaken: 'KeenanHitTaken.mp3',               // someone lands a punch or kick on him
       selected: 'KeenanSelected.mp3',               // he's clicked on in the character select menu
@@ -362,8 +363,15 @@ const Sfx = (() => {
     'vs:john': 'RyanVsJohn.mp3',                    // at the start of a match against John (once per match)
     ultimate: 'RyanYeah.mp3',                       // "Yeah!" as he kicks off Encore
   };
+  VOICE.robert = {
+    selected: 'RobFunny.mp3',                       // he's clicked on in the character select menu
+  };
   VOICE.owen = {
     'vs:john': 'OwenVsJohn.mp3',                    // at the start of a match against John (once per match)
+    hitTaken: 'OwenHitTaken.mp3',                   // someone lands a punch or kick on him
+    bigHit: 'OwenBigHitTaken.mp3',                  // a heavy blow: 15% of his health or more in one hit
+    foeRunsAway: 'OwenOpponentRunsAwayAfterHit.mp3', // he lands a hit and the opponent backs off
+    roundWin: 'OwenTaunting.mp3',                   // he wins a round (but not the match): a taunt
     selected: 'OwenSelected.mp3',                   // he's clicked on in the character select menu
     enemyFall: 'OwenLaugh.mp3',                     // he laughs when the opponent falls off the map
     victory: 'OwenVictory.mp3',                     // when he wins the match

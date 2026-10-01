@@ -79,6 +79,8 @@ const Game = (() => {
     if (w && w.roundsWon >= ROUNDS_TO_WIN) {
       Effects.voice(w.character.id, 'beats:' + (w === p1 ? p2 : p1).character.id); // a line for beating that particular fighter
       Effects.voice(w.character.id, 'victory');
+    } else if (w) {
+      Effects.voice(w.character.id, 'roundWin'); // won the round, match goes on
     }
   }
 
@@ -139,6 +141,19 @@ const Game = (() => {
     p1.update(Net.controlsFor('p1'), p2);
     p2.update(Net.controlsFor('p2'), p1);
     InputManager.endFrame();
+
+    // "Runs away after a hit": a fighter who just landed a hit gets a voice occasion if the
+    // opponent then backs off (running or jumping away) before the window closes.
+    for (const me of [p1, p2]) {
+      if (me.foeHitTimer > 0) {
+        me.foeHitTimer--;
+        const foe = me === p1 ? p2 : p1, away = foe.x >= me.x ? 1 : -1;
+        if (foe.state !== 'hitstun' && foe.state !== 'knockdown' && foe.state !== 'ko' && foe.vx * away >= 3 && Math.abs(foe.x - me.x) > 150) {
+          me.foeHitTimer = 0;
+          Effects.voice(me.character.id, 'foeRunsAway');
+        }
+      }
+    }
 
     // Toxic Rush: poison damage ticking this frame feeds whoever's cloud it is.
     for (const v of [p1, p2]) {
@@ -248,6 +263,7 @@ const Game = (() => {
     // Unanswered combo: hits in a row that aren't blocked or hit back.
     let comboNote = null;
     if (result === 'hit') {
+      attacker.foeHitTimer = 150;
       attacker.comboHits++;
       attacker.comboTimer = 100;
       if (attacker.character.comboSong) comboNote = attacker.comboHits - 1;
@@ -264,7 +280,7 @@ const Game = (() => {
     // A heavy blow (15% of max health or more) gets the defender's 'bigHit' line when they have one;
     // otherwise the usual one below plays.
     if (result === 'hit' && dmg >= defender.maxHp * 0.15) Effects.voice(defender.character.id, 'bigHit');
-    if (result === 'hit') Effects.voice(defender.character.id, attacker.state === 'attack' ? 'hitTaken' : isUlt ? 'hitByUltimate' : 'hitBySpecial');
+    if (result === 'hit') Effects.voice(defender.character.id, attacker.state === 'attack' ? 'hitTaken' : attacker.character.id === 'sam' ? 'hitByWater' : isUlt ? 'hitByUltimate' : 'hitBySpecial');
     if ((result === 'hit' || result === 'blocked') && stats.poisonDamage) attacker.gainFartPower(dmg);
     // Sam's Second Wind: landing a hit from the air heals a little.
     if (result === 'hit' && attacker.character.airLeech && !attacker.grounded) attacker.hp = Math.min(attacker.maxHp, attacker.hp + attacker.character.airLeech);

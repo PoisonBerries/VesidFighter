@@ -76,6 +76,7 @@ class Fighter {
     this.rolling = false; // crouch-moving as a roll (characters with crouchRoll)
     this.sliding = false; // gliding along the floor on crouch momentum (characters with crouchSwim)
     this.downAttackActive = false; // the current attack is the midair down+attack shockwave (characters with downAttack)
+    this.foeHitTimer = 0;  // frames left in which the opponent backing off counts as running away (voice line)
     this.comboHits = 0;    // hits landed in a row without being hit or blocked
     this.comboTimer = 0;   // frames left to keep the string going
     this.jumpCharge = 0;   // frames a charged jump has been held (characters with chargeJump)
@@ -593,7 +594,7 @@ class Fighter {
     this.upAttackActive = false;
     this.downAttackActive = false;
     this.phaseCooldown = 0;
-    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false;
+    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0;
     this.fartPower = 0; this.jumpStacks = 0; this.poisonFrom = null; this.poisonTickDamage = 0;
     this._comboHeld = false;
     this.blocking = false;

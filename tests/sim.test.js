@@ -1983,3 +1983,28 @@ test('Owen vs John matchup line, and Ryan\'s "yeah" on his ultimate', () => {
   f.startUltimate();
   assert.ok(events().includes('ryan:ultimate'));
 });
+
+test('voice: Sam\'s water attacks, round wins, and a foe running away after a hit', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  // Round win (match continues).
+  startGame(sim, 'owen', 'keenan', 500, 800);
+  sim.Effects.setRecording(true); events();
+  sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 800, y: 5000, grounded: false, vy: 5 }] });
+  step(sim, 3);
+  assert.ok(events().includes('owen:roundWin'));
+  // Sam's Cannonball Dive on Keenan is a water attack.
+  startGame(sim, 'sam', 'keenan', 500, 560);
+  sim.Effects.setRecording(true); events();
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false);
+  step(sim, 50);
+  assert.ok(events().includes('keenan:hitByWater'));
+  // Owen hits, then Keenan backs away.
+  startGame(sim, 'owen', 'keenan', 500, 560);
+  sim.Effects.setRecording(true); events();
+  punch(sim, 'p1'); step(sim, 14);
+  assert.ok(sim.Game.world().p1.foeHitTimer > 0);
+  sim.Game.applySnapshot({ f: [{}, { x: 700, vx: 6, state: 'walk', stunFrames: 0 }] });
+  step(sim, 2);
+  assert.ok(events().includes('owen:foeRunsAway'));
+});
