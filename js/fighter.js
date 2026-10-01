@@ -367,6 +367,7 @@ class Fighter {
   startUltimate() {
     const def = this.character.ultimate;
     if (this.ultCharge < ULT_METER_MAX) return;
+    Effects.voice(this.character.id, 'ultimate'); // (only fires when the ultimate really goes off)
 
     // Phase is instant and non-committing -- it wouldn't make sense to lock
     // a dodge/escape ultimate into an uninterruptible animation.
@@ -533,6 +534,7 @@ class Fighter {
     if (hit.knockdown) {
       this.state = 'knockdown';
       this.knockdownTimer = hit.knockdownDuration || 45;
+      Effects.voice(this.character.id, 'knockedDown');
     } else {
       this.state = 'hitstun';
       this.stunFrames = hit.hitstun;
@@ -1059,6 +1061,7 @@ class Fighter {
           opp.grounded = true;
           opp.state = 'knockdown';
           opp.knockdownTimer = gs.stun;
+          Effects.voice(opp.character.id, 'knockedDown');
           opp.actionTimer = 0;
           opp.hp = Math.max(0, opp.hp - gs.damage * this.damageMultiplier * Game.fightDamageMul());
           opp.hitFlashTimer = 14;

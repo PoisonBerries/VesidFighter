@@ -76,7 +76,10 @@ const Game = (() => {
     }
     // Winning the whole match (not just a round): the winner's victory line.
     const w = winnerSlot === 'p1' ? p1 : winnerSlot === 'p2' ? p2 : null;
-    if (w && w.roundsWon >= ROUNDS_TO_WIN) Effects.voice(w.character.id, 'victory');
+    if (w && w.roundsWon >= ROUNDS_TO_WIN) {
+      Effects.voice(w.character.id, 'beats:' + (w === p1 ? p2 : p1).character.id); // a line for beating that particular fighter
+      Effects.voice(w.character.id, 'victory');
+    }
   }
 
   function checkMatchWinner() {

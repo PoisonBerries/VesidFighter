@@ -1935,3 +1935,30 @@ test('Nathan voice lines: falling off the map and the John matchup', () => {
   step(sim, 3);
   assert.ok(events().includes('nathan:fallOff'));
 });
+
+test('voice: knocked down, using the ultimate, and beating a particular fighter', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  sim.Effects.setRecording(true);
+  sim.Game.startMatch('ryan', 'john', () => {}, { ball: 'off' });
+  assert.ok(events().includes('ryan:vs:john'));
+  sim.Game.startMatch('nathan', 'artur', () => {}, { ball: 'off' });
+  assert.ok(events().includes('nathan:vs:artur'));
+  let { f, foe } = startFighter(sim, 'nathan', 400);
+  events();
+  f.applyHit({ damage: 1, knockback: 1, knockbackUp: 0, hitstun: 5, fromFacing: -1, knockdown: true, knockdownDuration: 30 });
+  assert.ok(events().includes('nathan:knockedDown'));
+  f.ultCharge = 50; f.startUltimate();
+  assert.ok(!events().includes('nathan:ultimate'), 'not without a full meter');
+  f.state = 'idle'; f.ultCharge = sim.ULT_METER_MAX; f.startUltimate();
+  assert.ok(events().includes('nathan:ultimate'));
+  // Beating Owen: the match-winning ring-out.
+  sim.Game.startMatch('nathan', 'owen', () => {}, { ball: 'off' });
+  step(sim, 200); events();
+  for (let round = 0; round < 2; round++) {
+    sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 800, y: 5000, grounded: false, vy: 5 }] });
+    step(sim, 3);
+    if (round === 0) { assert.ok(!events().includes('nathan:beats:owen')); step(sim, 340); }
+  }
+  assert.ok(events().includes('nathan:beats:owen'));
+});

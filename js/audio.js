@@ -344,6 +344,7 @@ const Sfx = (() => {
   };
   VOICE.carlos = {
     hitTaken: ['CarlosHitTaken.mp3', 'CarlosHitTaken2.mp3'], // someone lands a punch or kick on him (one of two, at random)
+    selected: 'CarlosSelected.mp3',                 // he's clicked on in the character select menu
     bigHit: 'CarlosBigDamageTaken.mp3',             // a heavy blow: 15% of his health or more in one hit
     fallOff: 'CarlosFallsOffMap.mp3',               // he falls off the map
   };
@@ -352,8 +353,16 @@ const Sfx = (() => {
     fallOff: 'NathanFallsOffMap.mp3',               // he falls off the map
     selected: 'NathanSelected.mp3',                 // he's clicked on in the character select menu
     'vs:john': 'NathanVsJohn.mp3',                  // at the start of a match against John (once per match)
+    'vs:artur': 'NathanVsArtur.mp3',                // at the start of a match against Artur (once per match)
+    knockedDown: ['NathanKnockedDown.mp3', 'NathanKnockedDown2.mp3'], // he's knocked down (one of two, at random)
+    ultimate: 'NathanUlt.mp3',                      // when he uses his ultimate
+    'beats:owen': 'NathanBeatsOwen.mp3',            // when he wins a match against Owen
+  };
+  VOICE.ryan = {
+    'vs:john': 'RyanVsJohn.mp3',                    // at the start of a match against John (once per match)
   };
   VOICE.owen = {
+    selected: 'OwenSelected.mp3',                   // he's clicked on in the character select menu
     'vs:artur': 'artur/OwenVsArtur.mp3',            // (the file is in Artur's folder) at the start of a match against Artur (once per match)
   };
   const voiceBuffers = {}; // path -> decoded audio (or null if it can't be loaded)
