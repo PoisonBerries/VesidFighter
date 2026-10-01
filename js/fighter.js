@@ -409,6 +409,7 @@ class Fighter {
     this.facingLocked = true;
     if (this.grounded) this.vx = 0; // in the air, keep the momentum
     this._ability = { hitFlags: def.hits ? def.hits.map(() => false) : [] };
+    if (def.type === 'poisonBurst') Effects.voice(this.character.id, 'fart'); // Artur's fart (special or ultimate)
 
     switch (def.type) {
       case 'projectileCharge':

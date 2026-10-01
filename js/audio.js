@@ -337,6 +337,11 @@ const Sfx = (() => {
       'vs:robert': 'KeenanVsRob.mp3',               // at the start of a match against Robert (once per match)
     },
   };
+  VOICE.artur = {
+    fart: 'ArturFart.mp3',                          // when he lets one rip (special or ultimate)
+    hitTaken: 'ArturHitTaken.mp3',                  // someone lands a punch or kick on him
+    selected: 'ArturSelected.mp3',                  // he's clicked on in the character select menu
+  };
   VOICE.owen = {
     'vs:artur': 'artur/OwenVsArtur.mp3',            // (the file is in Artur's folder) at the start of a match against Artur (once per match)
   };

@@ -1868,3 +1868,24 @@ test('voice lines: getting up from a knockdown, and the Ryan / Artur matchups', 
   for (let i = 0; i < 90 && f.state === 'knockdown'; i++) f.update(C, foe);
   assert.ok(events().includes('keenan:recovery'), 'recovery line when he gets up');
 });
+
+test('Artur voice lines: the fart special and ultimate, and being hit by a punch', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  sim.Effects.setRecording(true);
+  let { f } = startFighter(sim, 'artur', 400);
+  events();
+  f.startSpecial();
+  assert.ok(events().includes('artur:fart'), 'special');
+  ({ f } = startFighter(sim, 'artur', 400));
+  f.ultCharge = sim.ULT_METER_MAX; events();
+  f.startUltimate();
+  assert.ok(events().includes('artur:fart'), 'ultimate');
+  ({ f } = startFighter(sim, 'keenan', 400));
+  f.startSpecial();
+  assert.ok(!events().includes('keenan:fart'), 'only Artur farts');
+  startGame(sim, 'ryan', 'artur', 500, 560);
+  sim.Effects.setRecording(true); events();
+  punch(sim, 'p1'); step(sim, 20);
+  assert.ok(events().includes('artur:hitTaken'));
+});
