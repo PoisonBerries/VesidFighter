@@ -1962,3 +1962,12 @@ test('voice: knocked down, using the ultimate, and beating a particular fighter'
   }
   assert.ok(events().includes('nathan:beats:owen'));
 });
+
+test('Owen laughs when his opponent falls off the map', () => {
+  const sim = createSim();
+  startGame(sim, 'owen', 'keenan', 500, 800);
+  sim.Effects.setRecording(true); sim.Effects.drainEvents();
+  sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 800, y: 5000, grounded: false, vy: 5 }] });
+  step(sim, 3);
+  assert.ok(sim.Effects.drainEvents().some((e) => e[0] === 'v' && e[1] === 'owen' && e[2] === 'enemyFall'));
+});

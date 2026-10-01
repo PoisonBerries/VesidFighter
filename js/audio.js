@@ -363,6 +363,8 @@ const Sfx = (() => {
   };
   VOICE.owen = {
     selected: 'OwenSelected.mp3',                   // he's clicked on in the character select menu
+    enemyFall: 'OwenLaugh.mp3',                     // he laughs when the opponent falls off the map
+    victory: 'OwenVictory.mp3',                     // when he wins the match
     'vs:artur': 'artur/OwenVsArtur.mp3',            // (the file is in Artur's folder) at the start of a match against Artur (once per match)
   };
   const voiceBuffers = {}; // path -> decoded audio (or null if it can't be loaded)
