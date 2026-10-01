@@ -326,6 +326,9 @@ const Sfx = (() => {
     keenan: {
       enemyFall: 'KeenanEnemyFall.mp3',            // the opponent falls off the map
       hitByProjectile: 'KeenanHitByProjectile.mp3', // he's hit by a projectile
+      phaseStep: 'KeenanPhaseStep.mp3',             // when he slips behind the opponent
+      victory: 'KeenanVictory.mp3',                 // when he wins the match
+      'vs:john': 'KeenanVsJohn.mp3',                // at the start of a match against John (once per match)
       'vs:robert': 'KeenanVsRob.mp3',               // at the start of a match against Robert (once per match)
     },
   };

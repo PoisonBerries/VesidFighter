@@ -74,6 +74,9 @@ const Game = (() => {
     } else {
       roundMessage = "TIME'S UP -- DRAW";
     }
+    // Winning the whole match (not just a round): the winner's victory line.
+    const w = winnerSlot === 'p1' ? p1 : winnerSlot === 'p2' ? p2 : null;
+    if (w && w.roundsWon >= ROUNDS_TO_WIN) Effects.voice(w.character.id, 'victory');
   }
 
   function checkMatchWinner() {

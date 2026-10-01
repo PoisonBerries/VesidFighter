@@ -759,6 +759,7 @@ class Fighter {
     this.vx = 0;
     this.vy = 0;
     this.phaseCooldown = ps.cooldown;
+    Effects.voice(this.character.id, 'phaseStep');
     return true;
   }
 

@@ -1808,3 +1808,25 @@ test('matchup voice lines fire once per match, not every round', () => {
   assert.strictEqual(a.later.length, 0, 'and it does not repeat on later rounds');
   assert.ok(voices('robert', 'keenan').first.includes('v:keenan:vs:robert'), 'whichever side he is on');
 });
+
+test('Keenan voice lines: phase step, winning the match, and the John matchup', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  sim.Effects.setRecording(true);
+  sim.Game.startMatch('keenan', 'john', () => {}, { ball: 'off' });
+  assert.ok(events().includes('keenan:vs:john'));
+  // Phase step
+  const { f, foe } = startFighter(sim, 'keenan', 400);
+  f.state = 'hitstun'; f.stunFrames = 20;
+  f._tryPhaseStep(foe);
+  assert.ok(events().includes('keenan:phaseStep'));
+  // Victory: only when the match is won, not on an earlier round.
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 800, y: 5000, grounded: false, vy: 5 }] });
+  step(sim, 3);
+  assert.ok(!events().includes('keenan:victory'), 'not after the first round');
+  step(sim, 340); // round over, next round counted down and fighting
+  sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 800, y: 5000, grounded: false, vy: 5 }] });
+  step(sim, 3);
+  assert.ok(events().includes('keenan:victory'), 'after the deciding round');
+});
