@@ -545,21 +545,38 @@ if (webglAvailable()) {
       cows.push({ cow, legs, z, xa, xb, speed, phase });
     }
   }
+  let cowsLast = null;
   function updateCows(now) {
     const t = now / 1000;
+    const dt = cowsLast === null ? 0 : Math.min(0.1, (now - cowsLast) / 1000);
+    cowsLast = now;
     for (const c of cows) {
       // Wander back and forth, stopping to graze at each end.
       const span = c.xb - c.xa, period = (span / c.speed) * 2 + 8;
       const u = ((t + c.phase * 3) % period) / period;
       const walkOut = (span / c.speed) / period;
-      let x, dir, walking;
+      let x, dir, walking, left = 0; // left: seconds of grazing left at this end
       if (u < walkOut) { x = c.xa + span * (u / walkOut); dir = 1; walking = true; }
-      else if (u < 0.5) { x = c.xb; dir = 1; walking = false; }
+      else if (u < 0.5) { x = c.xb; dir = 1; walking = false; left = (0.5 - u) * period; }
       else if (u < 0.5 + walkOut) { x = c.xb - span * ((u - 0.5) / walkOut); dir = -1; walking = true; }
-      else { x = c.xa; dir = -1; walking = false; }
+      else { x = c.xa; dir = -1; walking = false; left = (1 - u) * period; }
       c.cow.position.x = x;
-      c.cow.rotation.y = dir > 0 ? 0 : Math.PI;
-      if (c.custom) continue; // (a real cow model animates itself)
+      if (!c.custom) c.cow.rotation.y = dir > 0 ? 0 : Math.PI;
+      if (c.custom) {
+        // A real cow turns round at the end of its graze rather than flipping.
+        const face = (dir > 0 ? 0 : Math.PI) + (!walking && left < 1.6 ? Math.PI : 0);
+        c.yaw = c.yaw === undefined ? face : c.yaw + Math.atan2(Math.sin(face - c.yaw), Math.cos(face - c.yaw)) * Math.min(1, dt * 2.5);
+        c.cow.rotation.y = c.yaw;
+        if (c.walk && c.graze) {
+          // Walk while moving, at the pace it covers ground (the clip's stride);
+          // graze, head down, while stopped.
+          c.w = (c.w || 0) + ((walking ? 1 : 0) - (c.w || 0)) * Math.min(1, dt * 3);
+          c.walk.setEffectiveWeight(c.w);
+          c.graze.setEffectiveWeight(1 - c.w);
+          if (c.stride) c.walk.timeScale = (c.speed / c.stride) * c.walk.getClip().duration;
+        }
+        continue;
+      }
       c.legs.forEach((leg, i) => { leg.rotation.z = walking ? Math.sin(t * 6 + (i % 2) * Math.PI) * 0.35 : 0; });
       c.cow.children[2].position.y = walking ? 0.95 : 0.62; // head down to graze
     }
@@ -690,7 +707,17 @@ if (webglAvailable()) {
         const owner = owners.find((o) => target && o.getObjectByName(target));
         if (!owner) continue;
         if (!byOwner.has(owner)) byOwner.set(owner, new THREE.AnimationMixer(owner));
-        byOwner.get(owner).clipAction(clip).play();
+        const action = byOwner.get(owner).clipAction(clip);
+        // A cow's '..._walk' and '..._graze' clips both run; updateCows blends
+        // between them as it walks and stops.
+        const cow = cows.find((c) => c.cow === owner);
+        const gait = cow && /(walk|graze)$/.exec(clip.name);
+        if (gait) {
+          cow[gait[1]] = action;
+          action.setEffectiveWeight(0);
+          owner.traverse((o) => { if (o.userData.stride) cow.stride = o.userData.stride; });
+        }
+        action.play();
       }
       mixers.push(...byOwner.values());
     } catch (e) {
