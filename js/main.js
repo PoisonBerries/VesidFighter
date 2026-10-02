@@ -37,6 +37,8 @@
     }
 
     Game.render(ctx);
+    // Graphics' FPS counter, and Auto stepping down when a fight in 3D runs slowly.
+    Graphics.frame(delta, !paused && Game.getState() === 'fight' && !!window.Renderer3D);
   }
 
   requestAnimationFrame(loop);

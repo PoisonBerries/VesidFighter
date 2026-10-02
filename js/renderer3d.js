@@ -40,7 +40,10 @@ if (webglAvailable()) {
   // Room for Nathan's Overgrowth whip: ~900px out, arcing ~500px overhead.
   const CARD_W_WIDE = 2000, CARD_H_TALL = 1000, FEET_Y_TALL = 900;
   const FEET_Y = 580;
-  const CARD_RES = 1.25; // texture pixels per game pixel
+  // Graphics settings (graphics.js): most apply live through
+  // applyGraphics() below; the stage file and antialiasing at the next load.
+  let gfx = Graphics.config();
+  let CARD_RES = gfx.cardRes; // texture pixels per game pixel
   const FLIP_SECONDS = 0.14;
 
 
@@ -49,10 +52,11 @@ if (webglAvailable()) {
   canvas.id = 'game-canvas-3d';
   overlay.parentNode.insertBefore(canvas, overlay);
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // (powerPreference: on laptops with two GPUs, ask for the strong one.)
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: gfx.antialias, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = gfx.shadows !== 'off';
+  renderer.shadowMap.type = gfx.shadows === 'high' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(30, CANVAS_WIDTH / CANVAS_HEIGHT, 0.1, 420); // (far: the orchard's giant can be ~170 m out)
@@ -60,7 +64,7 @@ if (webglAvailable()) {
   function resize() {
     const w = canvas.clientWidth || CANVAS_WIDTH;
     const h = canvas.clientHeight || CANVAS_HEIGHT;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, gfx.maxPixelRatio) * gfx.scale);
     renderer.setSize(w, h, false);
   }
   new ResizeObserver(resize).observe(canvas);
@@ -110,7 +114,7 @@ if (webglAvailable()) {
   const sun = new THREE.DirectionalLight('#ffe9f6', 2.3);
   sun.position.set(3, 9, 7);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(gfx.shadows === 'high' ? 2048 : 1024, gfx.shadows === 'high' ? 2048 : 1024);
   Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 7, bottom: -5, near: 1, far: 30 });
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.02;
@@ -355,6 +359,11 @@ if (webglAvailable()) {
   const orchard = new THREE.Group();
   orchard.visible = false;
   scene.add(orchard);
+  // Once the Blender scene arrives, the low-poly scenery below moves in here:
+  // shown only with the Cartoon graphics setting.
+  const toyScenery = new THREE.Group();
+  toyScenery.name = 'toy_scenery';
+  orchard.add(toyScenery);
 
   const LOOKS = {
     arena: {
@@ -399,28 +408,40 @@ if (webglAvailable()) {
   const carJoin = (side) => toX(side < 0 ? orchardDef.left + CAR.width / 2 + 20 : orchardDef.right - CAR.width / 2 - 20);
   const ROAD_BACK = -26; // how far back the farm roads come from
 
+  // The low-poly orchard: the same layout and colours as the Blender scene
+  // (blender/orchard.blend -- positions measured from it), as simple shapes.
+  // It's what the Cartoon graphics setting shows, and what's up while the
+  // Blender scene loads.
   {
     const L = toX(orchardDef.left), R = toX(orchardDef.right), W = R - L, CX = (L + R) / 2;
-    const HILL_DEPTH = 50, HILL_FRONT = 18, HILL_H = 5; // (runs well forward, so the view is grass, not a wall of dirt)
+    const HILL_DEPTH = 50, HILL_FRONT = 18, HILL_H = 16.7; // the hilltop, down to the gorge floors
+    const mat = (color) => new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true });
+    const DRY_GRASS = '#a38a5f', CLIFF = '#6e624f';
+    const grassMat = mat(DRY_GRASS), cliffMat = mat(CLIFF);
+    const slab = (name, x1, x2, top, z1, z2, depth, m) => {
+      const s = new THREE.Mesh(new THREE.BoxGeometry(x2 - x1, depth, z2 - z1), m || [cliffMat, cliffMat, grassMat, cliffMat, cliffMat, cliffMat]);
+      s.name = name;
+      s.position.set((x1 + x2) / 2, top - depth / 2, (z1 + z2) / 2);
+      s.receiveShadow = true;
+      orchard.add(s);
+      return s;
+    };
 
-    // The hilltop: flat grass on top, steep dirt drops at the ends (the ring-out edges).
-    const dirt = new THREE.MeshStandardMaterial({ color: '#9a7652', roughness: 1, flatShading: true });
-    const grass = new THREE.MeshStandardMaterial({ color: '#86b35a', roughness: 1 });
-    const hill = new THREE.Mesh(new THREE.BoxGeometry(W, HILL_H, HILL_DEPTH), [dirt, dirt, grass, dirt, dirt, dirt]);
-    hill.name = 'ground_hilltop';
-    hill.position.set(CX, -HILL_H / 2, HILL_FRONT - HILL_DEPTH / 2);
-    hill.receiveShadow = true;
-    orchard.add(hill);
-
-    // The valley far below, beyond the edges.
-    const valley = new THREE.Mesh(new THREE.PlaneGeometry(260, 200), new THREE.MeshStandardMaterial({ color: '#6f9a4a', roughness: 1 }));
+    // The hilltop between the gorges (the ring-out edges), dry autumn grass;
+    // the land carrying on behind it, where the barn stands; and past each
+    // gorge, the far banks with their trees and telephone poles.
+    slab('ground_hilltop', L, R, 0, HILL_FRONT - HILL_DEPTH, HILL_FRONT, HILL_H);
+    slab('terrain_back', -45, 45, -0.3, -75, HILL_FRONT - HILL_DEPTH, 16);
+    for (const side of [-1, 1]) slab('terrain_bank', side < 0 ? -45 : 17, side < 0 ? -17 : 45, -2.2, -75, 40, 15);
+    // The gorge floors: dark autumn woods far below.
+    const valley = new THREE.Mesh(new THREE.PlaneGeometry(400, 260), mat('#5e4128'));
     valley.name = 'backdrop_valley';
     valley.rotation.x = -Math.PI / 2;
-    valley.position.set(0, -9, -40);
+    valley.position.set(0, -16.6, -40);
     orchard.add(valley);
 
-    // Dirt road along the fight line, and the farm roads that join it from the back.
-    const roadMat = new THREE.MeshStandardMaterial({ color: '#c2a57a', roughness: 1 });
+    // The muddy road along the fight line, and the farm roads that join it from the back.
+    const roadMat = mat('#3a2e24');
     const road = new THREE.Mesh(new THREE.PlaneGeometry(W, 1.6), roadMat);
     road.name = 'road_main';
     road.rotation.x = -Math.PI / 2;
@@ -436,13 +457,14 @@ if (webglAvailable()) {
       orchard.add(back);
     }
 
-    // The apple tree: branches and crown exactly where the platforms are.
+    // The climbable apple tree: pale bark, olive leaves, branches and crown
+    // exactly where the platforms are.
     const tree = new THREE.Group();
     tree.name = 'tree_platform';
-    const bark = '#7a5634', leaf = '#4f8f3a';
+    const bark = '#cbc4b6', leaf = '#76692f';
     const crown = orchardDef.platforms.find((p) => p.id === 'crown');
     const crownY = toY(crown.y);
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.32, crownY + 0.2, 8), new THREE.MeshStandardMaterial({ color: bark, roughness: 1, flatShading: true }));
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.32, crownY + 0.2, 8), mat(bark));
     trunk.name = 'tree_trunk';
     trunk.position.set(toX(640), (crownY + 0.2) / 2, -0.55);
     trunk.castShadow = true;
@@ -450,7 +472,7 @@ if (webglAvailable()) {
     for (const p of orchardDef.platforms) {
       const x1 = toX(p.x1), x2 = toX(p.x2), y = toY(p.y);
       if (p.id === 'crown') {
-        tree.add(box('tree_crown_top', x2 - x1, 0.16, 1.1, '#5d9c44', (x1 + x2) / 2, y - 0.08, -0.25));
+        tree.add(box('tree_crown_top', x2 - x1, 0.16, 1.1, leaf, (x1 + x2) / 2, y - 0.08, -0.25));
       } else {
         tree.add(box('tree_' + p.id, x2 - x1, 0.12, 0.6, bark, (x1 + x2) / 2, y - 0.06, -0.15));
         // The limb from the trunk out to the branch.
@@ -461,7 +483,7 @@ if (webglAvailable()) {
       }
     }
     // Leaves, all behind the fight line so they never hide a fighter.
-    const leafMat = new THREE.MeshStandardMaterial({ color: leaf, roughness: 1, flatShading: true });
+    const leafMat = mat(leaf);
     for (const [x, y, z, r] of [[0, 2.55, -1.3, 1.25], [-1.0, 2.2, -1.1, 0.9], [1.0, 2.25, -1.1, 0.9], [-1.6, 1.25, -0.9, 0.55], [1.6, 1.25, -0.9, 0.55], [0.4, 3.1, -1.6, 0.8]]) {
       const s = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), leafMat);
       s.name = 'tree_leaves';
@@ -469,59 +491,160 @@ if (webglAvailable()) {
       s.castShadow = true;
       tree.add(s);
     }
+    // Apples on the ground under it.
+    const appleMat = mat('#a8321f');
+    for (const [x, z] of [[-1.2, -1.4], [-0.6, -2.1], [0.5, -1.2], [1.3, -1.9], [0.1, -2.3]]) {
+      const a = new THREE.Mesh(new THREE.IcosahedronGeometry(0.07, 0), appleMat);
+      a.name = 'apple_fallen';
+      a.position.set(toX(640) + x, 0.06, z);
+      tree.add(a);
+    }
     orchard.add(tree);
 
-    // Rows of fruit trees behind (one mesh each for trunks and tops).
-    const spots = [];
-    for (const z of [-4.5, -7.5, -10.5, -14, -18, -22.5]) {
-      for (let x = L + 1.2; x < R - 1; x += 2.6) {
-        if (Math.abs(x - carJoin(-1)) < 1.4 || Math.abs(x - carJoin(1)) < 1.4) continue; // keep the roads clear
-        if (z > -14 && z < -7 && Math.abs(x - (-8)) < 2.8) continue; // the barn
-        spots.push([x + Math.sin(x * 12.9 + z) * 0.35, z]);
-      }
+    // Autumn trees: a trunk and a round crown, one mesh each for all of them
+    // (instanced), coloured per tree. [x, z, crown size, ground y]
+    const ORCHARD = [];
+    const COLS = [-8.65, -6.1, -3.3, -0.7, 1.95, 4.65, 7.35];
+    for (const [z, from] of [[-4.6, 0], [-8.3, 2], [-11.8, 2], [-15.5, 0], [-19.0, 0], [-22.7, 0]]) {
+      for (let c = from; c < COLS.length; c++) ORCHARD.push([COLS[c] + Math.sin(c * 7.1 + z) * 0.12, z + Math.cos(c * 3.3 + z) * 0.12, 0.95 + 0.12 * Math.sin(c * 5.7 + z * 1.3), 0]);
     }
-    const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.1, 0.14, 1, 6), new THREE.MeshStandardMaterial({ color: bark, roughness: 1 }), spots.length);
-    const tops = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.75, 0), new THREE.MeshStandardMaterial({ color: '#5c9a40', roughness: 1, flatShading: true }), spots.length);
+    // ...and the trees on the far banks, past the gorges.
+    const BANKS = [[-22.35, 6.05, 1.1, -2.2], [-24.3, -5, 1.25, -2.2], [-22.65, -13.35, 1, -2.2], [-25.85, -24.45, 1, -2.2], [21.6, 3.5, 1.15, -2.2], [22.7, -8.3, 1.25, -2.2], [26.4, -15.45, 1.2, -2.2], [23.6, -24.95, 1.05, -2.2]];
+    const AUTUMN = ['#d8704a', '#c95f3e', '#e08550', '#b8553a', '#d27a45'];
+    const trees = [...ORCHARD, ...BANKS];
+    const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.1, 0.15, 1, 6), mat('#7a5c3a'), trees.length);
+    const tops = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), mat('#ffffff'), trees.length);
     trunks.name = 'orchard_rows_trunks';
     tops.name = 'orchard_rows_tops';
-    const mtx = new THREE.Matrix4();
-    spots.forEach(([x, z], i) => {
-      mtx.makeTranslation(x, 0.5, z); trunks.setMatrixAt(i, mtx);
-      mtx.makeTranslation(x, 1.35, z); tops.setMatrixAt(i, mtx);
+    const mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
+    trees.forEach(([x, z, r, gy], i) => {
+      mtx.compose(new THREE.Vector3(x, gy + 0.5, z), q, new THREE.Vector3(1, 1, 1)); trunks.setMatrixAt(i, mtx);
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), i * 1.7);
+      mtx.compose(new THREE.Vector3(x, gy + 0.9 + r * 0.75, z), q, new THREE.Vector3(r, r * 0.9, r)); tops.setMatrixAt(i, mtx);
+      q.identity();
+      tops.setColorAt(i, col.set(AUTUMN[(i * 7 + (i >> 2)) % AUTUMN.length]));
     });
     trunks.castShadow = tops.castShadow = true;
     orchard.add(trunks, tops);
 
-    // Fence along the back of the fight area.
+    // The white wooden fence along the back of the fight area.
     const fence = new THREE.Group();
     fence.name = 'fence';
-    for (let x = L + 0.3; x < R; x += 1.5) {
-      if (Math.abs(x - carJoin(-1)) < 1.1 || Math.abs(x - carJoin(1)) < 1.1) continue;
-      fence.add(box('fence_post', 0.1, 0.7, 0.1, '#a88a62', x, 0.35, -2.3));
-      fence.add(box('fence_rail', 1.5, 0.07, 0.05, '#b89a70', x + 0.75, 0.52, -2.3));
+    for (let x = -8.7; x < 9.4; x += 1.5) {
+      fence.add(box('fence_post', 0.1, 0.7, 0.1, '#d9d1c4', x, 0.35, -2.3));
+      if (x + 1.5 < 9.5) fence.add(box('fence_rail', 1.5, 0.07, 0.05, '#e3dccf', x + 0.75, 0.52, -2.3));
     }
     orchard.add(fence);
 
-    // A barn, far hills, and the sun's warmth.
+    // The red tractor parked among the trees, left of centre.
+    const tractor = new THREE.Group();
+    tractor.name = 'tractor';
+    tractor.add(box('tractor_body', 1.6, 0.6, 0.9, '#a3301f', 0.15, 0.85, 0));
+    tractor.add(box('tractor_hood', 0.8, 0.45, 0.7, '#a3301f', 0.95, 0.75, 0));
+    tractor.add(box('tractor_cab', 0.75, 0.75, 0.85, '#2a2a2a', -0.35, 1.5, 0));
+    tractor.add(box('tractor_roof', 0.95, 0.07, 1.0, '#a3301f', -0.35, 1.9, 0));
+    tractor.add(box('tractor_stack', 0.08, 0.5, 0.08, '#2a2a2a', 1.0, 1.2, 0.2));
+    const tyre = mat('#232120');
+    for (const [x, z, r, w] of [[-0.45, 0.62, 0.62, 0.35], [-0.45, -0.62, 0.62, 0.35], [1.0, 0.5, 0.36, 0.22], [1.0, -0.5, 0.36, 0.22]]) {
+      const t = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w, 12), tyre);
+      t.name = 'tractor_wheel';
+      t.rotation.x = Math.PI / 2;
+      t.position.set(x, r, z);
+      t.castShadow = true;
+      tractor.add(t);
+    }
+    tractor.position.set(-7.45, 0, -10.15);
+    tractor.rotation.y = 0.5;
+    orchard.add(tractor);
+
+    // A cow lying down among the trees.
+    const lying = new THREE.Group();
+    lying.name = 'cow_lying';
+    lying.add(box('cow_body', 1.2, 0.45, 0.6, '#f2efe8', 0, 0.25, 0));
+    lying.add(box('cow_patch', 0.45, 0.38, 0.62, '#2c2a28', 0.15, 0.3, 0));
+    lying.add(box('cow_head', 0.35, 0.33, 0.32, '#f2efe8', 0.72, 0.42, 0.1));
+    lying.add(box('cow_nose', 0.12, 0.16, 0.28, '#e8a8a0', 0.9, 0.36, 0.1));
+    lying.position.set(0.75, 0, -6.5);
+    lying.rotation.y = -0.6;
+    orchard.add(lying);
+
+    // The barn and silo, far back behind the orchard: red walls, a dark
+    // gable roof (ridge running away from the camera), a lean-to on the
+    // right, and a pale concrete silo with a domed cap on the left.
     const barn = new THREE.Group();
     barn.name = 'barn';
-    barn.add(box('barn_walls', 3.4, 2.2, 2.6, '#b5473a', 0, 1.1, 0));
-    const roof = new THREE.Mesh(new THREE.CylinderGeometry(1.95, 1.95, 3.6, 3, 1), new THREE.MeshStandardMaterial({ color: '#6b5a52', roughness: 1, flatShading: true }));
+    const BARN_LEN = 16;
+    barn.add(box('barn_walls', 10, 4.2, BARN_LEN, '#9b3a2c', 0, 2.1, 0));
+    const roofShape = new THREE.Shape([new THREE.Vector2(-5.25, 0), new THREE.Vector2(0, 3.7), new THREE.Vector2(5.25, 0)]);
+    const roof = new THREE.Mesh(new THREE.ExtrudeGeometry(roofShape, { depth: BARN_LEN + 0.6, bevelEnabled: false }), mat('#4b4642'));
     roof.name = 'barn_roof';
-    roof.rotation.set(-Math.PI / 2, 0, Math.PI / 2); // a triangular prism lying along x, ridge up
-    roof.scale.set(1, 1, 0.55);
-    roof.position.set(0, 2.74, 0);
+    roof.position.set(0, 4.1, -(BARN_LEN + 0.6) / 2);
     roof.castShadow = true;
     barn.add(roof);
-    barn.position.set(-8, 0, -10.5);
+    barn.add(box('barn_door', 3.2, 3.2, 0.1, '#7d2c22', 0, 1.6, BARN_LEN / 2 + 0.04));
+    barn.add(box('barn_door_trim', 3.4, 0.2, 0.12, '#e8e0d2', 0, 3.3, BARN_LEN / 2 + 0.05));
+    barn.add(box('barn_loft', 1.4, 1.2, 0.1, '#e8e0d2', 0, 5.4, BARN_LEN / 2 + 0.04));
+    barn.add(box('barn_leanto', 3, 2.2, BARN_LEN * 0.7, '#8f3528', 6.5, 1.1, 0));
+    const lean = box('barn_leanto_roof', 3.4, 0.15, BARN_LEN * 0.72, '#4b4642', 6.5, 2.5, 0);
+    lean.rotation.z = -0.3;
+    barn.add(lean);
+    const silo = new THREE.Group();
+    silo.name = 'silo';
+    const siloMat = mat('#b9b4aa');
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 7.4, 14), siloMat);
+    tube.position.y = 3.7;
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(1.75, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat('#8d8a84'));
+    dome.position.y = 7.4;
+    for (const y of [1.6, 3.4, 5.2]) silo.add(box('silo_band', 3.48, 0.12, 3.48, '#9d988f', 0, y, 0));
+    tube.castShadow = dome.castShadow = true;
+    silo.add(tube, dome);
+    silo.position.set(-7.5, 0, 3);
+    barn.add(silo);
+    barn.position.set(0, -0.3, -43);
     orchard.add(barn);
 
-    const hillMat = new THREE.MeshStandardMaterial({ color: '#7fa65a', roughness: 1, flatShading: true });
-    for (const [x, z, sx, sy] of [[-40, -70, 26, 9], [-8, -80, 30, 12], [26, -72, 24, 8], [55, -65, 22, 10], [-65, -60, 20, 7]]) {
-      const h = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), hillMat);
+    // Telephone poles marching away down both far banks, with their wires.
+    const POLES = 15;
+    const poleSpots = [];
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < POLES; i++) {
+        const out = Math.max(0, i - 4) * 0.58, drop = Math.max(0, i - 4) * 0.68;
+        poleSpots.push({ x: side * (20.05 + out), z: 6.55 - 9.5 * i, top: 7 - drop, side, i });
+      }
+    }
+    const poleMat = mat('#6f5e52');
+    const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.11, 0.14, 1, 6), poleMat, poleSpots.length);
+    const bars = new THREE.InstancedMesh(new THREE.BoxGeometry(2.2, 0.12, 0.12), poleMat, poleSpots.length);
+    poles.name = 'telephone_poles';
+    bars.name = 'telephone_pole_bars';
+    const wire = [];
+    poleSpots.forEach((p, i) => {
+      const h = p.top + 2.2 + Math.min(p.i, 4) * 0; // from the bank (y -2.2) up
+      mtx.compose(new THREE.Vector3(p.x, p.top - h / 2, p.z), q, new THREE.Vector3(1, h, 1)); poles.setMatrixAt(i, mtx);
+      mtx.compose(new THREE.Vector3(p.x, p.top - 0.4, p.z), q, new THREE.Vector3(1, 1, 1)); bars.setMatrixAt(i, mtx);
+      const next = poleSpots[i + 1];
+      if (next && next.side === p.side) {
+        for (const dx of [-0.9, 0, 0.9]) wire.push(p.x + dx, p.top - 0.35, p.z, next.x + dx, next.top - 0.35, next.z);
+      }
+    });
+    poles.castShadow = true;
+    const wires = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(wire, 3)), new THREE.LineBasicMaterial({ color: '#2b2b2b' }));
+    wires.name = 'pole_wires';
+    orchard.add(poles, bars, wires);
+
+    // The far mountains, like the photo on the Blender scene's horizon:
+    // ridge after ridge fading from autumn rust to hazy blue-grey, filling
+    // the horizon. [x, z, width, height, colour]
+    for (const [x, z, sx, sy, color] of [
+      [-150, -185, 80, 62, '#b4b8c2'], [-50, -188, 90, 70, '#b9bcc4'], [55, -186, 85, 66, '#b2b6c0'], [160, -182, 80, 60, '#b9bcc4'],
+      [-110, -160, 70, 52, '#a6a3a2'], [-10, -165, 75, 56, '#aaa4a0'], [95, -158, 70, 50, '#a19d9c'], [185, -150, 55, 44, '#a6a3a2'], [-190, -150, 55, 44, '#aaa4a0'],
+      [-140, -130, 60, 40, '#8f7262'], [-45, -135, 65, 44, '#94735f'], [45, -128, 60, 40, '#8c6c5c'], [140, -125, 60, 38, '#94735f'],
+      [-95, -105, 50, 30, '#9a6447'], [0, -110, 55, 32, '#a06a4a'], [95, -102, 50, 28, '#97603f'], [-175, -100, 45, 26, '#a06a4a'], [175, -98, 45, 26, '#9a6447'],
+    ]) {
+      const h = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 8), new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true, fog: false }));
       h.name = 'backdrop_hill';
-      h.scale.set(sx, sy, sx * 0.6);
-      h.position.set(x, -9, z);
+      h.scale.set(sx, sy * 0.62, sx * 0.35);
+      h.position.set(x, -16, z);
       orchard.add(h);
     }
   }
@@ -535,7 +658,8 @@ if (webglAvailable()) {
       cow.name = 'cow';
       cow.add(box('cow_body', 1.2, 0.55, 0.5, white, 0, 0.75, 0));
       cow.add(box('cow_patch', 0.45, 0.4, 0.52, black, -0.15, 0.8, 0));
-      cow.add(box('cow_head', 0.35, 0.35, 0.34, white, 0.72, 0.95, 0));
+      const head = box('cow_head', 0.35, 0.35, 0.34, white, 0.72, 0.95, 0);
+      cow.add(head);
       cow.add(box('cow_nose', 0.12, 0.18, 0.3, '#e8a8a0', 0.9, 0.88, 0));
       const legs = [];
       for (const [lx, lz] of [[0.45, 0.17], [0.45, -0.17], [-0.45, 0.17], [-0.45, -0.17]]) {
@@ -545,7 +669,7 @@ if (webglAvailable()) {
       }
       cow.position.set(xa, 0, z);
       orchard.add(cow);
-      cows.push({ cow, legs, z, xa, xb, speed, phase });
+      cows.push({ cow, legs, head, z, xa, xb, speed, phase });
     }
   }
   let cowsLast = null;
@@ -564,8 +688,9 @@ if (webglAvailable()) {
       else if (u < 0.5 + walkOut) { x = c.xb - span * ((u - 0.5) / walkOut); dir = -1; walking = true; }
       else { x = c.xa; dir = -1; walking = false; left = (1 - u) * period; }
       c.cow.position.x = x;
-      if (!c.custom) c.cow.rotation.y = dir > 0 ? 0 : Math.PI;
-      if (c.custom) {
+      const custom = c.custom && !gfx.cartoon; // (Cartoon: the low-poly cow)
+      if (!custom) c.cow.rotation.y = dir > 0 ? 0 : Math.PI;
+      if (custom) {
         // A real cow turns round at the end of its graze rather than flipping.
         const face = (dir > 0 ? 0 : Math.PI) + (!walking && left < 1.6 ? Math.PI : 0);
         c.yaw = c.yaw === undefined ? face : c.yaw + Math.atan2(Math.sin(face - c.yaw), Math.cos(face - c.yaw)) * Math.min(1, dt * 2.5);
@@ -581,7 +706,7 @@ if (webglAvailable()) {
         continue;
       }
       c.legs.forEach((leg, i) => { leg.rotation.z = walking ? Math.sin(t * 6 + (i % 2) * Math.PI) * 0.35 : 0; });
-      c.cow.children[2].position.y = walking ? 0.95 : 0.62; // head down to graze
+      c.head.position.y = walking ? 0.95 : 0.62; // head down to graze
     }
   }
 
@@ -619,6 +744,29 @@ if (webglAvailable()) {
   }
   car.visible = false;
   orchard.add(car);
+
+  // The low-poly orchard is drawn cartoon-style: flat bands of light and
+  // shade (toon shading) instead of smooth lighting. Cheap, and it's what the
+  // Cartoon graphics setting shows (also what's up while the Blender scene
+  // loads on the others).
+  {
+    const tones = new Uint8Array([90, 170, 255]);
+    const gradient = new THREE.DataTexture(tones, tones.length, 1, THREE.RedFormat);
+    gradient.minFilter = gradient.magFilter = THREE.NearestFilter;
+    gradient.needsUpdate = true;
+    const made = new Map();
+    orchard.traverse((o) => {
+      if (!o.isMesh || !o.material.isMeshStandardMaterial) return;
+      const m = o.material;
+      if (!made.has(m)) {
+        made.set(m, new THREE.MeshToonMaterial({
+          name: m.name, color: m.color, gradientMap: gradient, fog: m.fog,
+          emissive: m.emissive, emissiveIntensity: m.emissiveIntensity,
+        }));
+      }
+      o.material = made.get(m);
+    });
+  }
 
   // Where the car is on screen: down a farm road during the warning, round a
   // proper turning arc onto the fight line, along it (where the game has it)
@@ -709,27 +857,37 @@ if (webglAvailable()) {
   // parts of a scattered pattern of strands that reach that high. Coloured
   // from the ground's own grass texture; the tips sway in a gusting breeze.
   const lawnTime = { value: 0 };
+  const lawnLayers = { value: 14 }, lawnFar = { value: 32 };
+  const LAWN_MAX_LAYERS = 14;
+  let lawn = null, lawnFlat = null;
   function addLawn(root) {
     const bed = root.getObjectByName('lawn_bed');
     const ground = root.getObjectByName('ground_hilltop');
     if (!bed || !bed.isMesh || !ground || !ground.isMesh) return;
     root.updateMatrixWorld(true);
     bed.removeFromParent(); // it's only the shape to grow on
-    const LAYERS = 14, HEIGHT = 0.11;
+    const HEIGHT = 0.11;
     const geo = bed.geometry;
     geo.applyMatrix4(bed.matrixWorld);
+    // With the grass turned off (Low), just the bed, wearing the grass texture.
+    lawnFlat = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: ground.material.map, color: ground.material.color }));
+    lawnFlat.name = 'lawn_flat';
+    lawnFlat.receiveShadow = true;
+    root.add(lawnFlat);
     geo.setAttribute('lawnMask', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count).fill(1), 1));
     const mat = new THREE.MeshLambertMaterial({ map: ground.material.map, color: ground.material.color });
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = lawnTime;
+      sh.uniforms.uLayers = lawnLayers;
+      sh.uniforms.uFar = lawnFar;
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', `#include <common>
           attribute float lawnMask;
-          uniform float uTime;
+          uniform float uTime, uLayers;
           varying float vLayer, vMask;
           varying vec2 vSpot;`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
-          vLayer = (float(gl_InstanceID) + 1.0) / ${LAYERS}.0;
+          vLayer = (float(gl_InstanceID) + 1.0) / uLayers;
           vMask = lawnMask;
           vSpot = transformed.xz;
           transformed += normal * (vLayer * ${HEIGHT});
@@ -741,6 +899,7 @@ if (webglAvailable()) {
           transformed.z += 0.015 * gust * bend;`);
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>
+          uniform float uFar;
           varying float vLayer, vMask;
           varying vec2 vSpot;
           float lawnHash(vec2 q) { return fract(sin(dot(q, vec2(127.1, 311.7))) * 43758.5453); }
@@ -752,7 +911,7 @@ if (webglAvailable()) {
           // One strand per small cell, each its own height, thinning to a tip.
           vec2 c = vSpot * 32.0, id = floor(c);
           float h = mix(0.35, 1.0, lawnHash(id)) * vMask;
-          h *= smoothstep(32.0, 20.0, distance(vSpot, cameraPosition.xz)); // far off, just the ground
+          h *= smoothstep(uFar, uFar * 0.625, distance(vSpot, cameraPosition.xz)); // far off, just the ground
           vec2 off = vec2(lawnHash(id + 17.0), lawnHash(id + 31.0)) - 0.5;
           float r = length(fract(c) - 0.5 - off * 0.5);
           if (vLayer > h || r > 0.48 * (1.0 - vLayer / max(h, 1e-3))) discard;`)
@@ -764,8 +923,8 @@ if (webglAvailable()) {
           grassCol = mix(grassCol, vec3(dot(grassCol, vec3(0.3, 0.55, 0.15))) * vec3(1.0, 0.96, 0.82), 0.2);
           diffuseColor.rgb *= grassCol * mix(0.5, 1.12, vLayer) * (0.88 + 0.24 * lawnHash(id + 5.0)); // darker at the roots`);
     };
-    const lawn = new THREE.InstancedMesh(geo, mat, LAYERS);
-    for (let i = 0; i < LAYERS; i++) lawn.setMatrixAt(i, new THREE.Matrix4());
+    lawn = new THREE.InstancedMesh(geo, mat, LAWN_MAX_LAYERS);
+    for (let i = 0; i < LAWN_MAX_LAYERS; i++) lawn.setMatrixAt(i, new THREE.Matrix4());
     lawn.name = 'lawn';
     lawn.receiveShadow = true;
     lawn.castShadow = false;
@@ -1109,30 +1268,162 @@ if (webglAvailable()) {
       o.material = o.material.clone();
       o.material.envMap = env;
       o.material.envMapIntensity = 1.1;
+      o.userData.env = env; // (switched off with the graphics' reflections)
     });
   }
+
+  // ---- Graphics settings on the Blender scene ----
+  // How much each part of the scene matters for shadows: 'key' parts cast
+  // them from Medium up (the props you fight around), 'detail' parts only on
+  // High (rows of trees, poles, fence), and the ground itself never does --
+  // it only receives them. Sorted by the part's top-level name.
+  function shadowRole(name) {
+    if (/^(terrain|ground|gorge|backdrop|lawn|road|pole_wires|GUIDE_)/.test(name)) return 'none';
+    if (/^(tree_|bank_tree|telephone_pole|fence|simple wooden fence|cow_lying|apple_fallen)/i.test(name)) return 'detail';
+    return 'key';
+  }
+  // Scenery that Low leaves out: the trees and poles well back from the
+  // fight, which the fog mostly hides anyway.
+  const FAR_BACK = 28; // metres behind the fight line
+  function tagScene(root) {
+    root.updateMatrixWorld(true);
+    const box = new THREE.Box3();
+    for (const top of root.children) {
+      const role = shadowRole(top.name);
+      // (by the nearest edge of what's drawn: a pole's wires hang from it)
+      const far = /^(tree_|bank_tree|telephone_pole|pole_wires)/.test(top.name) && box.setFromObject(top).max.z < -FAR_BACK;
+      top.userData.far = far;
+      top.traverse((o) => {
+        if (!o.isMesh) return;
+        o.userData.shadowRole = role;
+        o.receiveShadow = !/^backdrop_sky/.test(o.name);
+        if (o !== lawn && o !== lawnFlat) o.userData.fullMat = o.material;
+      });
+    }
+  }
+  // Cheaper stand-ins for a material: 'standard' drops the normal map (and
+  // the clearcoat), 'simple' is plain diffuse lighting (no specular, normal
+  // or roughness maps at all). Made once per material and shared.
+  const cheaper = { standard: new Map(), simple: new Map() };
+  function materialFor(m, level) {
+    if (level === 'full' || !m.isMeshStandardMaterial) return m;
+    const cache = cheaper[level];
+    if (cache.has(m)) return cache.get(m);
+    let c;
+    if (level === 'standard') {
+      c = m.clone();
+      c.normalMap = null;
+      if (c.isMeshPhysicalMaterial) { c.clearcoat = 0; c.sheen = 0; c.iridescence = 0; }
+    } else {
+      c = new THREE.MeshLambertMaterial({
+        name: m.name, color: m.color, map: m.map, emissive: m.emissive, emissiveMap: m.emissiveMap,
+        emissiveIntensity: m.emissiveIntensity, aoMap: m.aoMap, alphaMap: m.alphaMap, alphaTest: m.alphaTest,
+        transparent: m.transparent, opacity: m.opacity, side: m.side, vertexColors: m.vertexColors,
+        fog: m.fog, depthWrite: m.depthWrite,
+      });
+      // Shiny metal reads too bright without its reflections.
+      if (m.metalness > 0.5) c.color = m.color.clone().multiplyScalar(0.55);
+    }
+    cache.set(m, c);
+    return c;
+  }
+  let stageRoot = null;
+  function applyGraphics() {
+    const shadowsOn = gfx.shadows !== 'off';
+    const type = gfx.shadows === 'high' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    const size = gfx.shadows === 'high' ? 2048 : 1024;
+    const recompile = renderer.shadowMap.enabled !== shadowsOn || renderer.shadowMap.type !== type;
+    renderer.shadowMap.enabled = shadowsOn;
+    renderer.shadowMap.type = type;
+    if (sun.shadow.mapSize.x !== size) {
+      sun.shadow.mapSize.set(size, size);
+      if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+    }
+    orchard.traverse((o) => {
+      if (!o.isMesh) return;
+      const role = o.userData.shadowRole;
+      if (role) o.castShadow = role === 'key' || (role === 'detail' && gfx.shadows === 'high');
+      if (o.userData.fullMat) {
+        const m = materialFor(o.userData.fullMat, gfx.materials);
+        if (o.material !== m) o.material = m;
+        if (o.userData.env && m.isMeshStandardMaterial && m.envMap !== (gfx.reflections ? o.userData.env : null)) {
+          m.envMap = gfx.reflections ? o.userData.env : null;
+          m.needsUpdate = true;
+        }
+      }
+    });
+    if (stageRoot) for (const top of stageRoot.children) if (top.userData.far) top.visible = gfx.farTrees;
+    // Cartoon: the low-poly orchard instead of the Blender one.
+    const toy = !!gfx.cartoon || !stageRoot;
+    toyScenery.visible = toy;
+    if (stageRoot) stageRoot.visible = !toy;
+    for (const slot of [car, ...cows.map((c) => c.cow)]) {
+      if (!slot.userData.model) continue;
+      slot.userData.toy.visible = toy;
+      slot.userData.model.visible = !toy;
+    }
+    // The grass: how many layers, and how far out it grows.
+    lawnLayers.value = Math.max(1, gfx.grassLayers);
+    lawnFar.value = gfx.grassFar;
+    if (lawn) { lawn.count = gfx.grassLayers; lawn.visible = gfx.grassLayers > 0; }
+    if (lawnFlat) lawnFlat.visible = !lawn || gfx.grassLayers === 0;
+    if (recompile) scene.traverse((o) => { if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true; });
+    resize();
+  }
+  Graphics.onChange((c) => {
+    if (c.fxRes !== gfx.fxRes) setFxRes(c.fxRes);
+    gfx = c; CARD_RES = c.cardRes;
+    applyGraphics();
+  });
+  // The Blender model moves into the slot; the low-poly one it replaces is
+  // kept (as slot.userData.toy) for the Cartoon setting.
   function takeOver(slot, node) {
     node.removeFromParent();
     node.position.set(0, 0, 0);
     node.rotation.set(0, 0, 0);
-    for (const c of [...slot.children]) slot.remove(c);
-    slot.add(node);
+    const toy = new THREE.Group();
+    toy.name = slot.name + '_toy';
+    for (const c of [...slot.children]) toy.add(c);
+    slot.add(toy, node);
+    slot.userData.toy = toy;
+    slot.userData.model = node;
   }
+  let stageReady = false;
   async function loadStageScenes() {
     let list = [];
     try {
       const r = await fetch('assets/stages/manifest.json');
       if (r.ok) list = (await r.json()).scenes || [];
-    } catch (e) { return; }
-    if (!list.includes('orchard')) return;
+    } catch (e) { stageReady = true; return; }
+    if (!list.includes('orchard')) { stageReady = true; return; }
+    // Cartoon keeps the low-poly orchard, so the Blender scene isn't even
+    // downloaded (picking a higher setting later asks for a reload).
+    if (gfx.stageFile === 'none') { stageReady = true; return; }
     try {
       const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
-      const gltf = await new GLTFLoader().loadAsync('assets/stages/orchard.glb');
+      // Low and Medium load the lighter copy made by tools/optimize-stage.js
+      // (simpler meshes, smaller textures), if it's there.
+      const loader = new GLTFLoader();
+      let gltf = null;
+      // (?stagefile=full|lite picks one regardless, for comparing them.)
+      const pick = new URLSearchParams(location.search).get('stagefile') || gfx.stageFile;
+      if (pick === 'lite') {
+        try { gltf = await loader.loadAsync('assets/stages/orchard-lite.glb'); } catch (e) { console.info('[stage] no orchard-lite.glb -- loading the full scene'); }
+      }
+      if (!gltf) gltf = await loader.loadAsync('assets/stages/orchard.glb');
       const root = gltf.scene;
       const guides = [];
       root.traverse((o) => {
         if (o.name.startsWith('GUIDE_')) guides.push(o);
-        if (o.isMesh) o.castShadow = o.receiveShadow = true;
+        // Glass that refracts (KHR_materials_transmission) makes three.js
+        // draw the whole scene an extra time each frame; plain see-through
+        // glass looks the same from fighting distance.
+        if (o.isMesh && o.material.transmission > 0) {
+          o.material.transmission = 0;
+          o.material.transparent = true;
+          o.material.opacity = Math.min(o.material.opacity, 0.4);
+          o.material.depthWrite = false;
+        }
         // The painted horizon (the mountain photo): far beyond the fog, and no shadows.
         if (o.isMesh && o.name.startsWith('backdrop_sky')) {
           o.material.fog = false;
@@ -1158,6 +1449,7 @@ if (webglAvailable()) {
       monster.ground = ['terrain_near', 'backdrop_valley'].map((n) => root.getObjectByName(n)).filter((o) => o && o.isMesh);
       groundCache.clear();
       wetRoads(root);
+      tagScene(root);
       const carNode = root.getObjectByName('car');
       if (carNode) {
         takeOver(car, carNode);
@@ -1177,12 +1469,15 @@ if (webglAvailable()) {
         const node = root.getObjectByName('cow_' + (i + 1));
         if (!node) return;
         takeOver(c.cow, node);
-        c.legs = []; c.custom = true;
+        c.custom = true;
       });
-      // Out with the grey-box scenery; the moving parts stay (now wearing the new models).
-      const keep = new Set([car, monster.group, ...cows.map((c) => c.cow)]);
-      for (const child of [...orchard.children]) if (!keep.has(child)) orchard.remove(child);
+      // The low-poly scenery steps aside (kept for the Cartoon setting); the
+      // moving parts stay, now wearing the new models.
+      const keep = new Set([car, monster.group, toyScenery, ...cows.map((c) => c.cow)]);
+      for (const child of [...orchard.children]) if (!keep.has(child)) toyScenery.add(child);
       orchard.add(root);
+      stageRoot = root;
+      applyGraphics();
       // Each animation plays on whichever object holds what it moves (the
       // scenery, the car, or a cow as it wanders).
       const owners = [root, car, ...cows.map((c) => c.cow)];
@@ -1205,7 +1500,9 @@ if (webglAvailable()) {
         action.play();
       }
       mixers.push(...byOwner.values());
+      stageReady = true;
     } catch (e) {
+      stageReady = true;
       console.warn('[stage] could not load assets/stages/orchard.glb -- showing the grey-box', e);
     }
   }
@@ -1234,7 +1531,7 @@ if (webglAvailable()) {
     mesh.renderOrder = 2;
     mesh.visible = false;
     scene.add(mesh);
-    return { w, h, feetY, canvas: c, ctx: c.getContext('2d'), tex, mesh };
+    return { w, h, feetY, res: CARD_RES, canvas: c, ctx: c.getContext('2d'), tex, mesh };
   }
 
   function makeCard(z, slot) {
@@ -1272,6 +1569,12 @@ if (webglAvailable()) {
     const sheet = wantWide ? card.wide : card.normal;
     if (sheet !== card.sheet) { card.sheet.mesh.visible = false; card.sheet = sheet; card.mesh = sheet.mesh; }
     const { ctx, canvas: c } = sheet;
+    if (sheet.res !== CARD_RES) { // the graphics setting changed: redraw at the new resolution
+      sheet.res = CARD_RES;
+      c.width = Math.round(sheet.w * CARD_RES);
+      c.height = Math.round(sheet.h * CARD_RES);
+      sheet.tex.dispose();
+    }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.setTransform(CARD_RES, 0, 0, CARD_RES, (sheet.w / 2 - f.x) * CARD_RES, (sheet.feetY - f.y) * CARD_RES);
@@ -1316,13 +1619,15 @@ if (webglAvailable()) {
   // Drawn by the existing 2D effect code in plain game coordinates.
   const FX_PAD = 200; // extra room below the canvas for ring-out sparks
   const fxCanvas = document.createElement('canvas');
-  fxCanvas.width = CANVAS_WIDTH;
-  fxCanvas.height = CANVAS_HEIGHT + FX_PAD;
+  // (Sized by the graphics' fxRes: Low and Medium draw effects at a lower
+  // resolution -- this sheet is redrawn and sent to the GPU every frame.)
+  fxCanvas.width = Math.round(CANVAS_WIDTH * gfx.fxRes);
+  fxCanvas.height = Math.round((CANVAS_HEIGHT + FX_PAD) * gfx.fxRes);
   const fxCtx = fxCanvas.getContext('2d');
   const fxTex = new THREE.CanvasTexture(fxCanvas);
   fxTex.colorSpace = THREE.SRGBColorSpace;
   const fxSheet = new THREE.Mesh(
-    new THREE.PlaneGeometry(fxCanvas.width * S, fxCanvas.height * S),
+    new THREE.PlaneGeometry(1, 1), // (scaled to the area it covers in updateFx)
     new THREE.MeshBasicMaterial({ map: fxTex, transparent: true, depthWrite: false, depthTest: false }),
   );
   fxSheet.position.set(toX(CANVAS_WIDTH / 2), toY(fxCanvas.height / 2), 0.08);
@@ -1344,12 +1649,27 @@ if (webglAvailable()) {
   backFxSheet.position.set(fxSheet.position.x, fxSheet.position.y, -0.08);
   backFxSheet.renderOrder = 1;
   scene.add(backFxSheet);
+  // Most frames nothing is drawn behind the fighters: notice that, so the
+  // back sheet isn't cleared and re-sent to the GPU for nothing.
+  let backDrawn = false, backWasDrawn = true;
+  for (const fn of ['fill', 'stroke', 'fillRect', 'strokeRect', 'drawImage', 'fillText', 'strokeText', 'putImageData']) {
+    const orig = backFxCtx[fn].bind(backFxCtx);
+    backFxCtx[fn] = (...a) => { backDrawn = true; return orig(...a); };
+  }
+  function setFxRes(r) {
+    for (const [c, tex] of [[fxCanvas, fxTex], [backFxCanvas, backFxTex]]) {
+      c.width = Math.round(CANVAS_WIDTH * r);
+      c.height = Math.round((CANVAS_HEIGHT + FX_PAD) * r);
+      tex.dispose();
+    }
+    backWasDrawn = true;
+  }
 
   // Which part of the game world the sheets cover. The arena fits the
   // screen; on bigger stages they follow the camera, covering what it sees
   // at a resolution that drops as it zooms out (nothing is lost on screen).
   function fxView() {
-    if (currentLook === 'arena') return { x0: 0, y0: 0, k: 1 };
+    if (currentLook === 'arena') return { x0: 0, y0: 0, k: fxCanvas.width / CANVAS_WIDTH };
     const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     const seen = (2 * camPos.z * tanV * camera.aspect) / S;
     const vw = THREE.MathUtils.clamp(seen * 1.25, CANVAS_WIDTH, 3400);
@@ -1360,16 +1680,21 @@ if (webglAvailable()) {
   function updateFx(state) {
     const v = fxView();
     for (const [sheet, c] of [[fxSheet, fxCanvas], [backFxSheet, backFxCanvas]]) {
-      c.getContext('2d').setTransform(1, 0, 0, 1, 0, 0);
-      c.getContext('2d').clearRect(0, 0, c.width, c.height);
+      if (c !== backFxCanvas || backWasDrawn) {
+        c.getContext('2d').setTransform(1, 0, 0, 1, 0, 0);
+        c.getContext('2d').clearRect(0, 0, c.width, c.height);
+      }
       c.getContext('2d').setTransform(v.k, 0, 0, v.k, -v.x0 * v.k, -v.y0 * v.k);
-      sheet.scale.setScalar(1 / v.k);
+      sheet.scale.set((c.width / v.k) * S, (c.height / v.k) * S, 1);
       sheet.position.x = toX(v.x0 + c.width / v.k / 2);
       sheet.position.y = toY(v.y0 + c.height / v.k / 2);
     }
+    backDrawn = false;
     AbilityFX.drawBack(backFxCtx, state.p1);
     AbilityFX.drawBack(backFxCtx, state.p2);
-    backFxTex.needsUpdate = true;
+    if (backDrawn || backWasDrawn) backFxTex.needsUpdate = true; // (once more after the last drawing, to clear it)
+    backFxSheet.userData.empty = !backDrawn && !backWasDrawn;
+    backWasDrawn = backDrawn;
 
     AbilityFX.drawFront(fxCtx, state.p1);
     AbilityFX.drawFront(fxCtx, state.p2);
@@ -1662,7 +1987,8 @@ if (webglAvailable()) {
       fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
       fxTex.needsUpdate = true;
     }
-    fxSheet.visible = backFxSheet.visible = !!state;
+    fxSheet.visible = !!state;
+    backFxSheet.visible = !!state && !backFxSheet.userData.empty;
 
     if (currentLook === 'arena') {
       for (const isl of islands) {
@@ -1675,7 +2001,7 @@ if (webglAvailable()) {
       faceMat.emissiveIntensity = 0.3 + pulse * 1.1;
       trimMat.emissiveIntensity = 0.6 + pulse * 0.8;
     } else if (currentLook === 'orchard') {
-      for (const m of mixers) m.update(dt);
+      if (!gfx.cartoon) for (const m of mixers) m.update(dt);
       lawnTime.value = now / 1000;
       updateCows(now);
       updateCar(state ? Stage.car() : null, now);
@@ -1688,9 +2014,15 @@ if (webglAvailable()) {
     renderer.render(scene, camera);
   }
 
+  applyGraphics();
+
   window.Renderer3D = {
     isActive: () => true,
     render,
+    // For the FPS counter and benchmarks.
+    stageReady: () => stageReady,
+    scene: () => scene, // (for profiling from the console)
+    info: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, textures: renderer.info.memory.textures, pixelRatio: renderer.getPixelRatio() }),
   };
   window.dispatchEvent(new Event('renderer3d-ready'));
 }

@@ -11,6 +11,8 @@
 // already covered by the fast 2D tests, so they don't trigger it.
 const RELEVANT = [
   /^js\/renderer3d\.js$/,
+  /^js\/graphics\.js$/,      // the graphics settings the 3D view runs on
+  /^assets\/stages\//,       // the stage scenes (and their lite copies)
   /^js\/renderer\.js$/,
   /^js\/animator\.js$/,
   /^js\/abilityfx\.js$/,

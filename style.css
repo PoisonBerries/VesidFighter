@@ -584,6 +584,58 @@ button:disabled {
   cursor: pointer;
 }
 #btn-audio:hover { background: rgba(60, 35, 100, 0.9); }
+#audio-ctl .corner-buttons { display: flex; gap: 6px; }
+#btn-gfx {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 20px;
+  line-height: 1;
+  background: rgba(20, 10, 40, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  cursor: pointer;
+}
+#btn-gfx:hover { background: rgba(60, 35, 100, 0.9); }
+/* Only on the menus and the pause screen: mid-fight it would sit on P2's health bar. */
+body:not(:has(.screen:not(.hidden))) #btn-gfx,
+body:not(:has(.screen:not(.hidden))) #gfx-panel { display: none; }
+
+/* ---- Graphics settings ---- */
+#gfx-panel {
+  width: 290px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(15, 8, 30, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 13px;
+}
+#gfx-panel[hidden] { display: none; }
+#gfx-panel .gfx-label { margin-bottom: 6px; opacity: 0.8; }
+#gfx-panel .gfx-presets { display: flex; gap: 4px; margin-bottom: 6px; }
+#gfx-panel .gfx-presets button { flex: 1; padding: 6px 2px; font-size: 12px; opacity: 0.6; }
+#gfx-panel .gfx-presets button.active { opacity: 1; outline: 2px solid currentColor; }
+#gfx-panel label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; margin: 10px 0 0; }
+#gfx-panel input[type=range] { width: 100%; }
+#gfx-panel .gfx-check { justify-content: flex-start; align-items: center; cursor: pointer; }
+#gfx-panel .gfx-note { font-size: 12px; opacity: 0.75; min-height: 1em; }
+#gfx-panel .gfx-note[hidden] { display: none; }
+#gfx-reload { margin-top: 10px; opacity: 1; }
+#gfx-reload button { display: block; width: 100%; margin-top: 6px; padding: 6px 4px; font-size: 12px; }
+#fps-counter {
+  position: fixed;
+  left: 10px;
+  bottom: 8px;
+  z-index: 60;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: 12px/1.5 ui-monospace, Menlo, monospace;
+  pointer-events: none;
+}
+#fps-counter[hidden] { display: none; }
 #audio-panel {
   width: 210px;
   padding: 12px;

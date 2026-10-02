@@ -504,3 +504,56 @@ test('3D view: every character is drawn in 3D and survives their move set', { sk
   assert.deepStrictEqual(errors, []);
   await page.close();
 });
+
+// The graphics settings on the Orchard (software WebGL, so it rides along
+// with the 3D test). Low loads the lite scene and draws far less; switching
+// presets mid-fight keeps drawing without errors.
+test('graphics settings: the Orchard runs on Low (lite scene), Medium and High, switching live', { skip: RUN_3D ? false : 'slow: run with `npm run test:3d`' }, async (t) => {
+  if (!browser3d) {
+    browser3d = await puppeteer.launch({
+      executablePath: findChrome(), headless: 'new',
+      args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'],
+    });
+  }
+  const page = await browser3d.newPage();
+  await page.setViewport({ width: 640, height: 360 });
+  await page.evaluateOnNewDocument(() => localStorage.setItem('vesid.graphics', JSON.stringify({ preset: 'low', scale: null, fps: true })));
+  const errors = [];
+  const scenes = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+  page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push('console.error: ' + m.text()); });
+  page.on('response', (r) => { if (/assets\/stages\/.*\.glb$/.test(r.url())) scenes.push(r.url().split('/').pop()); });
+  await page.goto(base + '/index.html', { waitUntil: 'load' });
+  const ready = await page.waitForFunction(() => !!window.Renderer3D, { timeout: 20000 }).then(() => true, () => false);
+  if (!ready) { t.skip('3D view did not load'); await page.close(); return; }
+  await page.evaluate(() => { VF_setPaused(true); Game.startMatch('nathan', 'john', () => {}, { stage: 'orchard', ball: false }); });
+  await page.waitForFunction(() => Renderer3D.stageReady(), { timeout: 240000, polling: 1000 });
+  assert.deepStrictEqual(scenes, ['orchard-lite.glb'], 'Low loads the lite scene');
+
+  const draw = () => page.evaluate(() => {
+    Game.render(document.getElementById('game-canvas').getContext('2d'));
+    const info = Renderer3D.info();
+    const c = document.createElement('canvas'); c.width = 64; c.height = 36;
+    const g = c.getContext('2d'); g.drawImage(document.getElementById('game-canvas-3d'), 0, 0, 64, 36);
+    const d = g.getImageData(0, 0, 64, 36).data;
+    let lit = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 60) lit++;
+    return { ...info, lit: lit / (64 * 36), tier: Graphics.config().tier };
+  });
+  const low = await draw();
+  await page.evaluate(() => Graphics.set({ preset: 'medium', scale: null }));
+  const medium = await draw();
+  await page.evaluate(() => Graphics.set({ preset: 'high', scale: null }));
+  const high = await draw();
+  for (const r of [low, medium, high]) assert.ok(r.lit > 0.5, `${r.tier}: the scene should be drawn (only ${(r.lit * 100).toFixed(0)}% lit)`);
+  assert.ok(low.pixelRatio < high.pixelRatio, 'Low renders at a lower resolution');
+  assert.ok(low.calls < high.calls, `Low draws less (${low.calls} vs ${high.calls} draw calls)`);
+  assert.ok(await page.evaluate(() => Graphics.needsReload()), 'High\'s full scene waits for a reload');
+  // Cartoon, live: the low-poly orchard, a tiny fraction of the triangles.
+  await page.evaluate(() => Graphics.set({ preset: 'cartoon', scale: null }));
+  const toon = await draw();
+  assert.ok(toon.lit > 0.5, 'Cartoon draws the scene');
+  assert.ok(toon.triangles < low.triangles / 20, `Cartoon draws a tiny scene (${toon.triangles} vs Low's ${low.triangles} triangles)`);
+  assert.ok(await page.$eval('#fps-counter', (e) => !e.hidden && /fps/.test(e.textContent)), 'the FPS counter shows');
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+});

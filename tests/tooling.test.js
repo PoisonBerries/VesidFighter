@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const { needs3d } = require('../tools/needs-3d');
 
 test('drawing/animation/3D changes trigger the 3D test', () => {
-  for (const f of ['js/renderer3d.js', 'js/animator.js', 'js/abilityfx.js', 'js/renderer.js', 'js/effects.js', 'index.html', 'assets/heads/sam.png', 'assets/sprites/x.png', 'tests/e2e.test.js', 'package.json']) {
+  for (const f of ['js/renderer3d.js', 'js/graphics.js', 'assets/stages/orchard-lite.glb', 'js/animator.js', 'js/abilityfx.js', 'js/renderer.js', 'js/effects.js', 'index.html', 'assets/heads/sam.png', 'assets/sprites/x.png', 'tests/e2e.test.js', 'package.json']) {
     assert.ok(needs3d([f]), `${f} should trigger the 3D test`);
   }
 });
