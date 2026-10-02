@@ -37,6 +37,8 @@ if (webglAvailable()) {
   // (Robert transformed, ~300px tall) plus auras and the block shield.
   const CARD_W = 800;
   const CARD_H = 680;
+  // Room for Nathan's Overgrowth whip: ~900px out, arcing ~500px overhead.
+  const CARD_W_WIDE = 2000, CARD_H_TALL = 1000, FEET_Y_TALL = 900;
   const FEET_Y = 580;
   const CARD_RES = 1.25; // texture pixels per game pixel
   const FLIP_SECONDS = 0.14;
@@ -796,6 +798,20 @@ if (webglAvailable()) {
       });
     }
   }
+  // The mud road's wet patches catch the sky all along it, not only where
+  // the sun happens to glint: the road reflects a soft sky (the same colours
+  // as the backdrop), and its baked roughness keeps the dry bits matte.
+  function wetRoads(root) {
+    const sky = canvasTexture(gradientCanvas([[0, '#9ebdd2'], [0.45, '#c9d4d0'], [0.5, '#d9c9a6'], [0.56, '#6f6150'], [1, '#3a3229']]));
+    sky.mapping = THREE.EquirectangularReflectionMapping;
+    const env = new THREE.PMREMGenerator(renderer).fromEquirectangular(sky).texture;
+    root.traverse((o) => {
+      if (!o.isMesh || !/^road_/.test(o.name)) return;
+      o.material = o.material.clone();
+      o.material.envMap = env;
+      o.material.envMapIntensity = 1.1;
+    });
+  }
   function takeOver(slot, node) {
     node.removeFromParent();
     node.position.set(0, 0, 0);
@@ -825,8 +841,21 @@ if (webglAvailable()) {
         }
       });
       guides.forEach((o) => o.removeFromParent());
+      // The apple tree's leaves come forward round the branches, but never
+      // hide a fighter: drawn after the rest of the scene without writing
+      // depth, so the fighters (drawn after them) always show in front.
+      const treeLeaves = root.getObjectByName('apple_tree_leaves');
+      if (treeLeaves) {
+        treeLeaves.traverse((m) => {
+          if (!m.isMesh) return;
+          m.material = m.material.clone();
+          m.material.depthWrite = false;
+          m.renderOrder = 1;
+        });
+      }
       addLawn(root);
       fadeFarPoles(root);
+      wetRoads(root);
       const carNode = root.getObjectByName('car');
       if (carNode) {
         takeOver(car, carNode);
@@ -882,15 +911,17 @@ if (webglAvailable()) {
 
   // ---- Fighter cards ----
 
-  function makeCard(z, slot) {
+  // The picture a card is drawn on: a canvas texture on a plane `w` x `h`
+  // game pixels, with the fighter's feet `feetY` down from the top.
+  function makeSheet(w, h, feetY) {
     const c = document.createElement('canvas');
-    c.width = Math.round(CARD_W * CARD_RES);
-    c.height = Math.round(CARD_H * CARD_RES);
+    c.width = Math.round(w * CARD_RES);
+    c.height = Math.round(h * CARD_RES);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
     const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(CARD_W * S, CARD_H * S),
+      new THREE.PlaneGeometry(w * S, h * S),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.01, side: THREE.DoubleSide, depthWrite: false }),
     );
     mesh.castShadow = true;
@@ -899,7 +930,13 @@ if (webglAvailable()) {
       depthPacking: THREE.RGBADepthPacking, map: tex, alphaTest: 0.5, side: THREE.DoubleSide,
     });
     mesh.renderOrder = 2;
+    mesh.visible = false;
     scene.add(mesh);
+    return { w, h, feetY, canvas: c, ctx: c.getContext('2d'), tex, mesh };
+  }
+
+  function makeCard(z, slot) {
+    const sheet = makeSheet(CARD_W, CARD_H, FEET_Y);
 
     // Soft contact shadow under the feet.
     const blob = new THREE.Mesh(
@@ -919,18 +956,25 @@ if (webglAvailable()) {
     ring.renderOrder = 1;
     scene.add(ring);
 
-    return { canvas: c, ctx: c.getContext('2d'), tex, mesh, blob, ring, z, rotY: 0 };
+    // `wide`: made the first time it's needed (see updateCard).
+    return { sheet, normal: sheet, wide: null, mesh: sheet.mesh, blob, ring, z, rotY: 0 };
   }
 
   const cards = { p1: makeCard(0.03, 'p1'), p2: makeCard(-0.03, 'p2') };
 
   function updateCard(card, f, dt) {
-    const { ctx, canvas: c } = card;
+    // Nathan's Overgrowth punches reach far past the normal card, so while
+    // it's on he's drawn on a wide one.
+    const wantWide = f.buffReachMul > 1;
+    if (wantWide && !card.wide) card.wide = makeSheet(CARD_W_WIDE, CARD_H_TALL, FEET_Y_TALL);
+    const sheet = wantWide ? card.wide : card.normal;
+    if (sheet !== card.sheet) { card.sheet.mesh.visible = false; card.sheet = sheet; card.mesh = sheet.mesh; }
+    const { ctx, canvas: c } = sheet;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
-    ctx.setTransform(CARD_RES, 0, 0, CARD_RES, (CARD_W / 2 - f.x) * CARD_RES, (FEET_Y - f.y) * CARD_RES);
+    ctx.setTransform(CARD_RES, 0, 0, CARD_RES, (sheet.w / 2 - f.x) * CARD_RES, (sheet.feetY - f.y) * CARD_RES);
     const rig = Renderer.drawFighter(ctx, f, { card: true });
-    card.tex.needsUpdate = true;
+    sheet.tex.needsUpdate = true;
 
     // Paper flip: rotate toward the facing side instead of snapping.
     const target = f.facing > 0 ? 0 : Math.PI;
@@ -940,7 +984,7 @@ if (webglAvailable()) {
 
     const m = card.mesh;
     m.visible = true;
-    m.position.set(toX(f.x), toY(f.y - FEET_Y + CARD_H / 2), card.z);
+    m.position.set(toX(f.x), toY(f.y - sheet.feetY + sheet.h / 2), card.z);
     m.rotation.y = card.rotY;
     // Balance mode: the shakier they are, the more the card wobbles, like
     // they're about to tip over.

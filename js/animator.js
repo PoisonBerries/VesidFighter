@@ -426,7 +426,7 @@ const Animator = (() => {
       }
 
       case 'attack': {
-        const atk = fighter.attackDef;
+        const atk = fighter.attackBox(fighter.attackDef);
         const ext = attackExt(t, atk);
         const heavy = id === 'john' || id === 'robert';
         T.rate = 60;
@@ -475,6 +475,62 @@ const Animator = (() => {
           for (const a of T.arms) a.stretch = Math.max(1, Math.abs(y + 20) / armLen);
           T.crouch = 0.05 + 0.12 * wind; T.lean = -4 * drive;
           T.fA = F(-10, 0); T.fB = F(10, 0);
+        } else if (fighter.buffReachMul > 1 && fighter.character.elastic) { // Nathan's Overgrowth: the arm whips up overhead and cracks down onto the target
+          const H = fighter.height;
+          const dm = typeof Renderer !== 'undefined' && Renderer.bodyDims ? Renderer.bodyDims(id, H, fighter.transformed) : null;
+          // Phases: raise the arm overhead (first part of the startup), whip it
+          // over and down onto the target (landing on the first frame the hit
+          // is live), then reel it straight back in over the recovery.
+          const raiseEnd = atk.startup * 0.4, strikeEnd = atk.startup + 1;
+          const raise = easeOutCubic(clamp(t / raiseEnd, 0, 1));
+          const s = clamp((t - raiseEnd) / (strikeEnd - raiseEnd), 0, 1);
+          const recovering = t > atk.startup + atk.active;
+          const reel = recovering ? ext : 1; // 1 = fully out, 0 = back at the body
+          T.crouch = 0.05 + 0.06 * raise * (1 - s); T.lean = -8 * raise * (1 - s) + 6 * s * reel;
+          T.fA = F(-14 * stance, 0); T.fB = F(10 * stance, 0);
+          T.rate = 110; // snappier than other moves: a whip doesn't drift
+          T.arms = [P(-12 - 8 * s * reel, 16 - 6 * s * reel, -8), P(12, 14, 8, 1)];
+          if (dm) {
+            // Worked in the body's own frame (feet at 0, y down) and then
+            // carried back through what the renderer does to the pose (see
+            // drawPlaceholder): the body is stretched taller (vs) and thinner
+            // (1/sqrt(vs)) from the feet, the arm leans with the torso about
+            // the hip, and hand targets are offsets from the shoulder line
+            // scaled by armScale. The fist comes down near the far end of the
+            // hitbox, inside its band of height -- the punch doesn't rise
+            // with the stretch, so it can't sail over anyone.
+            const vs = an.vs || 1, as = profile.armScale, c = 1 - T.crouch;
+            const shoulderY = -H * dm.shoulderFrac * c, hipY = -H * dm.hipFrac * c, shLine = shoulderY + H * 0.03;
+            const sx = H * 0.052 * dm.fs, sy = shoulderY + H * 0.034;
+            const bottom = H * HIGH_ATTACK_BOTTOM;
+            const fistUp = clamp(-shoulderY * vs, bottom + atk.height * 0.3, bottom + atk.height * 0.7);
+            const tx = (atk.offset + atk.width) * 0.9 * Math.sqrt(vs), ty = -fistUp / vs;
+            const armLen = dm.arm.upper + dm.arm.fore;
+            const L = Math.hypot(tx - sx, ty - sy), aT = Math.atan2(ty - sy, tx - sx);
+            const aUp = (-95 * Math.PI) / 180; // straight up, a touch back
+            // The fist swings over and down while the arm pays out, most of
+            // the length coming late, so it arcs over at about head height
+            // and cracks down onto the target like a whip.
+            let ang, len, bow = 0, w;
+            if (recovering) { ang = aT; len = lerp(armLen * 0.7, L, reel); w = clamp(reel * 1.6, 0, 1); }
+            else if (s > 0) { ang = lerp(aUp, aT, Math.pow(s, 0.8)); len = lerp(armLen * 0.95, L, Math.pow(s, 1.8)); bow = Math.sin(Math.PI * s) * 0.1; w = 1; }
+            else { ang = aUp; len = armLen * 0.95; w = raise; }
+            let hx = sx + Math.cos(ang) * len, hy = sy + Math.sin(ang) * len;
+            // The torso's lean rotates the arm about the hip; undo it.
+            const r = (-T.lean * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r);
+            [hx, hy] = [hx * cs - (hy - hipY) * sn, hipY + hx * sn + (hy - hipY) * cs];
+            const hand = T.arms[1];
+            hand.x = lerp(hand.x, hx / as, w); hand.y = lerp(hand.y, (hy - shLine) / as, w);
+            // Bones just short of the distance lock the arm out straight; mid
+            // swing they're a bit long, so the arm bows back behind the fist
+            // (the elbow hint on the trailing, upper side) like a cracking whip.
+            const dist = Math.hypot(hand.x * as - sx, shLine + hand.y * as - sy);
+            hand.stretch = Math.max(1, (dist * (0.96 + bow)) / armLen);
+            if (bow > 0) {
+              const mx = (sx + hx) / 2 + Math.sin(ang) * len * 0.3, my = (sy + hy) / 2 - Math.cos(ang) * len * 0.3;
+              hand.ex = mx / as; hand.ey = (my - shLine) / as;
+            }
+          }
         } else if (id === 'artur' || fighter.airAttackActive) { // front kick (Artur's froggy one; Keenan's in the air): chamber the knee, then drive the foot out
           const hipY = -fighter.height * 0.38;
           const chamber = ext < 0 ? -ext / 0.45 : 0;
@@ -680,7 +736,7 @@ const Animator = (() => {
     if (rollFinish) rollPose(T, an);
     if (!T.arms) T.arms = armsFor(T.armPose, { R, E: T.E, s: T.s });
     // (an air attack is hand-posed: the punch clip would fight it)
-    applyClip(T, fighter, an, now, rollFinish || (fighter.state === 'attack' && (fighter.airAttackActive || fighter.upAttackActive || fighter.downAttackActive)));
+    applyClip(T, fighter, an, now, rollFinish || (fighter.state === 'attack' && (fighter.airAttackActive || fighter.upAttackActive || fighter.downAttackActive || (fighter.buffReachMul > 1 && fighter.character.elastic))));
     if (fighter.rolling || rollFinish) T.headTilt = 38; // chin tucked into the chest
     else if (fighter.state === 'block' && fighter.character.crouchSwim && !T.clip) T.headTilt = -22; // chin up, looking ahead as he swims
     // Long-armed characters (Nathan): every arm pose reaches proportionally further.
@@ -1262,9 +1318,10 @@ const Animator = (() => {
       }
       an.str = clamp(an.str, -1.4, 1.4);
       // Squash and stretch: a rubber body lengthens rising, squashes landing.
-      const vsTarget = airborne
+      // (Overgrowth stretches the whole body taller on top of that.)
+      const vsTarget = (fighter.buffTallMul || 1) * (airborne
         ? 1 + 0.2 * clamp(-fighter.vy / 15, 0, 1)
-        : 1 - 0.2 * an.landImpact * an.landT;
+        : 1 - 0.2 * an.landImpact * an.landT);
       an.vs = (an.vs || 1) + (vsTarget - (an.vs || 1)) * (1 - Math.exp(-22 * dt));
     }
     an.prevHovering = !!fighter.hovering;

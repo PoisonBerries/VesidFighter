@@ -229,11 +229,14 @@ const CHARACTERS = {
     ultimate: {
       type: 'buff',
       name: 'Overgrowth',
-      description: 'Grows massive, hitting much harder for a while.',
+      description: 'Stretches taller and his punch becomes a whip that cracks down 3.5 times as far away, at a third of the damage, for a while.',
       castFrames: 20,
-      duration: 600,
-      sizeMul: 1.35,
-      atkMul: 1.4,
+      duration: 300,
+      reachMul: 3.5,
+      reachDamageMul: 0.47, // a third of what it used to do (9 x 1.4 = 12.6 -> ~4.2)
+      // Stretches up this much taller (drawn thinner to match; his hurtbox
+      // grows with it, but his punches stay at his normal height).
+      tallMul: 1.18,
     },
   },
 

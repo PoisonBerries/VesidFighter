@@ -86,6 +86,7 @@ class Fighter {
     this.phaseCooldown = 0; // frames until Phase Step (Keenan) is ready again
     this.sinceHit = 999; // frames since last taking a hit (Phase Step window)
     this._comboHeld = false; // jump + crouch both down last frame (to catch the moment the pair is completed)
+    this._crouchHeld = false; // crouch down last frame (pressing it on a platform drops you through)
     this.phaseStepFrom = 0;
     this.phaseStepTo = 0;
 
@@ -94,6 +95,8 @@ class Fighter {
     this.buffAtkMul = 1;
     this.buffSpdMul = 1;
     this.buffSizeMul = 1;
+    this.buffReachMul = 1;   // Nathan's Overgrowth: how many times further his punches reach
+    this.buffTallMul = 1;    // ...and how much taller his rubber body stretches
     this.atkSpeedMul = 1;
     this.fartPower = 0;       // Artur's Toxic Rush: bonus (0..max) earned from fart damage
     this.jumpStacks = 0;      // John's Bounce Back: hits taken this round
@@ -127,6 +130,16 @@ class Fighter {
     }
     if (this.downAttackActive) return this.character.downAttack;
     return this.upAttackActive ? this.character.upAttack : this.airAttackActive ? this.character.airAttack : this.character.attack;
+  }
+
+  // An attack as it works right now: Overgrowth stretches a forward attack's
+  // far edge out reachMul times as far, at reachDamageMul of the damage.
+  // (The up punch already reaches the top of any jump.)
+  attackBox(a) {
+    const r = this.buffReachMul;
+    if (r === 1 || a === this.character.upAttack) return a;
+    const dm = this.character.ultimate.reachDamageMul || 1;
+    return { ...a, width: (a.offset + a.width) * r - a.offset, damage: a.damage * dm };
   }
 
   // Blood Donor: 0 at full health up to 1 at none -- how much of the bonus applies.
@@ -212,7 +225,9 @@ class Fighter {
     // Crouched: a fraction of full height -- and for a swimmer (Sam) lying
     // flat, so very low but long.
     const swim = this.isCrouching ? this.character.crouchSwim : null;
-    const h = this.isCrouching ? this.height * (swim ? swim.height : CROUCH_HEIGHT) : this.height;
+    // (Overgrowth's stretch makes Nathan a taller target, but only here: his
+    // hitboxes still work from his normal height.)
+    const h = (this.isCrouching ? this.height * (swim ? swim.height : CROUCH_HEIGHT) : this.height) * this.buffTallMul;
     const w = swim ? this.width * swim.widthMul : this.width;
     return {
       x: this.x - w / 2,
@@ -250,7 +265,8 @@ class Fighter {
         // duck them); a def with `high: false`, like Artur's kick, reaches
         // the floor and can't be ducked.
         const bottom = a.high === false ? 0 : this.height * HIGH_ATTACK_BOTTOM;
-        return this._forwardBox(a.offset, a.width, a.height, bottom);
+        const box = this.attackBox(a);
+        return this._forwardBox(box.offset, box.width, box.height, bottom);
       }
       return null;
     }
@@ -572,6 +588,8 @@ class Fighter {
     this.buffAtkMul = 1;
     this.buffSpdMul = 1;
     this.buffSizeMul = 1;
+    this.buffReachMul = 1;
+    this.buffTallMul = 1;
     this.atkSpeedMul = 1;
     this.poisonTicksLeft = 0;
     this.poisonTickTimer = 0;
@@ -598,6 +616,7 @@ class Fighter {
     this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0;
     this.fartPower = 0; this.jumpStacks = 0; this.poisonFrom = null; this.poisonTickDamage = 0;
     this._comboHeld = false;
+    this._crouchHeld = false;
     this.blocking = false;
     this.guarding = false;
     this.facingLocked = false;
@@ -675,6 +694,8 @@ class Fighter {
         this.buffAtkMul = 1;
         this.buffSpdMul = 1;
         this.buffSizeMul = 1;
+        this.buffReachMul = 1;
+        this.buffTallMul = 1;
         this.atkSpeedMul = 1;
       }
     }
@@ -795,6 +816,8 @@ class Fighter {
     const comboDown = InputManager.isDown(controls.jump) && held.block;
     const comboEdge = comboDown && !this._comboHeld;
     this._comboHeld = comboDown;
+    const crouchEdge = held.block && !this._crouchHeld;
+    this._crouchHeld = !!held.block;
     const pressed = {
       jump: InputManager.isPressed(controls.jump),
       attack: InputManager.isPressed(controls.attack),
@@ -833,8 +856,8 @@ class Fighter {
         return;
       }
       this.guarding = false;
-      // Crouch + jump on a platform: drop down through it.
-      if (held.block && pressed.jump && this.grounded && this.platform) {
+      // Crouching on a platform (or crouch + jump): drop down through it.
+      if (held.block && (crouchEdge || pressed.jump) && this.grounded && this.platform) {
         this.platform = null;
         this.dropThrough = 10;
         this.grounded = false;
@@ -1400,6 +1423,8 @@ class Fighter {
     if (this.actionTimer > def.castFrames) {
       this.buffTimer = def.duration;
       if (def.sizeMul) this.buffSizeMul = def.sizeMul;
+      if (def.reachMul) this.buffReachMul = def.reachMul;
+      if (def.tallMul) this.buffTallMul = def.tallMul;
       if (def.atkMul) this.buffAtkMul = def.atkMul;
       if (def.spdMul) this.buffSpdMul = def.spdMul;
       if (def.atkSpeedMul) this.atkSpeedMul = def.atkSpeedMul;

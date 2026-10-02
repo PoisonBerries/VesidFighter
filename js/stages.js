@@ -21,14 +21,16 @@ const STAGES = {
     left: -560, right: 1840,
     spawns: [210, 1070],
     // The apple tree in the middle: a low branch each side, the two upper
-    // branches (the crown) above, and a short pair at the very top. 92px
+    // branches (the crown) above, a short pair at the top, and the leafy top
+    // of the tree itself. 92px
     // apart, to fit the lowest jump in the roster (John's, ~106px). Each
-    // covers the level part of its branch (blender/orchard.blend).
+    // covers its branch from the trunk to the tip (blender/orchard.blend).
     platforms: [
-      { id: 'branchL', x1: 445, x2: 595, y: GROUND_Y - 92 },
-      { id: 'branchR', x1: 695, x2: 835, y: GROUND_Y - 92 },
-      { id: 'crown', x1: 490, x2: 790, y: GROUND_Y - 184 },
-      { id: 'top', x1: 540, x2: 740, y: GROUND_Y - 276 },
+      { id: 'branchL', x1: 485, x2: 628, y: GROUND_Y - 92 },
+      { id: 'branchR', x1: 652, x2: 797, y: GROUND_Y - 92 },
+      { id: 'crown', x1: 482, x2: 798, y: GROUND_Y - 184 },
+      { id: 'top', x1: 532, x2: 752, y: GROUND_Y - 276 },
+      { id: 'canopy', x1: 555, x2: 710, y: GROUND_Y - 368 }, // standing on the leaves
     ],
     // Now and then a car comes down a farm road from the background (the
     // warning: you can see it coming, lights on), turns onto the fight line
