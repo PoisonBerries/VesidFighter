@@ -372,6 +372,14 @@ const Sfx = (() => {
     victoryStreak: 'RyanVictoryStreak.m4a',         // when he wins the match again right after winning one (a streak)
     roundWin: 'RyanPostVictoryTaunt.m4a',            // he wins a round (but not the match): a taunt
   };
+  VOICE.sam = {
+    hitTaken: 'SamAyee.mp3',                        // someone lands a punch or kick on him
+    bigHit: 'SamWoaaahh.mp3',                       // a heavy blow: 15% of his health or more
+    fallOff: 'SamFallsOffMap.mp3',                  // he falls off the map
+    matchStart: 'SamMatchStart.mp3',                // at the start of a match (not if a matchup line is playing)
+    selected: 'SamSelected.mp3',                    // he's clicked on in the character select menu
+    victory: 'SamVictory.mp3',                      // when he wins the match
+  };
   VOICE.robert = {
     selected: 'RobFunny.mp3',                       // he's clicked on in the character select menu
     hitTaken: 'RobHitTaken.mp3',                    // someone lands a punch or kick on him
@@ -423,6 +431,62 @@ const Sfx = (() => {
     const want = Math.pow(10, VOICE_TARGET_DB / 20) / mean;
     return Math.min(want, VOICE_MAX_PEAK / peak, VOICE_MAX_GAIN);
   }
+  // Voice effects applied once, when a line is loaded. Ryan gets a slight vocoder: his voice is
+  // blended with a robotic synth "carrier" that is shaped by his voice, band by band.
+  const VOICE_FX = { ryan: { vocoder: { wet: 0.5, dry: 0.85 } } };
+
+  // A channel vocoder, rendered offline: the voice is split into frequency bands; each band's loudness
+  // (an envelope) opens the matching band of a synth carrier (two detuned saws a fifth apart plus a
+  // little noise so consonants survive). Returns a new buffer: dry voice + the vocoded signal.
+  async function vocode(buf, fx) {
+    const sr = buf.sampleRate, len = buf.length;
+    const oc = new OfflineAudioContext(1, len, sr);
+    const src = oc.createBufferSource();
+    src.buffer = buf;
+    const out = oc.createGain();
+    // Carrier
+    const carrier = oc.createGain();
+    for (const [freq, det] of [[110, -7], [110, 7], [165, 0]]) {
+      const o = oc.createOscillator(); o.type = 'sawtooth'; o.frequency.value = freq; o.detune.value = det;
+      const g = oc.createGain(); g.gain.value = 0.33;
+      o.connect(g); g.connect(carrier); o.start();
+    }
+    const nbuf = oc.createBuffer(1, sr, sr), nd = nbuf.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const noise = oc.createBufferSource(); noise.buffer = nbuf; noise.loop = true;
+    const ng = oc.createGain(); ng.gain.value = 0.12;
+    noise.connect(ng); ng.connect(carrier); noise.start();
+    // Rectifier: |x| as a waveshaper curve
+    const curve = new Float32Array(2049);
+    for (let i = 0; i < curve.length; i++) curve[i] = Math.abs((i / 1024) - 1);
+    const BANDS = 16, LOW = 180, HIGH = 7000;
+    const wet = oc.createGain();
+    for (let b = 0; b < BANDS; b++) {
+      const f = LOW * Math.pow(HIGH / LOW, b / (BANDS - 1));
+      const mod = oc.createBiquadFilter(); mod.type = 'bandpass'; mod.frequency.value = f; mod.Q.value = 5;
+      const rect = oc.createWaveShaper(); rect.curve = curve;
+      const env = oc.createBiquadFilter(); env.type = 'lowpass'; env.frequency.value = 40;
+      const vca = oc.createGain(); vca.gain.value = 0;
+      const car = oc.createBiquadFilter(); car.type = 'bandpass'; car.frequency.value = f; car.Q.value = 5;
+      src.connect(mod); mod.connect(rect); rect.connect(env); env.connect(vca.gain);
+      carrier.connect(car); car.connect(vca); vca.connect(wet);
+    }
+    wet.connect(out);
+    out.connect(oc.destination);
+    src.start();
+    // Render only the vocoded signal, then blend it with the dry voice in code, scaling it to a fixed
+    // fraction of the voice's own loudness (so the effect is the same strength whatever the recording).
+    const wetBuf = await oc.startRendering();
+    const d = buf.getChannelData(0), w = wetBuf.getChannelData(0);
+    let sd = 0, sw = 0;
+    for (let i = 0; i < len; i++) { sd += d[i] * d[i]; sw += w[i] * w[i]; }
+    const k = sw > 1e-12 ? (fx.wet * Math.sqrt(sd / sw)) : 0;
+    const mixed = new AudioBuffer({ length: len, sampleRate: sr, numberOfChannels: 1 });
+    const m = mixed.getChannelData(0);
+    for (let i = 0; i < len; i++) m[i] = d[i] * fx.dry + w[i] * k;
+    return mixed;
+  }
+
   const voiceBuffers = {}; // path -> decoded audio (or null if it can't be loaded)
   let voiceVsAt = -1e9;    // when a matchup line last started
   const voiceLast = {};    // character -> when its last line started
@@ -487,12 +551,16 @@ const Sfx = (() => {
     fetch(encodeURI(path))
       .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('missing'))))
       .then((data) => new Promise((resolve, reject) => ac.decodeAudioData(data, resolve, reject)))
-      .then((buf) => { voiceBuffers[path] = buf; go(buf); })
+      .then(async (buf) => {
+        const fx = VOICE_FX[charId];
+        if (fx && fx.vocoder) { try { buf = await vocode(buf, fx.vocoder); } catch (e) { /* keep the plain voice */ } }
+        voiceBuffers[path] = buf; go(buf);
+      })
       .catch(() => { delete voiceBuffers[path]; });
   }
 
   const api = {
-    voice, loudnessGain,
+    voice, loudnessGain, vocode,
     swing: (pan) => play('swing', pan),
     hover: (pan) => play('hover', pan),
     roll: (pan) => play('roll', pan),
