@@ -355,6 +355,7 @@ const Sfx = (() => {
     fallOff: 'NathanFallsOffMap.mp3',               // he falls off the map
     selected: 'NathanSelected.mp3',                 // he's clicked on in the character select menu
     'vs:john': 'NathanVsJohn.mp3',                  // at the start of a match against John (once per match)
+    'vs:owen': 'NathanVsOwen.mp3',                  // at the start of a match against Owen (once per match)
     'vs:artur': 'NathanVsArtur.mp3',                // at the start of a match against Artur (once per match)
     knockedDown: ['NathanKnockedDown.mp3', 'NathanKnockedDown2.mp3'], // he's knocked down (one of two, at random)
     ultimate: 'NathanUlt.mp3',                      // when he uses his ultimate
@@ -363,7 +364,8 @@ const Sfx = (() => {
   VOICE.ryan = {
     'vs:john': 'RyanVsJohn.mp3',                    // at the start of a match against John (once per match)
     ultimate: 'RyanYeah.mp3',                       // "Yeah!" as he kicks off Encore
-    hitTaken: 'RyanHitTaken.m4a',                   // someone lands a punch or kick on him
+    hitTaken: ['RyanHitTaken.m4a', 'RyanHitTaken2.mp3'], // someone lands a punch or kick on him (one of two, at random)
+    selected: 'RyanSelected.mp3',                   // he's clicked on in the character select menu
     bigHit: 'RyanGroan.m4a',                        // a heavy blow: 15% of his health or more
     fallOff: 'RyanSurprised.m4a',                   // he falls off the map
     victory: 'RyanVictory.m4a',                     // when he wins the match
@@ -380,6 +382,7 @@ const Sfx = (() => {
     bigHit: ['RobBigHitTaken.m4a', 'RobBigHitTaken 2.m4a'], // a heavy blow: 15% of his health or more (one of two, at random)
     fallOff: ['RobGasp.m4a', 'RobDelayedNooooooo.m4a'], // he falls off the map (a gasp, or a long "noooo", at random)
     hitByUltimate: 'RobHolyShit.m4a',              // an ultimate hits him
+    'vs:ryan': 'RobVsRyan.mp3',                     // at the start of a match against Ryan (once per match)
     'vs:carlos': ['RobVsCarlos.m4a', 'RobVsCarlos2.m4a'], // at the start of a match against Carlos (one of two, at random)
     enemyFall: 'RobLaugh.m4a',                      // he laughs when the opponent falls off the map
     victory: 'RobYeahOhYeah.m4a',                   // when he wins the match
