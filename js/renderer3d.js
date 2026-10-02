@@ -362,8 +362,9 @@ if (webglAvailable()) {
     },
     orchard: {
       group: orchard,
-      background: canvasTexture(gradientCanvas([[0, '#5fa8f0'], [0.55, '#a9d6f7'], [0.8, '#e6f1ea'], [1, '#f4efd8']])),
-      fog: new THREE.Fog('#dcecf2', 30, 110),
+      // Sky and haze in the colours of the mountain photo on the horizon (blender/orchard.blend).
+      background: canvasTexture(gradientCanvas([[0, '#7fa9c4'], [0.5, '#b4c6c4'], [0.8, '#d6c8a8'], [1, '#c9ae8a']])),
+      fog: new THREE.Fog('#c4b293', 60, 300),
       hemi: ['#eaf5ff', '#6f8f4a', 1.3], sun: ['#fff3da', 2.7], rim: ['#ffe6b8', 0.5],
       maxDist: 24,
     },
@@ -617,40 +618,77 @@ if (webglAvailable()) {
   car.visible = false;
   orchard.add(car);
 
-  // Where the car is on screen: coming down a farm road during the warning,
-  // along the fight line (where the game has it) while it drives, then off
-  // down the other farm road (scenery only, once the game is done with it).
+  // Where the car is on screen: down a farm road during the warning, round a
+  // proper turning arc onto the fight line, along it (where the game has it)
+  // while it drives, then round the far corner and away up the other farm
+  // road (scenery only, once the game is done with it). Speeds join up:
+  // it pulls away from the back, brakes into the corner and comes out at the
+  // speed the game starts it at; at the far end it leaves at the speed the
+  // game slowed it to and accelerates away.
+  const TURN_R = CAR.turn * S;
+  const CAR_MPS = (f) => CAR.speed * f * 60 * S; // game speed share -> metres per second
+  // The path from the back of a farm road (side -1/1) to the fight line: s metres along it.
+  function roadPath(side, s) {
+    const cj = carJoin(side), inward = -side;
+    const straight = -TURN_R - ROAD_BACK;
+    if (s <= straight) return { x: cj, z: ROAD_BACK + Math.max(0, s), tx: 0, tz: 1 };
+    const phi = Math.min(Math.PI / 2, (s - straight) / TURN_R);
+    return {
+      x: cj + inward * TURN_R - inward * TURN_R * Math.cos(phi),
+      z: -TURN_R + TURN_R * Math.sin(phi),
+      tx: inward * Math.sin(phi), tz: Math.cos(phi),
+    };
+  }
+  const ROAD_LEN = -TURN_R - ROAD_BACK + (Math.PI / 2) * TURN_R;
   let carShown = null; // { side, t0 } while it drives away after the game drops it
+  let carModels = [];   // from the Blender scene: [{ model, wheels: [{ o, r }] }], one per pass
+  const carLast = new THREE.Vector3();
+  let carLastOn = false;
+  // Which car this pass is, and its wheels turning by the distance it moved.
+  function dressCar(n) {
+    if (!carModels.length) return;
+    const pick = carModels[((n || 0) % carModels.length + carModels.length) % carModels.length];
+    for (const m of carModels) m.model.visible = m === pick;
+    const d = carLastOn ? car.position.distanceTo(carLast) : 0;
+    carLast.copy(car.position); carLastOn = true;
+    for (const w of pick.wheels) w.o.rotation.z -= d / w.r;
+  }
   function updateCar(c, now) {
+    updateCarPath(c, now);
+    if (!car.visible) { carLastOn = false; return; }
+    dressCar(c ? c.n : carShown && carShown.n);
+  }
+  function updateCarPath(c, now) {
     const faceTo = (dx, dz) => Math.atan2(-dz, dx); // rotation.y that points +x along (dx, dz)
-    const turnTo = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k; // the short way round
     if (c && c.phase === 'warn') {
+      // From a standstill at the back: speed up, then brake into the corner.
       const side = c.dir > 0 ? -1 : 1;
-      const u = 1 - c.timer / CAR.warn;
-      const k = 1 - Math.pow(1 - Math.min(1, u / 0.85), 2);
-      car.position.set(carJoin(side), 0, ROAD_BACK * (1 - k));
-      // Heading down the farm road towards us, then turning onto the fight line.
-      const turn = Math.max(0, (u - 0.8) / 0.2);
-      car.rotation.y = turnTo(faceTo(0, 1), faceTo(c.dir, 0), turn);
+      const T = CAR.warn / 60, u = 1 - c.timer / CAR.warn, v = CAR_MPS(CAR.turnSpeed) * T;
+      const s = (3 * ROAD_LEN - v) * u * u + (v - 2 * ROAD_LEN) * u * u * u;
+      const p = roadPath(side, s);
+      car.position.set(p.x, 0, p.z);
+      car.rotation.y = faceTo(p.tx, p.tz);
       car.visible = true;
-      carShown = { side: -side, dir: c.dir, t0: null };
+      carShown = { side: -side, dir: c.dir, t0: null, n: c.n };
       return;
     }
     if (c && c.phase === 'drive') {
       car.position.set(toX(c.x), 0, 0);
       car.rotation.y = faceTo(c.dir, 0);
       car.visible = true;
-      carShown = { side: c.dir, dir: c.dir, t0: null };
+      carShown = { side: c.dir, dir: c.dir, t0: null, n: c.n };
       return;
     }
-    // Gone from the game: turn off up the farm road at the far end.
+    // Gone from the game: round the corner and up the farm road, speeding up.
     if (carShown) {
       if (carShown.t0 === null) carShown.t0 = now;
-      const u = (now - carShown.t0) / 1400;
+      const T = 1.8, u = (now - carShown.t0) / 1000 / T;
       if (u >= 1) { carShown = null; car.visible = false; return; }
-      const turn = Math.min(1, u / 0.2);
-      car.position.set(carJoin(carShown.side), 0, ROAD_BACK * Math.pow(Math.max(0, u - 0.1) / 0.9, 1.4));
-      car.rotation.y = turnTo(faceTo(carShown.dir, 0), faceTo(0, -1), turn);
+      const v = CAR_MPS(CAR.exitSpeed) * T;
+      const s = v * u + (ROAD_LEN - v) * u * u;
+      const p = roadPath(carShown.side, ROAD_LEN - s);
+      car.position.set(p.x, 0, p.z);
+      car.rotation.y = faceTo(-p.tx, -p.tz);
       return;
     }
     car.visible = false;
@@ -662,6 +700,102 @@ if (webglAvailable()) {
   // over from the placeholders and move the same way (a cow's own animation
   // plays if it has one). Anything named GUIDE_... is a layout aid, never shown.
   const mixers = [];
+  // A lawn: glTF can't carry the Blender file's hair grass, so it's drawn
+  // here as shell grass -- thin stacked copies of the scene's 'lawn_bed' mesh
+  // (the orchard's ground minus the roads, and the gentle hillsides around
+  // it), each lifted a little further along the surface and keeping only the
+  // parts of a scattered pattern of strands that reach that high. Coloured
+  // from the ground's own grass texture; the tips sway in a gusting breeze.
+  const lawnTime = { value: 0 };
+  function addLawn(root) {
+    const bed = root.getObjectByName('lawn_bed');
+    const ground = root.getObjectByName('ground_hilltop');
+    if (!bed || !bed.isMesh || !ground || !ground.isMesh) return;
+    root.updateMatrixWorld(true);
+    bed.removeFromParent(); // it's only the shape to grow on
+    const LAYERS = 14, HEIGHT = 0.11;
+    const geo = bed.geometry;
+    geo.applyMatrix4(bed.matrixWorld);
+    geo.setAttribute('lawnMask', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count).fill(1), 1));
+    const mat = new THREE.MeshLambertMaterial({ map: ground.material.map, color: ground.material.color });
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = lawnTime;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', `#include <common>
+          attribute float lawnMask;
+          uniform float uTime;
+          varying float vLayer, vMask;
+          varying vec2 vSpot;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          vLayer = (float(gl_InstanceID) + 1.0) / ${LAYERS}.0;
+          vMask = lawnMask;
+          vSpot = transformed.xz;
+          transformed += normal * (vLayer * ${HEIGHT});
+          // Wind: a slow swell with faster gusts running across the field.
+          float gust = sin(uTime * 1.3 + transformed.x * 0.35 + transformed.z * 0.2)
+                     + 0.5 * sin(uTime * 2.7 + transformed.x * 0.9 - transformed.z * 0.6);
+          float bend = vLayer * vLayer;
+          transformed.x += (0.035 + 0.025 * gust) * bend;
+          transformed.z += 0.015 * gust * bend;`);
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', `#include <common>
+          varying float vLayer, vMask;
+          varying vec2 vSpot;
+          float lawnHash(vec2 q) { return fract(sin(dot(q, vec2(127.1, 311.7))) * 43758.5453); }
+          float lawnNoise(vec2 q) {
+            vec2 i = floor(q), f = fract(q); f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(lawnHash(i), lawnHash(i + vec2(1, 0)), f.x), mix(lawnHash(i + vec2(0, 1)), lawnHash(i + vec2(1, 1)), f.x), f.y);
+          }`)
+        .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+          // One strand per small cell, each its own height, thinning to a tip.
+          vec2 c = vSpot * 32.0, id = floor(c);
+          float h = mix(0.35, 1.0, lawnHash(id)) * vMask;
+          h *= smoothstep(32.0, 20.0, distance(vSpot, cameraPosition.xz)); // far off, just the ground
+          vec2 off = vec2(lawnHash(id + 17.0), lawnHash(id + 31.0)) - 0.5;
+          float r = length(fract(c) - 0.5 - off * 0.5);
+          if (vLayer > h || r > 0.48 * (1.0 - vLayer / max(h, 1e-3))) discard;`)
+        .replace('#include <map_fragment>', `
+          // The texture again at another scale and angle, blended by slow noise,
+          // so its tiling doesn't show as a checkerboard.
+          vec2 uv2 = mat2(0.8, -0.6, 0.6, 0.8) * vMapUv * 0.43 + 0.17;
+          vec3 grassCol = mix(texture2D(map, vMapUv).rgb, texture2D(map, uv2).rgb, smoothstep(0.3, 0.7, lawnNoise(vSpot * 0.12)));
+          grassCol = mix(grassCol, vec3(dot(grassCol, vec3(0.3, 0.55, 0.15))) * vec3(1.0, 0.96, 0.82), 0.2);
+          diffuseColor.rgb *= grassCol * mix(0.5, 1.12, vLayer) * (0.88 + 0.24 * lawnHash(id + 5.0)); // darker at the roots`);
+    };
+    const lawn = new THREE.InstancedMesh(geo, mat, LAYERS);
+    for (let i = 0; i < LAYERS; i++) lawn.setMatrixAt(i, new THREE.Matrix4());
+    lawn.name = 'lawn';
+    lawn.receiveShadow = true;
+    lawn.castShadow = false;
+    lawn.frustumCulled = false; // the layers rise above the plane's own bounds
+    root.add(lawn);
+  }
+  // The telephone poles (and each span of wire) run off down the hill and
+  // fade out as they go: each gets its own see-through copy of its material,
+  // fading by how far back it stands.
+  function fadeFarPoles(root) {
+    const FADE_FROM = 55, FADE_TO = 115; // metres behind the fight line
+    const box = new THREE.Box3(), mid = new THREE.Vector3();
+    root.updateMatrixWorld(true);
+    const items = [];
+    root.traverse((o) => { if (/^(telephone_pole_\d+|pole_wires_[LR]_\d+)$/.test(o.name)) items.push(o); });
+    for (const item of items) {
+      box.setFromObject(item).getCenter(mid);
+      const back = -mid.z;
+      if (back <= FADE_FROM) continue;
+      const k = Math.min(1, (back - FADE_FROM) / (FADE_TO - FADE_FROM));
+      const op = 1 - k * k * (3 - 2 * k);
+      if (op <= 0.01) { item.visible = false; continue; }
+      item.traverse((m) => {
+        if (!m.isMesh) return;
+        m.material = m.material.clone();
+        m.material.transparent = true;
+        m.material.opacity = op;
+        m.material.depthWrite = op > 0.5;
+        m.castShadow = false;
+      });
+    }
+  }
   function takeOver(slot, node) {
     node.removeFromParent();
     node.position.set(0, 0, 0);
@@ -684,10 +818,30 @@ if (webglAvailable()) {
       root.traverse((o) => {
         if (o.name.startsWith('GUIDE_')) guides.push(o);
         if (o.isMesh) o.castShadow = o.receiveShadow = true;
+        // The painted horizon (the mountain photo): far beyond the fog, and no shadows.
+        if (o.isMesh && o.name.startsWith('backdrop_sky')) {
+          o.material.fog = false;
+          o.castShadow = o.receiveShadow = false;
+        }
       });
       guides.forEach((o) => o.removeFromParent());
+      addLawn(root);
+      fadeFarPoles(root);
       const carNode = root.getObjectByName('car');
-      if (carNode) takeOver(car, carNode);
+      if (carNode) {
+        takeOver(car, carNode);
+        // The cars inside it ('car_avalon', 'car_x6', ...) take turns, and
+        // their '..._wheel_..' parts roll.
+        carModels = carNode.children.filter((o) => /^car_/.test(o.name)).map((model) => {
+          const wheels = [];
+          model.traverse((o) => {
+            if (!/_wheel_/.test(o.name)) return;
+            const size = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3());
+            wheels.push({ o, r: Math.max(0.05, size.y / 2) });
+          });
+          return { model, wheels };
+        });
+      }
       cows.forEach((c, i) => {
         const node = root.getObjectByName('cow_' + (i + 1));
         if (!node) return;
@@ -942,6 +1096,33 @@ if (webglAvailable()) {
   const blastLight = new THREE.PointLight('#ff9a4a', 0, 9, 1.5);
   scene.add(blastLight);
 
+  // Bomb mode wears an apple (assets/models/apple.glb, made from the scan in
+  // blender/): it ripens from its own colour to glowing red as the fuse burns,
+  // blinking faster, with the fuse spark at the stem.
+  let apple = null;
+  const appleMats = [];
+  const appleGlow = new THREE.Color('#ff2a10');
+  (async () => {
+    try {
+      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+      const gltf = await new GLTFLoader().loadAsync('assets/models/apple.glb');
+      apple = gltf.scene;
+      apple.scale.setScalar(BALL_RADIUS * S * 1.1); // the model's body has radius 1
+      apple.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = true;
+        o.material = o.material.clone();
+        o.material.emissive = appleGlow.clone();
+        o.material.emissiveIntensity = 0;
+        appleMats.push({ mat: o.material, base: o.material.color.clone() });
+      });
+      apple.visible = false;
+      ballGroup.add(apple);
+    } catch (e) {
+      console.warn('[ball] could not load the apple -- bombs stay round', e);
+    }
+  })();
+
   const heatColor = new THREE.Color();
 
   function updateBall(b, mode, now) {
@@ -980,8 +1161,27 @@ if (webglAvailable()) {
     ballGroup.position.set(toX(b.x), toY(b.y), 0);
     ballGroup.scale.setScalar(Math.max(0.01, appear) * (b.hitstop > 0 ? 1.25 : 1)); // swells on impact
     ballMesh.rotation.z = -b.spin;
+    const asApple = !!apple && mode !== 'rally';
+    ballMesh.visible = !asApple;
+    if (apple) apple.visible = asApple;
     let d = { heat: 0 };
-    if (mode === 'rally') {
+    if (asApple) {
+      d = Game.ballDanger(b);
+      apple.rotation.z = -b.spin;
+      // Ripens towards hot red as the fuse burns; the glow blinks with the warning light.
+      for (const { mat, base } of appleMats) {
+        mat.color.copy(base).lerp(appleGlow, d.heat * 0.6);
+        mat.emissiveIntensity = d.lit ? 0.15 + d.heat * 1.3 : d.heat * 0.2;
+      }
+      haloMat.color.set('#ff4632');
+      halo.scale.setScalar(BALL_RADIUS * S * (3 + 2 * d.heat));
+      haloMat.opacity = d.lit ? 0.3 + 0.6 * d.heat : 0.05;
+      spark.visible = true;
+      // The fuse burns at the stem, which turns with the spin.
+      const r = BALL_RADIUS * S * 1.25;
+      spark.position.set(Math.sin(b.spin) * r, Math.cos(b.spin) * r, 0);
+      spark.scale.setScalar(BALL_RADIUS * S * (1.1 + 0.4 * Math.sin(now / 40)));
+    } else if (mode === 'rally') {
       const h = b.heat / RALLY_MAX_HEAT;
       heatColor.set(Game.ballColor(b));
       ballMat.color.copy(heatColor);
@@ -1122,6 +1322,7 @@ if (webglAvailable()) {
       trimMat.emissiveIntensity = 0.6 + pulse * 0.8;
     } else if (currentLook === 'orchard') {
       for (const m of mixers) m.update(dt);
+      lawnTime.value = now / 1000;
       updateCows(now);
       updateCar(state ? Stage.car() : null, now);
     }

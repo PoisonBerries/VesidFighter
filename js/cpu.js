@@ -371,7 +371,7 @@ const Cpu = (() => {
       if (car && car.phase === 'drive' && me.grounded && me.y > GROUND_Y - cd.height && !chance(L.mistake)) {
         // Jump just before it reaches us: over it, or onto the roof.
         const gap = (me.x - (car.x + car.dir * cd.width / 2)) * car.dir; // > 0 while it's still coming
-        if (gap > -me.width / 2 && gap < cd.speed * 8 + me.width / 2) return press(B.jump, true);
+        if (gap > -me.width / 2 && gap < Math.max(Math.abs(car.dx), cd.speed * 0.5) * 8 + me.width / 2) return press(B.jump, true);
       }
       if (me.grounded && o.grounded && o.y < me.y - 60 && dist < 170) return press(B.jump) | toward; // up after them
       if (me.platform && me.platform !== 'car' && o.y > me.y + 60 && dist < 110) return B.block | press(B.jump); // drop down to them

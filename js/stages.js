@@ -20,12 +20,15 @@ const STAGES = {
     // 2.5x the arena's floor, with room for four.
     left: -560, right: 1840,
     spawns: [210, 1070],
-    // The apple tree in the middle: a low branch each side and the crown
-    // above. Heights fit the lowest jump in the roster (John's, ~106px).
+    // The apple tree in the middle: a low branch each side, the two upper
+    // branches (the crown) above, and a short pair at the very top. 92px
+    // apart, to fit the lowest jump in the roster (John's, ~106px). Each
+    // covers the level part of its branch (blender/orchard.blend).
     platforms: [
-      { id: 'branchL', x1: 455, x2: 590, y: GROUND_Y - 92 },
-      { id: 'branchR', x1: 690, x2: 825, y: GROUND_Y - 92 },
-      { id: 'crown', x1: 560, x2: 720, y: GROUND_Y - 184 },
+      { id: 'branchL', x1: 445, x2: 595, y: GROUND_Y - 92 },
+      { id: 'branchR', x1: 695, x2: 835, y: GROUND_Y - 92 },
+      { id: 'crown', x1: 490, x2: 790, y: GROUND_Y - 184 },
+      { id: 'top', x1: 540, x2: 740, y: GROUND_Y - 276 },
     ],
     // Now and then a car comes down a farm road from the background (the
     // warning: you can see it coming, lights on), turns onto the fight line
@@ -34,6 +37,7 @@ const STAGES = {
     // over it, or onto the roof and ride it. Timings in frames of fighting.
     car: {
       width: 300, height: 95, speed: 16,
+      turn: 150, turnSpeed: 0.35, exitSpeed: 0.45, // share of full speed coming out of / going into the corners
       firstAt: 18 * 60, every: 30 * 60, warn: 120,
       damage: 14, knockback: 16, knockbackUp: 12, knockdownDuration: 40,
     },
@@ -73,7 +77,10 @@ const Stage = (() => {
   // the left (-1) or right (1) end of the floor.
   function carStart(side) {
     const c = def.car;
-    return side < 0 ? STAGE_LEFT_EDGE + c.width / 2 + 20 : STAGE_RIGHT_EDGE - c.width / 2 - 20;
+    // (the farm road is at the edge + width/2 + 20; the car comes onto the
+    // line a turning circle's radius further in)
+    const d = c.width / 2 + 20 + c.turn;
+    return side < 0 ? STAGE_LEFT_EDGE + d : STAGE_RIGHT_EDGE - d;
   }
 
   // The car's body -- what runs you over. Starts a little below the roof,
@@ -92,7 +99,7 @@ const Stage = (() => {
     if (!car) {
       if (state.t < c.firstAt + state.cars * c.every - c.warn) return;
       const dir = state.cars % 2 === 0 ? 1 : -1;
-      state.car = { phase: 'warn', timer: c.warn, dir, x: dir > 0 ? carStart(-1) : carStart(1), dx: 0, hit: {} };
+      state.car = { phase: 'warn', timer: c.warn, dir, x: dir > 0 ? carStart(-1) : carStart(1), dx: 0, hit: {}, n: state.cars };
       state.cars++;
       return;
     }
@@ -100,7 +107,14 @@ const Stage = (() => {
       if (--car.timer <= 0) car.phase = 'drive';
       return;
     }
-    car.dx = car.dir * c.speed;
+    // Like a real car through the corners: it pulls onto the line slowly out
+    // of its turn, gets up to speed, and brakes again before turning off.
+    const from = carStart(-car.dir), to = carStart(car.dir);
+    const p = Math.max(0, Math.min(1, (car.x - from) / (to - from)));
+    const ease = (t) => t * t * (3 - 2 * t);
+    const pace = Math.min(c.turnSpeed + (1 - c.turnSpeed) * ease(Math.min(1, p / 0.25)),
+      c.exitSpeed + (1 - c.exitSpeed) * ease(Math.min(1, (1 - p) / 0.18)));
+    car.dx = car.dir * c.speed * pace;
     car.x += car.dx;
     if ((car.dir > 0 && car.x > carStart(1)) || (car.dir < 0 && car.x < carStart(-1))) { // turns off the road
       state.car = null;

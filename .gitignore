@@ -5,3 +5,7 @@ fbx/
 # Blender: asset-browser downloads and auto-backups
 blender/assets/
 blender/orchard.blend1
+# Source models/photos (big; the converted versions are in assets/)
+blender/*.glb
+blender/*.webp
+blender/*.jpg
