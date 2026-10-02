@@ -329,6 +329,7 @@ const Sfx = (() => {
       phaseStep: 'KeenanPhaseStep.mp3',             // when he slips behind the opponent
       victory: 'KeenanVictory.mp3',                 // when he wins the match
       hitByWater: 'KeenanHitByWaterAttack.mp3',     // hit by one of Sam's water attacks (his special or ultimate)
+      fallOff: 'KeenanGoodbyeForNow.m4a',           // he falls off the map
       recovery: 'KeenanRecovery.mp3',               // when he gets back up after being knocked down
       hitTaken: 'KeenanHitTaken.mp3',               // someone lands a punch or kick on him
       selected: 'KeenanSelected.mp3',               // he's clicked on in the character select menu
@@ -362,6 +363,9 @@ const Sfx = (() => {
   VOICE.ryan = {
     'vs:john': 'RyanVsJohn.mp3',                    // at the start of a match against John (once per match)
     ultimate: 'RyanYeah.mp3',                       // "Yeah!" as he kicks off Encore
+    hitTaken: 'RyanHitTaken.m4a',                   // someone lands a punch or kick on him
+    bigHit: 'RyanGroan.m4a',                        // a heavy blow: 15% of his health or more
+    fallOff: 'RyanSurprised.m4a',                   // he falls off the map
   };
   VOICE.robert = {
     selected: 'RobFunny.mp3',                       // he's clicked on in the character select menu
@@ -370,6 +374,10 @@ const Sfx = (() => {
     dealsBigDamage: 'RobDealsBigDamage.mp3',        // he lands a heavy blow (15% of the target's health or more)
     matchStart: 'RobMatchStart.mp3',                // at the start of a match (not if a matchup line is playing)
     transform: 'RobWowWow.mp3',                     // when he transforms
+    bigHit: ['RobBigHitTaken.m4a', 'RobBigHitTaken 2.m4a'], // a heavy blow: 15% of his health or more (one of two, at random)
+    fallOff: 'RobGasp.m4a',                         // he falls off the map
+    enemyFall: 'RobLaugh.m4a',                      // he laughs when the opponent falls off the map
+    victory: 'RobYeahOhYeah.m4a',                   // when he wins the match
   };
   VOICE.owen = {
     'vs:john': 'OwenVsJohn.mp3',                    // at the start of a match against John (once per match)

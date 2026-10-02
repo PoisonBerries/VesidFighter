@@ -2037,3 +2037,22 @@ test('voice: block, dealing a heavy blow, match start and Robert\'s transformati
   f.hp = f.maxHp * 0.4; f._maybeTransform();
   assert.ok(events().includes('robert:transform'));
 });
+
+test('every file named in the VOICE table exists', () => {
+  const fs = require('fs'), path = require('path');
+  const src = fs.readFileSync(path.join(ROOT, 'js', 'audio.js'), 'utf8');
+  const start = src.indexOf('const VOICE = {'), end = src.indexOf('const voiceBuffers');
+  const block = src.slice(start, end);
+  // VOICE.<char> = { ... } sections and the first literal block: find "<char>" owners by scanning in order.
+  const re = /(?:^|\n)\s*(?:const VOICE = \{\s*\n\s*(\w+): \{|VOICE\.(\w+) = \{)([\s\S]*?)\n\s*\}[;,]?\s*(?=\n)/g;
+  let m, checked = 0;
+  while ((m = re.exec(block))) {
+    const owner = m[1] || m[2];
+    for (const f of m[3].match(/'([^']+\.(?:mp3|m4a|ogg|wav))'/g) || []) {
+      const name = f.slice(1, -1), file = name.includes('/') ? name : `${owner}/${name}`;
+      assert.ok(fs.existsSync(path.join(ROOT, 'assets', 'voice', file)), `missing voice file ${file}`);
+      checked++;
+    }
+  }
+  assert.ok(checked > 30, `only checked ${checked} files`);
+});
