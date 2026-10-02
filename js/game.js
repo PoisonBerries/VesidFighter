@@ -14,6 +14,9 @@ const Game = (() => {
   let projectiles = [];
   let ball = null; // see "The ball" below; null when off
   let ballMode = BALL_MODE; // 'rally' | 'bomb' | 'off' (constants.js)
+  // How each round of this match ended, for the stats (ui.js reports it):
+  // { w: winner slot or null, how: 'ko' | 'ringout' | 'time' | 'draw', t: seconds fought }.
+  let roundLog = [];
 
   function aabbOverlap(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -34,6 +37,7 @@ const Game = (() => {
     p1.balanceMode = p2.balanceMode = opts && opts.balance !== undefined ? !!opts.balance : BALANCE_ENABLED;
     p1.roundsWon = 0;
     p2.roundsWon = 0;
+    roundLog = [];
     Effects.reset();
     // Matchup lines, once per match (not every round): each fighter's "vs:<opponent>" line, if it has one.
     Effects.voice(char1Id, 'vs:' + char2Id);
@@ -61,7 +65,8 @@ const Game = (() => {
     Effects.reset();
   }
 
-  function endRound(winnerSlot) {
+  function endRound(winnerSlot, how) {
+    roundLog.push({ w: winnerSlot, how, t: Math.round((ROUND_TIME - roundTimeLeft) * 10) / 10 });
     matchState = 'roundEnd';
     stateTimer = 2.2;
     if (winnerSlot === 'p1') {
@@ -173,34 +178,34 @@ const Game = (() => {
       p1.koByRingOut();
       Effects.voice(p1.character.id, 'fallOff'); // the one who fell
       Effects.voice(p2.character.id, 'enemyFall');
-      endRound('p2');
+      endRound('p2', 'ringout');
       return;
     }
     if (p2.hasFallenOff() && p2.state !== 'ko') {
       p2.koByRingOut();
       Effects.voice(p2.character.id, 'fallOff');
       Effects.voice(p1.character.id, 'enemyFall');
-      endRound('p1');
+      endRound('p1', 'ringout');
       return;
     }
     // Balance mode: an empty bar doesn't KO -- it just leaves you easy to knock off.
     if (p1.hp <= 0 && !p1.balanceMode) {
       p1.state = 'ko';
-      endRound('p2');
+      endRound('p2', 'ko');
       return;
     }
     if (p2.hp <= 0 && !p2.balanceMode) {
       p2.state = 'ko';
-      endRound('p1');
+      endRound('p1', 'ko');
       return;
     }
     if (roundTimeLeft <= 0) {
       // Time up: whoever has more of their health left (not raw HP, which
       // would hand every timeout to the big characters).
       const r1 = p1.hp / p1.maxHp, r2 = p2.hp / p2.maxHp;
-      if (r1 > r2) endRound('p1');
-      else if (r2 > r1) endRound('p2');
-      else endRound(null);
+      if (r1 > r2) endRound('p1', 'time');
+      else if (r2 > r1) endRound('p2', 'time');
+      else endRound(null, 'draw');
     }
   }
 
@@ -1050,6 +1055,7 @@ const Game = (() => {
       pr: projectiles.map((p) => Object.assign({}, p, { owner: p.owner.slot })),
       bl: ball ? JSON.parse(JSON.stringify(ball)) : null,
       sg: Stage.save(),
+      rl: roundLog.map((r) => Object.assign({}, r)),
     };
   }
 
@@ -1066,6 +1072,7 @@ const Game = (() => {
     projectiles = s.pr.map((p) => Object.assign({}, p, { owner: p.owner === 'p1' ? p1 : p2 }));
     ball = s.bl ? JSON.parse(JSON.stringify(s.bl)) : null;
     Stage.load(s.sg);
+    roundLog = (s.rl || []).map((r) => Object.assign({}, r));
   }
 
   function getState() {
@@ -1075,6 +1082,14 @@ const Game = (() => {
   // Read-only view of the live match, for the CPU opponent (cpu.js).
   function world() {
     return { p1, p2, projectiles, ball, ballMode, matchState, stage: Stage.id(), car: Stage.car(), platforms: Stage.platforms() };
+  }
+
+  // The finished match, for the stats: how each round ended and how much
+  // health (0-1) each fighter had left when the last round ended.
+  function matchSummary() {
+    if (!p1 || !p2) return null;
+    const left = (f) => f.state === 'ko' ? 0 : Math.max(0, Math.round((f.hp / f.maxHp) * 100) / 100);
+    return { rounds: roundLog.map((r) => Object.assign({}, r)), hp: [left(p1), left(p2)] };
   }
 
   // Freeze the sim (e.g. opponent disconnected mid-match).
@@ -1088,5 +1103,5 @@ const Game = (() => {
     launch: (grounded, aim, strong, heat) => ballLaunch(grounded, aim, strong, ballMode, heat),
   };
 
-  return { fightDamageMul, startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, saveState, loadState, world, stop, ballDanger, ballColor, ballPhysics };
+  return { fightDamageMul, startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, saveState, loadState, world, matchSummary, stop, ballDanger, ballColor, ballPhysics };
 })();

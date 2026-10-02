@@ -53,6 +53,9 @@ After=network.target
 User=vesid
 WorkingDirectory=$APP_DIR/server
 Environment=PORT=8080
+# Match stats live outside the checkout so a re-clone never loses them.
+StateDirectory=vesidfighter
+Environment=STATS_FILE=/var/lib/vesidfighter/matches.jsonl
 ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=2

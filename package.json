@@ -4,7 +4,7 @@
   "description": "Vesid Fighter -- static browser game. Dev tooling only; the game itself has no build step.",
   "scripts": {
     "test": "node --test --test-concurrency=1 tests/*.test.js",
-    "test:fast": "node --test tests/static.test.js tests/lint.test.js tests/sim.test.js tests/animator.test.js tests/tooling.test.js tests/graphics.test.js tests/rollback.test.js tests/cpu.test.js",
+    "test:fast": "node --test tests/static.test.js tests/lint.test.js tests/sim.test.js tests/animator.test.js tests/tooling.test.js tests/graphics.test.js tests/rollback.test.js tests/cpu.test.js tests/stats.test.js",
     "test:e2e": "node --test tests/e2e.test.js",
     "test:3d": "RUN_3D=1 node --test --test-name-pattern=3D tests/e2e.test.js",
     "test:all": "RUN_3D=1 node --test --test-concurrency=1 tests/*.test.js"

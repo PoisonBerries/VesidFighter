@@ -131,6 +131,14 @@ button:active {
   justify-content: center;
 }
 
+.stats-link {
+  color: #cbb9e0;
+  margin: -12px 0 20px;
+  font-size: 0.9rem;
+}
+
+.stats-link:hover { color: #ffd166; }
+
 .controls-legend {
   display: flex;
   gap: 40px;

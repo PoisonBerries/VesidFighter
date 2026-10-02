@@ -24,6 +24,7 @@ Locally: `git diff --name-only <base> | node tools/needs-3d.js --stdin && npm ru
 | `sim.test.js` | The simulation, built the same way `server/server.js` builds it: full matches for every character pairing with random inputs, determinism, snapshot round trips, the ledge rule, every move finishing. | no |
 | `tooling.test.js` | The rule that decides when the 3D test runs. | no |
 | `graphics.test.js` | Graphics settings: the tier guessed from the GPU, what each preset turns on, saving them, Auto stepping down when fights run slowly. | no |
+| `stats.test.js` | Match stats: the sim logs how each round ended (and rollback can't log one twice); only online and live-site local matches get reported, once; the server's `/stats` endpoints store, reject junk and filter by date. | no |
 | `e2e.test.js` | The real page in headless Chrome: menus, starting a fight, both fighters actually drawn (pixel check), every character running its whole move set with rendering on, the online-guest snapshot path, mirror matches, sound and the playlist. | yes |
 
 `npm run test:fast` skips the browser test (a few seconds).

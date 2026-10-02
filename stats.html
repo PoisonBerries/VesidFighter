@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vesid Fighter Stats</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page: #0d0714;
+    --surface: #17111f;
+    --surface-2: #211a2b;
+    --border: rgba(255, 255, 255, 0.10);
+    --grid: rgba(255, 255, 255, 0.07);
+    --baseline: #4a4552;
+    --ink: #ffffff;
+    --ink-2: #cbc4d6;
+    --muted: #8f879b;
+    --accent: #ffd166;
+    --accent-2: #e63946;
+    --series-a: #3987e5; /* head-to-head: first fighter */
+    --series-b: #d95926; /* head-to-head: second fighter */
+    --win: #3987e5;      /* diverging pole: winning */
+    --lose: #e66767;     /* diverging pole: losing */
+    --even: #383835;     /* diverging midpoint: 50% */
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: var(--ink); }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.45; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  h1 { margin: 0; font-size: 2rem; letter-spacing: 3px; color: var(--accent); text-shadow: 2px 2px 0 var(--accent-2); }
+  h2 { margin: 0 0 4px; font-size: 1.05rem; color: var(--ink); }
+  .sub { color: var(--muted); font-size: 0.85rem; margin: 0 0 12px; }
+  a { color: var(--accent); }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  /* Filters: one row above everything they control. */
+  .filters { position: sticky; top: 0; z-index: 5; background: var(--page); padding: 10px 0; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; color: var(--ink-2); border: 0; padding: 6px 11px; font: inherit; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button:hover { background: var(--surface-2); }
+  .seg button.active { background: var(--surface-2); color: var(--ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+  .filters label { color: var(--muted); font-size: 0.85rem; display: inline-flex; gap: 6px; align-items: center; }
+  input[type=date], select { background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font: inherit; }
+  .range-note { color: var(--muted); font-size: 0.85rem; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 18px; min-width: 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .grid2 > .card { margin-bottom: 0; }
+  .grid2 + .card, .grid2 + .grid2 { margin-top: 18px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* Stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+  .tile .k { color: var(--muted); font-size: 0.8rem; }
+  .tile .v { font-size: 1.6rem; font-weight: 700; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .d { color: var(--ink-2); font-size: 0.8rem; }
+
+  /* Tables */
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 7px 8px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  th { color: var(--muted); font-weight: 600; font-size: 0.8rem; user-select: none; }
+  th.sortable { cursor: pointer; }
+  th.sortable:hover { color: var(--ink); }
+  th.sorted { color: var(--ink); }
+  th:first-child, td:first-child { text-align: left; }
+  td.l, th.l { text-align: left; }
+  tbody tr:hover { background: var(--surface-2); }
+  .who { display: inline-flex; align-items: center; gap: 8px; }
+  .who img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; background: var(--surface-2); border: 2px solid var(--border); }
+  .muted { color: var(--muted); }
+  .winbar { position: relative; display: inline-block; width: 110px; height: 8px; background: var(--grid); border-radius: 4px; vertical-align: middle; margin-left: 8px; }
+  .winbar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--win); border-radius: 4px; }
+  .winbar b { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+
+  /* Head-to-head */
+  .h2h-pick { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .h2h-score { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; margin: 6px 0 12px; }
+  .h2h-side { display: flex; align-items: center; gap: 12px; }
+  .h2h-side.b { flex-direction: row-reverse; text-align: right; }
+  .h2h-side img { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 3px solid var(--series-a); background: var(--surface-2); }
+  .h2h-side.b img { border-color: var(--series-b); }
+  .h2h-side .n { font-size: 1.1rem; font-weight: 700; }
+  .h2h-num { font-size: 2.6rem; font-weight: 800; text-align: center; white-space: nowrap; }
+  .h2h-num span { color: var(--muted); font-weight: 400; margin: 0 8px; }
+  .split { display: flex; height: 12px; gap: 2px; margin: 6px 0 4px; }
+  .split i { display: block; height: 100%; }
+  .split i:first-child { background: var(--series-a); border-radius: 4px 0 0 4px; }
+  .split i:last-child { background: var(--series-b); border-radius: 0 4px 4px 0; }
+  .split-labels { display: flex; justify-content: space-between; color: var(--ink-2); font-size: 0.85rem; }
+  .h2h-facts { margin-top: 12px; }
+  .h2h-facts td:nth-child(2) { color: var(--muted); text-align: center; }
+  .h2h-facts td:first-child { text-align: right; }
+  .h2h-facts td:last-child { text-align: left; }
+  .key-a, .key-b { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  .key-a { background: var(--series-a); } .key-b { background: var(--series-b); }
+
+  /* Matchup matrix */
+  .matrix td, .matrix th { text-align: center; padding: 3px; border: 0; }
+  .matrix th.row { text-align: left; padding-right: 8px; }
+  .matrix th.col img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto 2px; }
+  .matrix th.col { font-weight: 500; font-size: 0.72rem; }
+  .cell { display: block; min-width: 54px; height: 40px; border-radius: 6px; line-height: 1.15; padding-top: 4px; cursor: pointer; color: var(--ink); font-size: 0.85rem; font-weight: 600; outline-offset: 2px; }
+  .cell small { display: block; font-weight: 400; font-size: 0.7rem; color: rgba(255, 255, 255, 0.75); }
+  .cell.empty { background: transparent; border: 1px dashed var(--grid); cursor: default; }
+  .cell.self { background: repeating-linear-gradient(45deg, transparent 0 5px, var(--grid) 5px 6px); cursor: default; }
+  .cell:not(.empty):not(.self):hover { outline: 2px solid var(--ink); }
+  .legend { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.8rem; margin-top: 10px; flex-wrap: wrap; }
+  .legend .ramp { width: 160px; height: 10px; border-radius: 3px; background: linear-gradient(90deg, var(--lose), var(--even), var(--win)); }
+
+  /* Charts */
+  svg { display: block; width: 100%; overflow: visible; }
+  svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .tip { position: fixed; z-index: 20; pointer-events: none; background: #251d30; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 0.82rem; color: var(--ink); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); max-width: 260px; }
+  .tip .t { color: var(--muted); font-size: 0.75rem; margin-bottom: 2px; }
+  .empty-state { color: var(--muted); padding: 30px 0; text-align: center; }
+  .status { padding: 40px 0; text-align: center; color: var(--ink-2); }
+  .finish { display: inline-block; font-size: 0.72rem; color: var(--ink-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; margin-right: 3px; }
+  .w { font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MATCH STATS</h1>
+    <a href="index.html">&larr; Back to the game</a>
+  </header>
+  <p class="sub">Every finished online match, and local 2-player matches played on the live site. Vs CPU games aren't counted. Mirror matches count as games played but not as wins or losses.</p>
+
+  <div class="filters" id="filters">
+    <div class="seg" id="range-presets">
+      <button data-days="7">7 days</button>
+      <button data-days="30">30 days</button>
+      <button data-days="90">90 days</button>
+      <button data-days="0">All time</button>
+    </div>
+    <label>From <input type="date" id="from"></label>
+    <label>To <input type="date" id="to"></label>
+    <div class="seg" id="mode">
+      <button data-mode="all">All</button>
+      <button data-mode="online">Online</button>
+      <button data-mode="local">Local</button>
+    </div>
+    <span class="range-note" id="range-note"></span>
+  </div>
+
+  <div id="status" class="status">Loading matches...</div>
+  <div id="content" hidden>
+    <div class="tiles" id="tiles"></div>
+
+    <div class="card">
+      <h2>Characters</h2>
+      <p class="sub">Win rate excludes mirror matches. The tick on each bar marks 50%. Click a column to sort.</p>
+      <div class="scroll"><table id="leaderboard"></table></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2>Head to head</h2>
+        <p class="sub">Pick two characters. Clicking a cell in the matchup grid sets these too.</p>
+        <div class="h2h-pick">
+          <span class="key-a"></span><select id="h2h-a"></select>
+          <span class="muted">vs</span>
+          <span class="key-b"></span><select id="h2h-b"></select>
+          <button id="h2h-swap" class="seg" style="padding:5px 10px;color:var(--ink-2);background:transparent;cursor:pointer">Swap</button>
+        </div>
+        <div id="h2h"></div>
+      </div>
+      <div class="card">
+        <h2>Win rate over time</h2>
+        <p class="sub">Weekly win rate for <select id="trend-char"></select> &middot; dot size = games that week</p>
+        <div id="trend"></div>
+        <h2 style="margin-top:16px" id="matchups-title">Matchups</h2>
+        <p class="sub">Best to worst, in this range. Click one to open it head to head.</p>
+        <div class="scroll"><table id="matchups"></table></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+
+        <h2>Matchup grid</h2>
+        <p class="sub">Each cell is the row character's win rate against the column character (with games played).</p>
+        <div class="scroll"><table class="matrix" id="matrix"></table></div>
+        <div class="legend"><span>Row loses</span><span class="ramp"></span><span>Row wins</span><span>&middot; grey = even</span></div>
+      </div>
+
+    <div class="card">
+
+        <h2>Matches played</h2>
+        <p class="sub" id="activity-sub">Per day</p>
+        <div id="activity"></div>
+      </div>
+
+    <div class="grid2" style="margin-top:0">
+      <div class="card">
+        <h2>How rounds end</h2>
+        <p class="sub">Across every round in range, and by stage.</p>
+        <div class="scroll"><table id="finishes"></table></div>
+      </div>
+      <div class="card">
+        <h2>Side &amp; settings</h2>
+        <p class="sub">Does starting on the left (Player 1) matter? What gets played?</p>
+        <div class="scroll"><table id="settings"></table></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <h2>Recent matches</h2>
+      <p class="sub">The 30 most recent in range.</p>
+      <div class="scroll"><table id="recent"></table></div>
+    </div>
+  </div>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script src="js/constants.js"></script>
+<script src="js/stages.js"></script>
+<script src="js/characters.js"></script>
+<script>
+(() => {
+  // Same server as online play (constants.js); ?server=wss://... overrides it.
+  const API = GAME_SERVER_URL.replace(/^ws/, 'http');
+  const DAY = 86400000;
+  const HOW_LABEL = { ko: 'KO', ringout: 'Ring-out', time: 'Time', draw: 'Draw' };
+  const BALL_LABEL = { rally: 'Rally ball', bomb: 'Bomb ball', off: 'No ball' };
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const name = (id) => (CHARACTERS[id] ? CHARACTERS[id].name : id);
+  const stageName = (id) => (typeof STAGES !== 'undefined' && STAGES[id] ? STAGES[id].name : id || 'unknown');
+  const head = (id) => `assets/heads/${encodeURIComponent(id)}.png`;
+  const pct = (n, d) => (d ? Math.round((n / d) * 100) + '%' : '–');
+  const fmtDur = (s) => (s == null ? '–' : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`);
+  const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const fmtDateTime = (t) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const loser = (m) => (m.winner === 'p1' ? 'p2' : 'p1');
+  const isMirror = (m) => m.p1 === m.p2;
+
+  let all = [];
+  // Filters live in the URL so a filtered view can be bookmarked or shared
+  // (e.g. "everything since Owen's rework").
+  const params = new URLSearchParams(location.search);
+  const state = {
+    from: params.get('from') || '',
+    to: params.get('to') || '',
+    mode: ['online', 'local'].includes(params.get('mode')) ? params.get('mode') : 'all',
+    a: params.get('a') || '',
+    b: params.get('b') || '',
+    trend: params.get('trend') || '',
+    sort: 'winrate',
+    sortDir: -1,
+  };
+
+  function saveUrl() {
+    const p = new URLSearchParams();
+    if (params.get('server')) p.set('server', params.get('server'));
+    for (const k of ['from', 'to', 'a', 'b', 'trend']) if (state[k]) p.set(k, state[k]);
+    if (state.mode !== 'all') p.set('mode', state.mode);
+    const qs = p.toString();
+    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+  }
+
+  // ---- Tooltip ----
+  const tip = $('tip');
+  function showTip(e, html) {
+    tip.innerHTML = html;
+    tip.hidden = false;
+    const r = tip.getBoundingClientRect();
+    let x = e.clientX + 14, y = e.clientY + 14;
+    if (x + r.width > innerWidth - 8) x = e.clientX - r.width - 14;
+    if (y + r.height > innerHeight - 8) y = e.clientY - r.height - 14;
+    tip.style.left = Math.max(8, x) + 'px';
+    tip.style.top = Math.max(8, y) + 'px';
+  }
+  function hideTip() { tip.hidden = true; }
+  function bindTips(root) {
+    for (const el of root.querySelectorAll('[data-tip]')) {
+      el.addEventListener('mousemove', (e) => showTip(e, el.dataset.tip));
+      el.addEventListener('mouseleave', hideTip);
+    }
+  }
+
+  // ---- Filtering ----
+  function inRange() {
+    const from = state.from ? new Date(state.from + 'T00:00:00').getTime() : -Infinity;
+    const to = state.to ? new Date(state.to + 'T00:00:00').getTime() + DAY : Infinity;
+    return all.filter((m) => {
+      const t = m.time;
+      return t >= from && t < to && (state.mode === 'all' || m.mode === state.mode);
+    });
+  }
+
+  // ---- Aggregation ----
+  function charStats(ms) {
+    const s = {};
+    for (const c of CHARACTER_LIST) s[c.id] = { id: c.id, played: 0, w: 0, l: 0, mirror: 0, rw: 0, rl: 0, flawless: 0, winHow: { ko: 0, ringout: 0, time: 0 }, winHp: [], lastPlayed: 0 };
+    for (const m of ms) {
+      for (const slot of ['p1', 'p2']) {
+        const st = s[m[slot]];
+        if (!st) continue;
+        st.played++;
+        st.lastPlayed = Math.max(st.lastPlayed, m.time);
+        if (isMirror(m)) { st.mirror++; if (slot === 'p2') st.played--; continue; }
+        const won = m.winner === slot;
+        if (won) st.w++; else st.l++;
+        const rounds = m.rounds || [];
+        for (const r of rounds) {
+          if (r.w === slot) { st.rw++; if (st.winHow[r.how] !== undefined) st.winHow[r.how]++; } else if (r.w) st.rl++;
+        }
+        if (won && rounds.length && rounds.every((r) => r.w === slot)) st.flawless++;
+        if (won && m.hp && m.hp[slot === 'p1' ? 0 : 1] != null) st.winHp.push(m.hp[slot === 'p1' ? 0 : 1]);
+      }
+    }
+    return Object.values(s);
+  }
+
+  // Matches between a and b (a !== b), seen from a's side.
+  function between(ms, a, b) {
+    return ms.filter((m) => (m.p1 === a && m.p2 === b) || (m.p1 === b && m.p2 === a));
+  }
+  function winnerChar(m) { return m[m.winner]; }
+
+  // ---- Render: tiles ----
+  function renderTiles(ms, stats) {
+    const online = ms.filter((m) => m.mode === 'online').length;
+    const durs = ms.map((m) => m.duration).filter((d) => d > 0);
+    const avgDur = durs.length ? durs.reduce((a, b) => a + b, 0) / durs.length : null;
+    const ranked = stats.filter((s) => s.w + s.l >= 5).sort((x, y) => y.w / (y.w + y.l) - x.w / (x.w + x.l));
+    const most = stats.slice().sort((x, y) => y.played - x.played)[0];
+    const days = new Set(ms.map((m) => ymd(new Date(m.time)))).size;
+    const tiles = [
+      ['Matches', ms.length, `${days} day${days === 1 ? '' : 's'} with games`],
+      ['Online / Local', `${online} / ${ms.length - online}`, pct(online, ms.length) + ' online'],
+      ['Avg match length', fmtDur(avgDur), 'time spent fighting'],
+      ['Most played', most && most.played ? name(most.id) : '–', most && most.played ? `${most.played} games · ${pct(most.played, ms.length * 2)} of picks` : ''],
+      ['Best win rate', ranked[0] ? name(ranked[0].id) : '–', ranked[0] ? `${pct(ranked[0].w, ranked[0].w + ranked[0].l)} over ${ranked[0].w + ranked[0].l} games` : 'needs 5+ games'],
+      ['Worst win rate', ranked.length > 1 ? name(ranked[ranked.length - 1].id) : '–', ranked.length > 1 ? `${pct(ranked[ranked.length - 1].w, ranked[ranked.length - 1].w + ranked[ranked.length - 1].l)} over ${ranked[ranked.length - 1].w + ranked[ranked.length - 1].l} games` : 'needs 5+ games'],
+    ];
+    $('tiles').innerHTML = tiles.map(([k, v, d]) => `<div class="tile"><div class="k">${esc(k)}</div><div class="v" title="${esc(v)}">${esc(v)}</div><div class="d">${esc(d)}</div></div>`).join('');
+  }
+
+  // ---- Render: leaderboard ----
+  const COLS = [
+    { key: 'name', label: 'Character', val: (s) => name(s.id), cls: 'l' },
+    { key: 'played', label: 'Played', val: (s) => s.played },
+    { key: 'w', label: 'Wins', val: (s) => s.w },
+    { key: 'l', label: 'Losses', val: (s) => s.l },
+    { key: 'winrate', label: 'Win rate', val: (s) => (s.w + s.l ? s.w / (s.w + s.l) : -1), cls: 'l' },
+    { key: 'pick', label: 'Pick rate', val: (s) => s.played },
+    { key: 'rounds', label: 'Rounds W–L', val: (s) => (s.rw + s.rl ? s.rw / (s.rw + s.rl) : -1) },
+    { key: 'flawless', label: '2–0 wins', val: (s) => s.flawless },
+    { key: 'ringout', label: 'Wins by ring-out', val: (s) => (s.rw ? s.winHow.ringout / s.rw : -1) },
+    { key: 'hp', label: 'HP left on wins', val: (s) => (s.winHp.length ? s.winHp.reduce((a, b) => a + b, 0) / s.winHp.length : -1) },
+    { key: 'mirror', label: 'Mirrors', val: (s) => s.mirror },
+  ];
+  function renderLeaderboard(ms, stats) {
+    const col = COLS.find((c) => c.key === state.sort) || COLS[4];
+    const rows = stats.slice().sort((x, y) => {
+      const a = col.val(x), b = col.val(y);
+      if (a < b) return -state.sortDir;
+      if (a > b) return state.sortDir;
+      return y.played - x.played;
+    });
+    const totalPicks = ms.length * 2;
+    const thead = '<thead><tr>' + COLS.map((c) => `<th class="sortable ${c.cls || ''} ${c.key === state.sort ? 'sorted' : ''}" data-key="${c.key}">${c.label}${c.key === state.sort ? (state.sortDir < 0 ? ' ▾' : ' ▴') : ''}</th>`).join('') + '</tr></thead>';
+    const body = rows.map((s) => {
+      const games = s.w + s.l;
+      const wr = games ? s.w / games : null;
+      const hp = s.winHp.length ? s.winHp.reduce((a, b) => a + b, 0) / s.winHp.length : null;
+      return `<tr class="${s.played ? '' : 'muted'}">
+        <td><span class="who"><img src="${head(s.id)}" alt="">${esc(name(s.id))}</span></td>
+        <td>${s.played}</td><td>${s.w}</td><td>${s.l}</td>
+        <td class="l">${wr == null ? '<span class="muted">–</span>' : `<span style="display:inline-block;width:38px;text-align:right">${Math.round(wr * 100)}%</span><span class="winbar"><i style="width:${wr * 100}%"></i><b></b></span>`}</td>
+        <td>${pct(s.played + s.mirror, totalPicks)}</td>
+        <td>${s.rw + s.rl ? `${s.rw}–${s.rl}` : '–'}</td>
+        <td>${s.flawless}</td>
+        <td>${s.rw ? pct(s.winHow.ringout, s.rw) : '–'}</td>
+        <td>${hp == null ? '–' : Math.round(hp * 100) + '%'}</td>
+        <td>${s.mirror}</td>
+      </tr>`;
+    }).join('');
+    $('leaderboard').innerHTML = thead + '<tbody>' + body + '</tbody>';
+    for (const th of $('leaderboard').querySelectorAll('th[data-key]')) {
+      th.addEventListener('click', () => {
+        if (state.sort === th.dataset.key) state.sortDir = -state.sortDir;
+        else { state.sort = th.dataset.key; state.sortDir = th.dataset.key === 'name' ? 1 : -1; }
+        render();
+      });
+    }
+  }
+
+  // ---- Render: head to head ----
+  function renderH2H(ms) {
+    const a = state.a, b = state.b;
+    if (a === b) {
+      const mirrors = ms.filter((m) => m.p1 === a && m.p2 === a).length;
+      $('h2h').innerHTML = `<div class="empty-state">${esc(name(a))} vs ${esc(name(a))}: ${mirrors} mirror match${mirrors === 1 ? '' : 'es'}. Pick two different characters to compare.</div>`;
+      return;
+    }
+    const games = between(ms, a, b).sort((x, y) => y.time - x.time);
+    const aw = games.filter((m) => winnerChar(m) === a).length;
+    const bw = games.length - aw;
+    const side = (id, cls) => `<div class="h2h-side ${cls}"><img src="${head(id)}" alt=""><div><div class="n">${esc(name(id))}</div><div class="muted">${pct(cls === 'a' ? aw : bw, games.length)} win rate</div></div></div>`;
+    let html = `<div class="h2h-score">${side(a, 'a')}<div class="h2h-num tnum">${aw}<span>–</span>${bw}</div>${side(b, 'b')}</div>`;
+    if (!games.length) {
+      $('h2h').innerHTML = html + '<div class="empty-state">No matches between these two in this range.</div>';
+      return;
+    }
+    html += `<div class="split"><i style="flex:${aw || 0.0001}"></i><i style="flex:${bw || 0.0001}"></i></div>
+      <div class="split-labels"><span>${esc(name(a))} ${pct(aw, games.length)}</span><span>${games.length} match${games.length === 1 ? '' : 'es'}</span><span>${pct(bw, games.length)} ${esc(name(b))}</span></div>`;
+
+    // Per side: rounds, how they won them, health left when they won, being on P1.
+    const f = { a: { rw: 0, ko: 0, ringout: 0, time: 0, hp: [], flaw: 0, asP1: 0, asP1W: 0 }, b: { rw: 0, ko: 0, ringout: 0, time: 0, hp: [], flaw: 0, asP1: 0, asP1W: 0 } };
+    let durSum = 0, durN = 0;
+    for (const m of games) {
+      const slotOf = { a: m.p1 === a ? 'p1' : 'p2', b: m.p1 === b ? 'p1' : 'p2' };
+      for (const k of ['a', 'b']) {
+        const slot = slotOf[k];
+        if (slot === 'p1') { f[k].asP1++; if (m.winner === 'p1') f[k].asP1W++; }
+        for (const r of m.rounds || []) if (r.w === slot) { f[k].rw++; if (f[k][r.how] !== undefined) f[k][r.how]++; }
+        if (m.winner === slot) {
+          if (m.hp && m.hp[slot === 'p1' ? 0 : 1] != null) f[k].hp.push(m.hp[slot === 'p1' ? 0 : 1]);
+          if ((m.rounds || []).length && m.rounds.every((r) => r.w === slot)) f[k].flaw++;
+        }
+      }
+      if (m.duration > 0) { durSum += m.duration; durN++; }
+    }
+    const avg = (xs) => (xs.length ? Math.round((xs.reduce((s, v) => s + v, 0) / xs.length) * 100) + '%' : '–');
+    const row = (label, va, vb) => `<tr><td>${va}</td><td>${label}</td><td>${vb}</td></tr>`;
+    html += `<table class="h2h-facts">
+      ${row('Rounds won', f.a.rw, f.b.rw)}
+      ${row('…by KO', f.a.ko, f.b.ko)}
+      ${row('…by ring-out', f.a.ringout, f.b.ringout)}
+      ${row('…on time', f.a.time, f.b.time)}
+      ${row('2–0 wins', f.a.flaw, f.b.flaw)}
+      ${row('HP left on wins', avg(f.a.hp), avg(f.b.hp))}
+      ${row('Win rate as Player 1', f.a.asP1 ? `${pct(f.a.asP1W, f.a.asP1)} <span class="muted">(${f.a.asP1})</span>` : '–', f.b.asP1 ? `${pct(f.b.asP1W, f.b.asP1)} <span class="muted">(${f.b.asP1})</span>` : '–')}
+      </table>
+      <p class="sub" style="margin-top:10px">Average match length ${fmtDur(durN ? durSum / durN : null)}. Last meetings (newest first):</p>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">${games.slice(0, 20).map((m) => {
+        const aWon = winnerChar(m) === a;
+        return `<span data-tip="${esc(`<div class='t'>${fmtDateTime(m.time)} · ${m.mode}</div>${name(winnerChar(m))} won ${score(m)}`)}" style="display:inline-block;width:18px;height:18px;border-radius:4px;background:var(${aWon ? '--series-a' : '--series-b'})"></span>`;
+      }).join('')}</div>`;
+    $('h2h').innerHTML = html;
+    bindTips($('h2h'));
+  }
+
+  function score(m) {
+    const rs = m.rounds || [];
+    if (!rs.length) return '';
+    const w = rs.filter((r) => r.w === m.winner).length, l = rs.filter((r) => r.w === loser(m)).length;
+    return `${w}–${l}`;
+  }
+
+  // ---- Render: matchup matrix ----
+  // Diverging: 50% is the neutral grey, pulling toward blue (row wins) or red
+  // (row loses). Few games pull less colour, so 1-0 doesn't look like 100%.
+  function mix(c1, c2, t) {
+    const p = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+    const a = p(c1), b = p(c2);
+    return '#' + a.map((v, i) => Math.round(v + (b[i] - v) * t).toString(16).padStart(2, '0')).join('');
+  }
+  function cellColor(wr, n) {
+    const css = getComputedStyle(document.documentElement);
+    const even = css.getPropertyValue('--even').trim(), win = css.getPropertyValue('--win').trim(), lose = css.getPropertyValue('--lose').trim();
+    const strength = Math.min(1, Math.abs(wr - 0.5) * 2) * Math.min(1, 0.35 + n / 10);
+    return mix(even, wr >= 0.5 ? win : lose, strength);
+  }
+  function renderMatrix(ms) {
+    const chars = CHARACTER_LIST.map((c) => c.id);
+    let html = '<thead><tr><th></th>' + chars.map((c) => `<th class="col"><img src="${head(c)}" alt="">${esc(name(c))}</th>`).join('') + '</tr></thead><tbody>';
+    for (const r of chars) {
+      html += `<tr><th class="row"><span class="who"><img src="${head(r)}" alt="">${esc(name(r))}</span></th>`;
+      for (const c of chars) {
+        if (r === c) { html += '<td><span class="cell self" title="Mirror"></span></td>'; continue; }
+        const g = between(ms, r, c);
+        if (!g.length) { html += '<td><span class="cell empty"></span></td>'; continue; }
+        const w = g.filter((m) => winnerChar(m) === r).length;
+        const wr = w / g.length;
+        const tipHtml = `<div class='t'>${esc(name(r))} vs ${esc(name(c))}</div>${w}–${g.length - w} · ${Math.round(wr * 100)}% for ${esc(name(r))}<br><span class='t'>Click to open head to head</span>`;
+        html += `<td><span class="cell" style="background:${cellColor(wr, g.length)}" data-a="${r}" data-b="${c}" data-tip="${esc(tipHtml)}">${Math.round(wr * 100)}%<small>${g.length}</small></span></td>`;
+      }
+      html += '</tr>';
+    }
+    $('matrix').innerHTML = html + '</tbody>';
+    bindTips($('matrix'));
+    for (const el of $('matrix').querySelectorAll('.cell[data-a]')) {
+      el.addEventListener('click', () => {
+        state.a = el.dataset.a; state.b = el.dataset.b;
+        hideTip();
+        render();
+        $('h2h-a').closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  }
+
+  // ---- Charts (plain SVG) ----
+  function weekStart(t) {
+    const d = new Date(t); d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Monday
+    return d.getTime();
+  }
+  function niceMax(v) {
+    if (v <= 5) return 5;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
+    return v;
+  }
+
+  function renderActivity(ms) {
+    const el = $('activity');
+    if (!ms.length) { el.innerHTML = '<div class="empty-state">No matches in this range.</div>'; return; }
+    const times = ms.map((m) => m.time);
+    let start = state.from ? new Date(state.from + 'T00:00:00').getTime() : Math.min(...times);
+    let end = state.to ? new Date(state.to + 'T00:00:00').getTime() : Math.max(...times);
+    start = new Date(start).setHours(0, 0, 0, 0);
+    end = Math.min(new Date(end).setHours(0, 0, 0, 0), new Date().setHours(0, 0, 0, 0));
+    const byWeek = (end - start) / DAY > 70;
+    $('activity-sub').textContent = byWeek ? 'Per week, online and local' : 'Per day, online and local';
+    const bucket = (t) => (byWeek ? weekStart(t) : new Date(t).setHours(0, 0, 0, 0));
+    const buckets = [];
+    for (let t = bucket(start); t <= end; t = byWeek ? t + 7 * DAY : new Date(t + DAY * 1.5).setHours(0, 0, 0, 0)) buckets.push({ t, online: 0, local: 0 });
+    const idx = new Map(buckets.map((b, i) => [b.t, i]));
+    for (const m of ms) { const i = idx.get(bucket(m.time)); if (i != null) buckets[i][m.mode]++; }
+    const W = Math.max(300, el.clientWidth || 520), H = 200, padL = 30, padB = 22, padT = 8;
+    const max = niceMax(Math.max(...buckets.map((b) => b.online + b.local)));
+    const bw = (W - padL) / buckets.length;
+    const y = (v) => padT + (H - padT - padB) * (1 - v / max);
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Matches played over time">`;
+    for (const v of [0, max / 2, max]) svg += `<line x1="${padL}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="var(${v ? '--grid' : '--baseline'})"/><text x="${padL - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    const labelEvery = Math.ceil(buckets.length / 7);
+    buckets.forEach((b, i) => {
+      const x = padL + i * bw, w = Math.max(1, bw - 2), total = b.online + b.local;
+      // Online sits on the baseline, local stacked above it, with a 2px gap.
+      const hOn = (H - padT - padB) * (b.online / max), hLo = (H - padT - padB) * (b.local / max);
+      const base = y(0);
+      if (b.online) svg += `<rect x="${x + 1}" y="${base - hOn}" width="${w}" height="${hOn}" rx="${Math.min(3, w / 2)}" fill="var(--series-a)"/>`;
+      if (b.local) svg += `<rect x="${x + 1}" y="${base - hOn - hLo - (b.online ? 2 : 0)}" width="${w}" height="${hLo}" rx="${Math.min(3, w / 2)}" fill="var(--series-b)"/>`;
+      const label = byWeek ? 'Week of ' + fmtDate(b.t) : new Date(b.t).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      svg += `<rect x="${x}" y="${padT}" width="${bw}" height="${H - padT - padB}" fill="transparent" data-tip="${esc(`<div class='t'>${label}</div>${total} match${total === 1 ? '' : 'es'}<br><span class='key-a'></span>${b.online} online<br><span class='key-b'></span>${b.local} local`)}"/>`;
+      if (i % labelEvery === 0) svg += `<text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${fmtDate(b.t)}</text>`;
+    });
+    svg += '</svg>';
+    el.innerHTML = svg + `<div class="legend"><span><span class="key-a"></span>Online</span><span><span class="key-b"></span>Local</span></div>`;
+    bindTips(el);
+  }
+
+  function renderTrend(ms) {
+    const el = $('trend');
+    const id = state.trend;
+    const weeks = new Map();
+    for (const m of ms) {
+      if (isMirror(m) || (m.p1 !== id && m.p2 !== id)) continue;
+      const k = weekStart(m.time);
+      const w = weeks.get(k) || { t: k, w: 0, n: 0 };
+      w.n++; if (m[m.winner] === id) w.w++;
+      weeks.set(k, w);
+    }
+    const pts = [...weeks.values()].sort((a, b) => a.t - b.t);
+    if (!pts.length) { el.innerHTML = `<div class="empty-state">${esc(name(id))} has no (non-mirror) matches in this range.</div>`; return; }
+    const W = Math.max(300, el.clientWidth || 520), H = 220, padL = 34, padR = 12, padB = 22, padT = 10;
+    const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+    const x = (t) => (t1 === t0 ? (padL + W - padR) / 2 : padL + (W - padL - padR) * ((t - t0) / (t1 - t0)));
+    const y = (v) => padT + (H - padT - padB) * (1 - v);
+    const maxN = Math.max(...pts.map((p) => p.n));
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weekly win rate for ${esc(name(id))}">`;
+    for (const v of [0, 0.5, 1]) svg += `<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" stroke="var(${v === 0 ? '--baseline' : '--grid'})" ${v === 0.5 ? 'stroke-dasharray="4 4" stroke="var(--muted)"' : ''}/><text x="${padL - 6}" y="${y(v) + 4}" text-anchor="end">${v * 100}%</text>`;
+    if (pts.length > 1) svg += `<polyline fill="none" stroke="var(--series-a)" stroke-width="2" stroke-linejoin="round" points="${pts.map((p) => `${x(p.t)},${y(p.w / p.n)}`).join(' ')}"/>`;
+    const labelEvery = Math.ceil(pts.length / 6);
+    pts.forEach((p, i) => {
+      const r = 4 + 4 * Math.sqrt(p.n / maxN);
+      svg += `<circle cx="${x(p.t)}" cy="${y(p.w / p.n)}" r="${r}" fill="var(--series-a)" stroke="var(--surface)" stroke-width="2"/>`;
+      svg += `<circle cx="${x(p.t)}" cy="${y(p.w / p.n)}" r="${Math.max(12, r + 4)}" fill="transparent" data-tip="${esc(`<div class='t'>Week of ${fmtDate(p.t)}</div>${Math.round((p.w / p.n) * 100)}% · ${p.w}–${p.n - p.w} (${p.n} game${p.n === 1 ? '' : 's'})`)}"/>`;
+      if (i % labelEvery === 0) svg += `<text x="${x(p.t)}" y="${H - 6}" text-anchor="middle">${fmtDate(p.t)}</text>`;
+    });
+    el.innerHTML = svg + '</svg>';
+    bindTips(el);
+  }
+
+  // The trend character's record against each opponent, best first.
+  function renderMatchups(ms) {
+    const id = state.trend;
+    $('matchups-title').textContent = name(id) + "'s matchups";
+    const rows = CHARACTER_LIST.filter((c) => c.id !== id).map((c) => {
+      const g = between(ms, id, c.id);
+      const w = g.filter((m) => winnerChar(m) === id).length;
+      return { id: c.id, w, n: g.length };
+    }).filter((r) => r.n).sort((x, y) => y.w / y.n - x.w / x.n || y.n - x.n);
+    if (!rows.length) { $('matchups').innerHTML = '<tbody><tr><td class="muted">No matches in this range.</td></tr></tbody>'; return; }
+    $('matchups').innerHTML = '<tbody>' + rows.map((r) => `<tr data-b="${r.id}" style="cursor:pointer">
+      <td><span class="who">vs <img src="${head(r.id)}" alt="">${esc(name(r.id))}</span></td>
+      <td>${r.w}–${r.n - r.w}</td>
+      <td class="l"><span style="display:inline-block;width:38px;text-align:right">${Math.round((r.w / r.n) * 100)}%</span><span class="winbar"><i style="width:${(r.w / r.n) * 100}%"></i><b></b></span></td></tr>`).join('') + '</tbody>';
+    for (const tr of $('matchups').querySelectorAll('tr[data-b]')) {
+      tr.addEventListener('click', () => { state.a = id; state.b = tr.dataset.b; render(); $('h2h-a').closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    }
+  }
+
+  // ---- Render: finishes, settings, recent ----
+  function renderFinishes(ms) {
+    const groups = new Map([['All stages', ms]]);
+    for (const m of ms) {
+      const k = m.stage || 'unknown';
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(m);
+    }
+    let html = '<thead><tr><th>Stage</th><th>Matches</th><th>Rounds</th><th>KO</th><th>Ring-out</th><th>Time</th><th>Draw</th><th>Avg round</th></tr></thead><tbody>';
+    for (const [k, g] of groups) {
+      const rs = g.flatMap((m) => m.rounds || []);
+      const c = { ko: 0, ringout: 0, time: 0, draw: 0 };
+      for (const r of rs) if (c[r.how] !== undefined) c[r.how]++;
+      const ts = rs.map((r) => r.t).filter((t) => t > 0);
+      const label = k === 'All stages' ? '<b>All stages</b>' : esc(stageName(k));
+      html += `<tr><td>${label}</td><td>${g.length}</td><td>${rs.length}</td><td>${pct(c.ko, rs.length)}</td><td>${pct(c.ringout, rs.length)}</td><td>${pct(c.time, rs.length)}</td><td>${pct(c.draw, rs.length)}</td><td>${fmtDur(ts.length ? ts.reduce((a, b) => a + b, 0) / ts.length : null)}</td></tr>`;
+    }
+    $('finishes').innerHTML = html + '</tbody>';
+  }
+
+  function renderSettings(ms) {
+    const nonMirror = ms.filter((m) => !isMirror(m));
+    const p1w = nonMirror.filter((m) => m.winner === 'p1').length;
+    const count = (f) => {
+      const c = new Map();
+      for (const m of ms) { const k = f(m); c.set(k, (c.get(k) || 0) + 1); }
+      return [...c.entries()].sort((a, b) => b[1] - a[1]);
+    };
+    const rows = [
+      ['Player 1 (left side) wins', nonMirror.length ? `${pct(p1w, nonMirror.length)} <span class="muted">(${p1w} of ${nonMirror.length})</span>` : '–'],
+      ...count((m) => BALL_LABEL[m.ball] || 'Ball: ' + (m.ball || 'unknown')).map(([k, n]) => [esc(k), `${n} <span class="muted">(${pct(n, ms.length)})</span>`]),
+      ...count((m) => (m.balance === true ? 'Balance meter on' : m.balance === false ? 'Balance meter off' : 'Balance: unknown')).map(([k, n]) => [esc(k), `${n} <span class="muted">(${pct(n, ms.length)})</span>`]),
+      ...count((m) => 'Stage: ' + stageName(m.stage)).map(([k, n]) => [esc(k), `${n} <span class="muted">(${pct(n, ms.length)})</span>`]),
+    ];
+    $('settings').innerHTML = '<tbody>' + rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('') + '</tbody>';
+  }
+
+  function renderRecent(ms) {
+    const rows = ms.slice().sort((a, b) => b.time - a.time).slice(0, 30);
+    if (!rows.length) { $('recent').innerHTML = '<tbody><tr><td class="muted">No matches in this range.</td></tr></tbody>'; return; }
+    const fighter = (m, slot) => `<span class="who ${m.winner === slot ? 'w' : 'muted'}"><img src="${head(m[slot])}" alt="">${esc(name(m[slot]))}</span>`;
+    $('recent').innerHTML = '<thead><tr><th>When</th><th class="l">Mode</th><th class="l">Player 1</th><th class="l">Player 2</th><th>Score</th><th class="l">Rounds</th><th>Length</th></tr></thead><tbody>' +
+      rows.map((m) => `<tr><td>${fmtDateTime(m.time)}</td><td class="l">${m.mode === 'online' ? 'Online' : 'Local'}</td><td class="l">${fighter(m, 'p1')}</td><td class="l">${fighter(m, 'p2')}</td><td>${score(m) || '–'}</td>
+        <td class="l">${(m.rounds || []).map((r) => `<span class="finish">${r.w ? (isMirror(m) ? r.w.toUpperCase() : esc(name(m[r.w]))) + ' · ' : ''}${HOW_LABEL[r.how] || '?'}</span>`).join('')}</td><td>${fmtDur(m.duration)}</td></tr>`).join('') + '</tbody>';
+  }
+
+  // ---- Controls ----
+  function fillSelect(sel, value) {
+    sel.innerHTML = CHARACTER_LIST.map((c) => `<option value="${c.id}" ${c.id === value ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  }
+
+  function syncControls() {
+    $('from').value = state.from;
+    $('to').value = state.to;
+    for (const b of $('mode').children) b.classList.toggle('active', b.dataset.mode === state.mode);
+    const today = ymd(new Date());
+    for (const b of $('range-presets').children) {
+      const days = Number(b.dataset.days);
+      const active = days === 0 ? !state.from && !state.to : !state.to && state.from === ymd(new Date(Date.now() - (days - 1) * DAY));
+      b.classList.toggle('active', active && (days === 0 || state.to === '' || state.to === today));
+    }
+    fillSelect($('h2h-a'), state.a);
+    fillSelect($('h2h-b'), state.b);
+    fillSelect($('trend-char'), state.trend);
+  }
+
+  function render() {
+    syncControls();
+    saveUrl();
+    const ms = inRange();
+    const span = state.from || state.to ? `${state.from ? fmtDate(new Date(state.from + 'T00:00:00')) : 'the start'} – ${state.to ? fmtDate(new Date(state.to + 'T00:00:00')) : 'today'}` : 'all time';
+    $('range-note').textContent = `${ms.length} of ${all.length} matches · ${span}`;
+    const stats = charStats(ms);
+    renderTiles(ms, stats);
+    renderLeaderboard(ms, stats);
+    renderH2H(ms);
+    renderMatrix(ms);
+    renderTrend(ms);
+    renderMatchups(ms);
+    renderActivity(ms);
+    renderFinishes(ms);
+    renderSettings(ms);
+    renderRecent(ms);
+  }
+
+  for (const b of $('range-presets').children) {
+    b.addEventListener('click', () => {
+      const days = Number(b.dataset.days);
+      state.from = days ? ymd(new Date(Date.now() - (days - 1) * DAY)) : '';
+      state.to = '';
+      render();
+    });
+  }
+  $('from').addEventListener('change', (e) => { state.from = e.target.value; render(); });
+  $('to').addEventListener('change', (e) => { state.to = e.target.value; render(); });
+  for (const b of $('mode').children) b.addEventListener('click', () => { state.mode = b.dataset.mode; render(); });
+  $('h2h-a').addEventListener('change', (e) => { state.a = e.target.value; render(); });
+  $('h2h-b').addEventListener('change', (e) => { state.b = e.target.value; render(); });
+  $('h2h-swap').addEventListener('click', () => { [state.a, state.b] = [state.b, state.a]; render(); });
+  $('trend-char').addEventListener('change', (e) => { state.trend = e.target.value; render(); });
+
+  // Charts are drawn at their container's width, so redraw on resize.
+  let resizeTimer = 0;
+  addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (all.length) { const ms = inRange(); renderTrend(ms); renderActivity(ms); } }, 150);
+  });
+
+  // ---- Load ----
+  fetch(API + '/stats/matches', { cache: 'no-store' })
+    .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then((data) => {
+      all = (data.matches || []).filter((m) => CHARACTERS[m.p1] && CHARACTERS[m.p2]).map((m) => Object.assign(m, { time: Date.parse(m.at) }));
+      // Default picks: the two most played characters.
+      const played = charStats(all).sort((x, y) => y.played - x.played);
+      if (!CHARACTERS[state.a]) state.a = played[0].id;
+      if (!CHARACTERS[state.b] || state.b === state.a) state.b = played.find((s) => s.id !== state.a).id;
+      if (!CHARACTERS[state.trend]) state.trend = state.a;
+      $('status').hidden = true;
+      $('content').hidden = false;
+      render();
+      if (!all.length) $('status').hidden = false, $('status').textContent = 'No matches recorded yet. Play an online match (or a local one on the live site) and it will show up here.';
+    })
+    .catch((e) => {
+      $('status').textContent = `Couldn't load the stats from the game server (${e.message}). It may be restarting -- try again in a minute.`;
+    });
+})();
+</script>
+</body>
+</html>

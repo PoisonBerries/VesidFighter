@@ -7,9 +7,15 @@
 // the socket uses permessage-deflate, which keeps bandwidth low enough for
 // small free-tier data caps.
 //
+// Also keeps the match stats (see "Stats" below): finished matches are
+// POSTed to /stats/match and appended to a JSON-lines file; the stats page
+// (stats.html) reads them back from /stats/matches.
+//
 // Usage: PORT=8080 node server/server.js
+//   STATS_FILE: where match results go (default server/data/matches.jsonl)
 
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
 const vm = require('vm');
 const { WebSocketServer } = require('ws');
@@ -190,11 +196,120 @@ setInterval(() => {
   }
 }, 2);
 
+// ---- Stats ----
+// One JSON object per line, appended as matches finish. Small enough (a few
+// hundred bytes a match) that the whole file is read on each stats request.
+const STATS_FILE = process.env.STATS_FILE || path.join(__dirname, 'data', 'matches.jsonl');
+const STATS_MODES = new Set(['online', 'local']);
+const STATS_HOWS = new Set(['ko', 'ringout', 'time', 'draw']);
+const MAX_BODY = 4096;
+const statsChars = createSim().CHARACTERS;
+const recentPosts = new Map(); // ip -> [timestamps], a light guard against floods
+
+function cleanSlot(v) { return v === 'p1' || v === 'p2' ? v : null; }
+function cleanNum(v, max) { const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= max ? Math.round(n * 100) / 100 : null; }
+function cleanStr(v, max) { return typeof v === 'string' && v.length <= max ? v : null; }
+
+// Validates a reported match and returns the record to store (or null).
+function cleanMatch(m) {
+  if (!m || typeof m !== 'object') return null;
+  if (!STATS_MODES.has(m.mode) || !statsChars[m.p1] || !statsChars[m.p2]) return null;
+  const winner = cleanSlot(m.winner);
+  if (!winner) return null;
+  const rounds = Array.isArray(m.rounds) ? m.rounds.slice(0, 20).map((r) => ({
+    w: r && cleanSlot(r.w),
+    how: r && STATS_HOWS.has(r.how) ? r.how : null,
+    t: cleanNum(r && r.t, 1000),
+  })) : [];
+  return {
+    at: new Date().toISOString(),
+    mode: m.mode,
+    p1: m.p1,
+    p2: m.p2,
+    winner,
+    rounds,
+    hp: Array.isArray(m.hp) ? m.hp.slice(0, 2).map((v) => cleanNum(v, 1)) : null,
+    duration: cleanNum(m.duration, 3600),
+    stage: cleanStr(m.stage, 40),
+    ball: cleanStr(m.ball, 20),
+    balance: typeof m.balance === 'boolean' ? m.balance : null,
+    site: cleanStr(m.site, 100),
+  };
+}
+
+function allowPost(ip) {
+  const now = Date.now();
+  const recent = (recentPosts.get(ip) || []).filter((t) => now - t < 60000);
+  if (recent.length >= 20) return false; // a match takes well over 3 seconds
+  recent.push(now);
+  recentPosts.set(ip, recent);
+  return true;
+}
+
+function readMatches() {
+  let text = '';
+  try { text = fs.readFileSync(STATS_FILE, 'utf8'); } catch (e) { return []; }
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    try { out.push(JSON.parse(line)); } catch (e) { /* skip a torn line */ }
+  }
+  return out;
+}
+
+function sendJson(res, status, body) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Cache-Control': 'no-store',
+  });
+  res.end(JSON.stringify(body));
+}
+
+function onHttp(req, res) {
+  const url = new URL(req.url, 'http://x');
+  if (req.method === 'OPTIONS') return sendJson(res, 204, null);
+
+  if (req.method === 'GET' && url.pathname === '/stats/matches') {
+    // Optional ?from= / ?to= (ISO dates); the page also filters itself.
+    const from = url.searchParams.get('from'), to = url.searchParams.get('to');
+    const matches = readMatches().filter((m) => (!from || m.at >= from) && (!to || m.at <= to));
+    return sendJson(res, 200, { matches });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/stats/match') {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > MAX_BODY) req.destroy();
+    });
+    req.on('end', () => {
+      let rec = null;
+      try { rec = cleanMatch(JSON.parse(body)); } catch (e) { /* bad JSON */ }
+      if (!rec) return sendJson(res, 400, { ok: false });
+      if (!allowPost(ip)) return sendJson(res, 429, { ok: false });
+      fs.mkdirSync(path.dirname(STATS_FILE), { recursive: true });
+      fs.appendFile(STATS_FILE, JSON.stringify(rec) + '\n', (err) => {
+        if (err) console.warn('stats write failed', err);
+        sendJson(res, err ? 500 : 200, { ok: !err });
+      });
+    });
+    return;
+  }
+
+  sendJson(res, 404, { ok: false });
+}
+
 // ---- Sockets ----
+const httpServer = http.createServer(onHttp);
 const wss = new WebSocketServer({
-  port: PORT,
+  server: httpServer,
   perMessageDeflate: { threshold: 64 },
 });
+httpServer.listen(PORT);
 
 function onMessage(ws, msg) {
   if (!msg || typeof msg !== 'object') return;

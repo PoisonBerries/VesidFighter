@@ -9,3 +9,5 @@ blender/orchard.blend1
 blender/*.glb
 blender/*.webp
 blender/*.jpg
+# Match stats written by a locally run game server
+server/data/
