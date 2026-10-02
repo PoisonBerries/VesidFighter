@@ -831,7 +831,9 @@ const Animator = (() => {
     const swim = st === 'block' && !fighter.guarding && fighter.character.crouchSwim && Mocap.clipFor(id, 'swim');
     if (swim) return { clip: swim, u: ((an.swimU || 0) % 1 + 1) % 1, loop: true, swim: true };
 
-    const clip = Mocap.clipFor(id, st);
+    // 'block' is also the crouch; only the held guard plays the block clip.
+    const crouching = st === 'block' && !fighter.guarding;
+    const clip = crouching ? null : Mocap.clipFor(id, st);
     if (!clip) {
       // No idle/walk clip: stand in the guard the attack clip starts from, so
       // idle, walk and attack share one stance and nothing shifts between them.

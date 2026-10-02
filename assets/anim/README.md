@@ -53,7 +53,7 @@ purely visual: hitboxes, timing and online play are unchanged.
 |------|-----------|
 | `attack` | Only the clip's **action window** plays (the converter trims the standing around before and after). The wind-up is compressed so the clip's **impact** lands mid-way through the attack's active (hitbox) frames; the recovery then plays at real speed, carrying on after the attack while the fighter just stands or walks. |
 | `hitstun` | The action window, once, at real speed. |
-| `block` | Holds the clip's impact pose (its fullest guard). |
+| `block` | Holding guard only: holds the clip's impact pose (its fullest guard). Crouching keeps the built-in pose (Sam swims). |
 | `walk` | Follows the distance walked (one clip loop = the clip's own stride, so feet don't slide); walking backwards plays it in reverse. |
 | `stance` | The guard to stand and walk in when there's no idle/walk clip (the start of that clip's action). |
 | `idle`, `victory` | Loop in real time. |
