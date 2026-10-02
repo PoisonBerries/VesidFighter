@@ -361,6 +361,28 @@ test('Robert\'s voice lines play deeper while he is transformed (and only then)'
   await page.close();
 });
 
+test('winning back to back plays the victory-streak line instead of the plain victory line', async () => {
+  const { page, errors } = await openGame();
+  const res = await page.evaluate(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    Sfx.ensure();
+    Sfx.settings.muted = false;
+    await wait(800);
+    const seen = [];
+    Sfx.voice('ryan', 'victory'); seen.push(Sfx.lastVoice.path.split('/').pop());
+    await wait(800);
+    Sfx.voice('ryan', 'victory'); seen.push(Sfx.lastVoice.path.split('/').pop());
+    await wait(800);
+    Sfx.voice('keenan', 'victory'); // someone else wins: the streak is broken
+    await wait(800);
+    Sfx.voice('ryan', 'victory'); seen.push(Sfx.lastVoice.path.split('/').pop());
+    return seen;
+  });
+  assert.deepStrictEqual(res, ['RyanVictory.m4a', 'RyanVictoryStreak.m4a', 'RyanVictory.m4a']);
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+});
+
 test('sound defaults: effects are boosted well past the old maximum and the music sits quieter than the effects', async () => {
   const { page, errors } = await openGame();
   const d = await page.evaluate(() => ({ music: Sfx.settings.music, sfx: Sfx.settings.sfx, boost: Sfx.sfxBoost, sliderMusic: +document.getElementById('vol-music').value, sliderSfx: +document.getElementById('vol-sfx').value }));

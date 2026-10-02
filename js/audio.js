@@ -329,7 +329,7 @@ const Sfx = (() => {
       phaseStep: 'KeenanPhaseStep.mp3',             // when he slips behind the opponent
       victory: 'KeenanVictory.mp3',                 // when he wins the match
       hitByWater: 'KeenanHitByWaterAttack.mp3',     // hit by one of Sam's water attacks (his special or ultimate)
-      fallOff: 'KeenanGoodbyeForNow.m4a',           // he falls off the map
+      fallOff: ['KeenanGoodbyeForNow.m4a', 'KeenanFallsOffMap.m4a'], // he falls off the map (one of two, at random)
       recovery: 'KeenanRecovery.mp3',               // when he gets back up after being knocked down
       hitTaken: 'KeenanHitTaken.mp3',               // someone lands a punch or kick on him
       selected: 'KeenanSelected.mp3',               // he's clicked on in the character select menu
@@ -366,6 +366,9 @@ const Sfx = (() => {
     hitTaken: 'RyanHitTaken.m4a',                   // someone lands a punch or kick on him
     bigHit: 'RyanGroan.m4a',                        // a heavy blow: 15% of his health or more
     fallOff: 'RyanSurprised.m4a',                   // he falls off the map
+    victory: 'RyanVictory.m4a',                     // when he wins the match
+    victoryStreak: 'RyanVictoryStreak.m4a',         // when he wins the match again right after winning one (a streak)
+    roundWin: 'RyanPostVictoryTaunt.m4a',            // he wins a round (but not the match): a taunt
   };
   VOICE.robert = {
     selected: 'RobFunny.mp3',                       // he's clicked on in the character select menu
@@ -375,7 +378,9 @@ const Sfx = (() => {
     matchStart: 'RobMatchStart.mp3',                // at the start of a match (not if a matchup line is playing)
     transform: 'RobWowWow.mp3',                     // when he transforms
     bigHit: ['RobBigHitTaken.m4a', 'RobBigHitTaken 2.m4a'], // a heavy blow: 15% of his health or more (one of two, at random)
-    fallOff: 'RobGasp.m4a',                         // he falls off the map
+    fallOff: ['RobGasp.m4a', 'RobDelayedNooooooo.m4a'], // he falls off the map (a gasp, or a long "noooo", at random)
+    hitByUltimate: 'RobHolyShit.m4a',              // an ultimate hits him
+    'vs:carlos': ['RobVsCarlos.m4a', 'RobVsCarlos2.m4a'], // at the start of a match against Carlos (one of two, at random)
     enemyFall: 'RobLaugh.m4a',                      // he laughs when the opponent falls off the map
     victory: 'RobYeahOhYeah.m4a',                   // when he wins the match
   };
@@ -430,8 +435,17 @@ const Sfx = (() => {
     } catch (e) { return false; }
   }
 
+  // Winning matches back to back (a rematch in the same session) counts as a streak: a character's
+  // 'victoryStreak' line, if they have one, replaces their plain 'victory' line from the second win on.
+  let streakChar = null, streakCount = 0;
+
   function voice(charId, occasion) {
     const lines = VOICE[charId] || {};
+    if (occasion === 'victory') {
+      streakCount = streakChar === charId ? streakCount + 1 : 1;
+      streakChar = charId;
+      if (streakCount >= 2 && lines.victoryStreak) occasion = 'victoryStreak';
+    }
     // A general match-start line gives way to a matchup line that's already playing.
     if (occasion === 'matchStart' && performance.now() - voiceVsAt < 300) return;
     // Being hit by anything (projectile, special, ultimate, the ball...) without a line of its own plays the plain hit-taken line.
