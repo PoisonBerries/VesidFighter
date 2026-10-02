@@ -411,6 +411,17 @@ const Sfx = (() => {
   let voiceVsAt = -1e9;    // when a matchup line last started
   const voiceLast = {};    // character -> when its last line started
 
+  // Whether this character is in the middle of a match in a transformed state (Robert): his
+  // lines are then played deeper. (Not in the menus, where a stale match could still be loaded.)
+  const DEEP_RATE = 0.8; // playback speed: lower and slower, a heavier voice
+  function isTransformed(charId) {
+    try {
+      if (typeof Game === 'undefined' || Game.getState() === 'idle') return false;
+      const w = Game.world();
+      return [w.p1, w.p2].some((f) => f && f.character.id === charId && f.transformed && f.character.transform);
+    } catch (e) { return false; }
+  }
+
   function voice(charId, occasion) {
     const lines = VOICE[charId] || {};
     // A general match-start line gives way to a matchup line that's already playing.
@@ -422,9 +433,11 @@ const Sfx = (() => {
     // (a file name with a folder in it, like 'artur/Line.mp3', is taken from that folder instead)
     const path = file.includes('/') ? `assets/voice/${file}` : `assets/voice/${charId}/${file}`;
     const now = performance.now();
-    if (now - (voiceLast[charId] || 0) < 700 || settings.muted) return; // one voice at a time per fighter
+    if (now - (voiceLast[charId] === undefined ? -1e9 : voiceLast[charId]) < 700 || settings.muted) return; // one voice at a time per fighter
     voiceLast[charId] = now;
     if (occasion.startsWith('vs:')) voiceVsAt = now;
+    const deep = isTransformed(charId);
+    api.lastVoice = { charId, occasion, path, deep }; // (for tests and debugging)
     const go = (buf) => {
       if (!buf) return;
       const src = ac.createBufferSource();
@@ -432,7 +445,15 @@ const Sfx = (() => {
       if (buf.leveled === undefined) buf.leveled = loudnessGain(buf);
       const g = ac.createGain();
       g.gain.value = buf.leveled;
-      src.connect(g);
+      if (deep) {
+        // Deepened: slowed down (which lowers the pitch), a boost to the low end and the top rolled off.
+        src.playbackRate.value = DEEP_RATE;
+        const low = ac.createBiquadFilter(); low.type = 'lowshelf'; low.frequency.value = 220; low.gain.value = 7;
+        const top = ac.createBiquadFilter(); top.type = 'lowpass'; top.frequency.value = 4200;
+        src.connect(low); low.connect(top); top.connect(g);
+      } else {
+        src.connect(g);
+      }
       g.connect(sfxBus);
       src.start();
     };

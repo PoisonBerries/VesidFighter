@@ -337,6 +337,30 @@ test('voice lines are levelled: every file in assets/voice ends up at about the 
   await page.close();
 });
 
+test('Robert\'s voice lines play deeper while he is transformed (and only then)', async () => {
+  const { page, errors } = await openGame();
+  const res = await page.evaluate(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    Sfx.ensure();
+    Sfx.settings.muted = false; // (an earlier test may have muted it in this browser profile)
+    Sfx.voice('robert', 'selected'); // in the menus: never deep
+    const menu = Sfx.lastVoice.deep;
+    Game.startMatch('robert', 'keenan', () => {}, { ball: 'off' });
+    await wait(800);
+    Sfx.voice('robert', 'hitTaken');
+    const normal = Sfx.lastVoice.deep;
+    Game.applySnapshot({ f: [{ transformed: true }, {}] });
+    await wait(800);
+    Sfx.voice('robert', 'block');
+    const deep = Sfx.lastVoice.deep;
+    Sfx.voice('keenan', 'hitTaken');
+    return { menu, normal, deep, keenan: Sfx.lastVoice.deep };
+  });
+  assert.deepStrictEqual(res, { menu: false, normal: false, deep: true, keenan: false });
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+});
+
 test('sound defaults: effects are boosted well past the old maximum and the music sits quieter than the effects', async () => {
   const { page, errors } = await openGame();
   const d = await page.evaluate(() => ({ music: Sfx.settings.music, sfx: Sfx.settings.sfx, boost: Sfx.sfxBoost, sliderMusic: +document.getElementById('vol-music').value, sliderSfx: +document.getElementById('vol-sfx').value }));
