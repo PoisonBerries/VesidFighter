@@ -384,12 +384,12 @@ test('winning back to back plays the victory-streak line instead of the plain vi
   await page.close();
 });
 
-test('Ryan\'s voice gets a slight vocoder: a changed but still clearly voiced signal, same length, no bad samples', async () => {
+test('Ryan\'s voice gets a clear vocoder: a changed but still clearly voiced signal, same length, no bad samples', async () => {
   const { page, errors } = await openGame();
   const r = await page.evaluate(async () => {
     const ac = new AudioContext();
     const buf = await ac.decodeAudioData(await (await fetch('assets/voice/ryan/RyanVictory.m4a')).arrayBuffer());
-    const out = await Sfx.vocode(buf, { wet: 0.5, dry: 0.85 });
+    const out = await Sfx.vocode(buf, Sfx.voiceFx.ryan.vocoder);
     const a = buf.getChannelData(0), b = out.getChannelData(0);
     let sa = 0, sb = 0, sab = 0, bad = 0;
     for (let i = 0; i < a.length; i++) { sa += a[i] * a[i]; sb += b[i] * b[i]; sab += a[i] * b[i]; if (!isFinite(b[i])) bad++; }
@@ -400,9 +400,9 @@ test('Ryan\'s voice gets a slight vocoder: a changed but still clearly voiced si
     return { sameLength: out.length === buf.length, bad, corr: sab / Math.sqrt(sa * sb), level: Math.sqrt(sb / sa) };
   });
   assert.ok(r.sameLength && r.bad === 0);
-  assert.ok(r.corr < 0.95, `barely changed (correlation ${r.corr.toFixed(2)})`);
-  assert.ok(r.corr > 0.5, `no longer sounds like the same voice (correlation ${r.corr.toFixed(2)})`);
-  assert.ok(r.level > 0.8 && r.level < 1.25, `loudness changed by x${r.level.toFixed(2)}`);
+  assert.ok(r.corr < 0.7, `barely changed (correlation ${r.corr.toFixed(2)})`);
+  assert.ok(r.corr > 0.2, `no longer sounds like the same voice (correlation ${r.corr.toFixed(2)})`);
+  assert.ok(r.level > 0.8 && r.level < 1.5, `loudness changed by x${r.level.toFixed(2)}`);
   assert.deepStrictEqual(errors, []);
   await page.close();
 });
