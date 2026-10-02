@@ -373,7 +373,7 @@ const Sfx = (() => {
     roundWin: 'RyanPostVictoryTaunt.m4a',            // he wins a round (but not the match): a taunt
   };
   VOICE.sam = {
-    hitTaken: 'SamAyee.mp3',                        // someone lands a punch or kick on him
+    hitTaken: ['SamHitTaken.mp3', 'SamAyee.mp3'],    // someone lands a punch or kick on him (one of two, at random)
     bigHit: 'SamWoaaahh.mp3',                       // a heavy blow: 15% of his health or more
     fallOff: 'SamFallsOffMap.mp3',                  // he falls off the map
     matchStart: 'SamMatchStart.mp3',                // at the start of a match (not if a matchup line is playing)
@@ -518,6 +518,9 @@ const Sfx = (() => {
     // Being hit by anything (projectile, special, ultimate, the ball...) without a line of its own plays the plain hit-taken line.
     const entry = lines[occasion] || (occasion.startsWith('hitBy') ? lines.hitTaken : null);
     if (!entry || !ensure()) return;
+    // Hit-taken lines (including when they stand in for a projectile or special hit) only play some of
+    // the time, so a string of hits isn't a string of grunts.
+    if (entry === lines.hitTaken && Math.random() >= api.hitTakenChance) return;
     const file = Array.isArray(entry) ? entry[Math.floor(Math.random() * entry.length)] : entry;
     // (a file name with a folder in it, like 'artur/Line.mp3', is taken from that folder instead)
     const path = file.includes('/') ? `assets/voice/${file}` : `assets/voice/${charId}/${file}`;
@@ -561,6 +564,7 @@ const Sfx = (() => {
 
   const api = {
     voice, loudnessGain, vocode,
+    hitTakenChance: 0.5, // chance that a hit-taken line plays when its trigger fires
     swing: (pan) => play('swing', pan),
     hover: (pan) => play('hover', pan),
     roll: (pan) => play('roll', pan),

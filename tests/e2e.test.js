@@ -343,6 +343,7 @@ test('Robert\'s voice lines play deeper while he is transformed (and only then)'
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     Sfx.ensure();
     Sfx.settings.muted = false; // (an earlier test may have muted it in this browser profile)
+    Sfx.hitTakenChance = 1;     // (hit-taken lines are otherwise played only half the time)
     Sfx.voice('robert', 'selected'); // in the menus: never deep
     const menu = Sfx.lastVoice.deep;
     Game.startMatch('robert', 'keenan', () => {}, { ball: 'off' });
@@ -402,6 +403,32 @@ test('Ryan\'s voice gets a slight vocoder: a changed but still clearly voiced si
   assert.ok(r.corr < 0.95, `barely changed (correlation ${r.corr.toFixed(2)})`);
   assert.ok(r.corr > 0.5, `no longer sounds like the same voice (correlation ${r.corr.toFixed(2)})`);
   assert.ok(r.level > 0.8 && r.level < 1.25, `loudness changed by x${r.level.toFixed(2)}`);
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+});
+
+test('hit-taken lines only play about half the time; other lines always play', async () => {
+  const { page, errors } = await openGame();
+  const r = await page.evaluate(async () => {
+    const wait = (ms) => new Promise((x) => setTimeout(x, ms));
+    Sfx.ensure(); Sfx.settings.muted = false;
+    await wait(800);
+    const seen = (occasion, charId = 'keenan') => { Sfx.lastVoice = null; Sfx.voice(charId, occasion); return !!Sfx.lastVoice; };
+    const out = { chance: Sfx.hitTakenChance };
+    Sfx.hitTakenChance = 1;
+    out.always = seen('hitTaken');
+    await wait(750);
+    Sfx.hitTakenChance = 0;
+    out.never = seen('hitTaken');
+    out.fallbackNever = seen('hitByUltimate');   // a special/ult hit with no line of its own plays the hit-taken line, so it is chanced too
+    out.otherLines = seen('hitByProjectile');    // Keenan has his own projectile line: always plays
+    await wait(750);
+    out.big = seen('bigHit', 'carlos');           // not a hit-taken line
+    return out;
+  });
+  assert.strictEqual(r.chance, 0.5);
+  assert.ok(r.always && !r.never && !r.fallbackNever);
+  assert.ok(r.otherLines && r.big, 'only hit-taken lines are chanced');
   assert.deepStrictEqual(errors, []);
   await page.close();
 });
