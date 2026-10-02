@@ -2,3 +2,6 @@
 node_modules/
 assets/sprites/*/_templates/
 fbx/
+# Blender: asset-browser downloads and auto-backups
+blender/assets/
+blender/orchard.blend1
