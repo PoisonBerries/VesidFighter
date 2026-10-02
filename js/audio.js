@@ -433,7 +433,7 @@ const Sfx = (() => {
   }
   // Voice effects applied once, when a line is loaded. Ryan gets a slight vocoder: his voice is
   // blended with a robotic synth "carrier" that is shaped by his voice, band by band.
-  const VOICE_FX = { ryan: { vocoder: { wet: 1.1, dry: 0.5 } } };
+  const VOICE_FX = { ryan: { vocoder: { wet: 0.8, dry: 0.68 } } };
 
   // A channel vocoder, rendered offline: the voice is split into frequency bands; each band's loudness
   // (an envelope) opens the matching band of a synth carrier (two detuned saws a fifth apart plus a
