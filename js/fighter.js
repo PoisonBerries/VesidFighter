@@ -87,6 +87,7 @@ class Fighter {
     this.sinceHit = 999; // frames since last taking a hit (Phase Step window)
     this._comboHeld = false; // jump + crouch both down last frame (to catch the moment the pair is completed)
     this._crouchHeld = false; // crouch down last frame (pressing it on a platform drops you through)
+    this.heldByStage = false; // held up by the stage's monster (stages.js)
     this.phaseStepFrom = 0;
     this.phaseStepTo = 0;
 
@@ -617,6 +618,7 @@ class Fighter {
     this.fartPower = 0; this.jumpStacks = 0; this.poisonFrom = null; this.poisonTickDamage = 0;
     this._comboHeld = false;
     this._crouchHeld = false;
+    this.heldByStage = false;
     this.blocking = false;
     this.guarding = false;
     this.facingLocked = false;
@@ -655,10 +657,11 @@ class Fighter {
     this._controls = controls;
     this._updateStatusTimers();
 
-    // Picked up by Robert: carried around by him (he positions us), no input, no physics.
+    // Picked up by Robert (or the orchard's monster, stages.js): carried
+    // around by them (they position us), no input, no physics.
     if (this.state === 'grabbed') {
       this.vx = 0; this.vy = 0;
-      if (opponent.state !== 'grabslam' && opponent.state !== 'grabbeat') this.state = 'fall';
+      if (!this.heldByStage && opponent.state !== 'grabslam' && opponent.state !== 'grabbeat') this.state = 'fall';
       return;
     }
 

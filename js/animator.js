@@ -659,6 +659,14 @@ const Animator = (() => {
 
       case 'grabbed': { // the one being carried: upside down, kicking
         const wig = Math.sin(now / 55);
+        if (fighter.heldByStage) {
+          // In the orchard giant's fist (stages.js): upright, squeezed round
+          // the middle, arms flailing above it and legs kicking below.
+          T.spin = 0; T.armPose = 'flail'; T.crouch = 0.02; T.lean = 4 * wig;
+          T.fA = F(-8 + 9 * wig, -6 * Math.abs(wig)); T.fB = F(8 - 9 * wig, -6 * Math.abs(Math.cos(now / 55)));
+          T.rate = 50;
+          break;
+        }
         T.spin = Math.PI * 0.92;
         T.armPose = 'flail'; T.crouch = 0.04;
         T.fA = F(-10 + 5 * wig, -12); T.fB = F(10 - 5 * wig, -16);

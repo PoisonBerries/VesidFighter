@@ -43,6 +43,31 @@ const STAGES = {
       firstAt: 18 * 60, every: 30 * 60, warn: 120,
       damage: 14, knockback: 16, knockbackUp: 12, knockdownDuration: 40,
     },
+    // Once a round, 15s in, a giant comes in from far out in the valley,
+    // walks up the hill behind the orchard past the barn, wanders forward
+    // swatting at bugs, sprints, leaps to just behind the fence, and looks
+    // around -- and a red zone lights up on the road where its hand will come
+    // down, brighter and faster the closer it gets. When it reaches down
+    // (the zone "goes off"), whoever is standing in the zone is picked up and
+    // thrown away (a KO). Then it runs back the way it came. It comes down a
+    // gap between the tree columns (lanes, fight-line x) -- the one that puts
+    // its hand nearest a fighter when it sets off (each round, the other
+    // fighter). Phases in frames; the 3D view (renderer3d.js) moves and
+    // animates it to match.
+    monster: {
+      off: true,        // TODO: the giant is switched off for now -- we'll add him back later (delete this line)
+      at: 15 * 60,
+      lanes: [175, 970, 1235], // (clear of the apple tree, which would hide it, and the tractor)
+      hand: 145,        // its grabbing hand comes down this far to the right of its lane
+      range: 170,       // the danger zone: this far either side of that spot
+      top: 150,         // ...on the floor (not up a tree)
+      climb: 1450, swat: 270, run: 120, jump: 50, look: 270,
+      grab: 140, reach: 0.62, // grab: hands at the floor this far through
+      hold: 45, throw: 100, release: 0.65, // throw: turns side-on and lets go this far through
+      turn: 98, back: 230, descend: 500,
+      held: [110, 350], // where it holds them (x from its lane, height)
+      fling: [430, 520], // where its fist is as it lets go (x along the throw, height)
+    },
   },
 };
 const STAGE_IDS = Object.keys(STAGES);
@@ -54,7 +79,7 @@ const Stage = (() => {
   let state = fresh();
 
   function fresh() {
-    return { t: 0, cars: 0, car: null };
+    return { t: 0, cars: 0, car: null, monster: null, monsters: 0 };
   }
 
   // Switch stage (at the start of a match).
@@ -92,9 +117,85 @@ const Stage = (() => {
     return { x: car.x - c.width / 2, y: GROUND_Y - c.height + 14, w: c.width, h: c.height - 14 };
   }
 
+  // The monster (def.monster): where it is in its run, and what it does to
+  // whoever it catches.
+  function monsterNext(mon, phase) { mon.phase = phase; mon.t = 0; }
+  function updateMonster(fighters) {
+    const m = def.monster;
+    if (!m || m.off) return; // (switched off for now -- see def.monster.off)
+    let mon = state.monster;
+    if (!mon) {
+      if (state.t !== m.at) return;
+      // The lane that brings its hand nearest one fighter (the other one next round).
+      const who = fighters[state.monsters % fighters.length];
+      const lane = m.lanes.reduce((best, x) => (Math.abs(x + m.hand - who.x) < Math.abs(best + m.hand - who.x) ? x : best), m.lanes[0]);
+      state.monster = { phase: 'climb', t: 0, x: lane, held: null, dir: 0, thrown: 0 };
+      state.monsters++;
+      return;
+    }
+    mon.t++;
+    const handX = mon.x + m.hand;
+    const inReach = (f) => f.state !== 'ko' && f.state !== 'grabbed' && !(f.invulnerableTimer > 0)
+      && Math.abs(f.x - handX) <= m.range && f.y >= GROUND_Y - m.top;
+    const held = mon.held ? fighters.find((f) => f.slot === mon.held) : null;
+    if (mon.phase === 'grab' && !mon.held && mon.t === Math.round(m.reach * m.grab)) {
+      // Hand at the floor: catch whoever is still under it.
+      let pick = null;
+      for (const f of fighters) if (inReach(f) && (!pick || Math.abs(f.x - handX) < Math.abs(pick.x - handX))) pick = f;
+      if (pick) {
+        mon.held = pick.slot;
+        mon.gx = pick.x; mon.gy = pick.y; // lifted from where they stood
+        mon.dir = mon.x < (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2 ? -1 : 1; // it throws towards the nearer end
+        pick.state = 'grabbed'; pick.heldByStage = true;
+        pick.vx = 0; pick.vy = 0; pick.grounded = false; pick.platform = null;
+        pick.blocking = false; pick.guarding = false; pick.stunFrames = 0; pick.actionTimer = 0;
+        if (typeof Effects !== 'undefined') Effects.shake(10, 14);
+      }
+    }
+    if (held && held.state === 'grabbed') {
+      // Lifted up into its hand as it straightens, held there, then thrown.
+      const r0 = Math.round(m.reach * m.grab);
+      const k = mon.phase === 'grab' ? Math.min(1, Math.max(0, (mon.t - r0) / (m.grab - r0))) : 1;
+      const e = k * k * (3 - 2 * k);
+      const gx = mon.gx === undefined ? handX : mon.gx, gy = mon.gy === undefined ? GROUND_Y : mon.gy;
+      held.x = gx + (mon.x + m.held[0] - gx) * e;
+      held.y = gy + (GROUND_Y - m.held[1] - gy) * e;
+      held.vx = 0; held.vy = 0;
+      if (mon.phase === 'throw' && mon.t === Math.round(m.throw * m.release)) {
+        // Flung away towards the nearer end of the floor, from its fist: a KO
+        // (and off the edge, for balance mode where an empty bar doesn't end
+        // the round).
+        const dir = mon.dir;
+        held.x = mon.x + dir * m.fling[0]; held.y = GROUND_Y - m.fling[1];
+        mon.thrown = dir;
+        held.heldByStage = false;
+        held.state = 'hitstun'; held.stunFrames = 60; held.launched = true;
+        held.vx = dir * 38; held.vy = -18;
+        held.hp = 0;
+        mon.held = null;
+        if (typeof Effects !== 'undefined') { Effects.shake(18, 24); Effects.spawnHitSpark(held.x, held.y - 40, '#ffe066', 'boom'); }
+      }
+    }
+    if (mon.t < m[mon.phase]) return;
+    switch (mon.phase) {
+      case 'climb': monsterNext(mon, 'swat'); break;
+      case 'swat': monsterNext(mon, 'run'); break;
+      case 'run': monsterNext(mon, 'jump'); break;
+      case 'jump': monsterNext(mon, 'look'); break;
+      case 'look': monsterNext(mon, 'grab'); break; // reaches down whatever: the zone goes off
+      case 'grab': monsterNext(mon, mon.held ? 'hold' : 'turn'); break;
+      case 'hold': monsterNext(mon, 'throw'); break;
+      case 'throw': monsterNext(mon, 'back'); break; // already side-on: it wheels round as it runs
+      case 'turn': monsterNext(mon, 'back'); break;
+      case 'back': monsterNext(mon, 'descend'); break; // ...and off down the hill
+      default: state.monster = null;
+    }
+  }
+
   // One fight frame, before the fighters move.
   function update(fighters) {
     state.t++;
+    updateMonster(fighters);
     const c = def.car;
     if (!c) return;
     let car = state.car;
@@ -162,11 +263,24 @@ const Stage = (() => {
     state = s ? JSON.parse(JSON.stringify(s)) : fresh();
   }
 
+  // The giant's danger zone right now: { x1, x2, k } (k: 0 when it appears,
+  // 1 as it goes off), or null.
+  function monsterZone() {
+    const m = def.monster, mon = state.monster;
+    if (!m || !mon) return null;
+    const reachAt = Math.round(m.reach * m.grab), total = m.look + reachAt;
+    const t = mon.phase === 'look' ? mon.t : mon.phase === 'grab' && mon.t <= reachAt ? m.look + mon.t : -1;
+    if (t < 0) return null;
+    const c = mon.x + m.hand;
+    return { x1: c - m.range, x2: c + m.range, k: t / total };
+  }
+
   return {
-    use, reset, update, platforms, platform, save, load, carStart,
+    use, reset, update, platforms, platform, save, load, carStart, monsterZone,
     id: () => id,
     def: () => def,
     car: () => state.car,
+    monster: () => state.monster,
     time: () => state.t,
   };
 })();

@@ -55,7 +55,7 @@ if (webglAvailable()) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(30, CANVAS_WIDTH / CANVAS_HEIGHT, 0.1, 200);
+  const camera = new THREE.PerspectiveCamera(30, CANVAS_WIDTH / CANVAS_HEIGHT, 0.1, 420); // (far: the orchard's giant can be ~170 m out)
 
   function resize() {
     const w = canvas.clientWidth || CANVAS_WIDTH;
@@ -798,6 +798,305 @@ if (webglAvailable()) {
       });
     }
   }
+  // The monster (stages.js def.monster): a giant -- a rigged humanoid with
+  // its clips (assets/models/monster.glb: swat, run, jump, look, grab, throw,
+  // turn) --
+  // moved along its lane to match the game's phases. The clips' own forward
+  // travel is taken out (we move it), and it blends smoothly from one clip
+  // to the next. Whoever it's holding is drawn in its hand.
+  const MON = orchardDef.monster;
+  const MON_SCALE = 5.5;           // ~9.5 m tall
+  const MON_BLEND = 0.35;          // seconds to cross-fade between clips
+  const newHand = () => ({ hand: null, knuckle: null, fingers: [], thumb: [], tips: [], thumbTip: null, curlAxis: null, thumbAxis: null, curl: 0 });
+  const monster = { group: new THREE.Group(), mixer: null, acts: {}, w: {}, ready: false, last: null, hands: { Left: newHand(), Right: newHand() }, carry: 0, mats: [], yaw: undefined, ground: [] };
+  monster.group.visible = false;
+  orchard.add(monster.group);
+  (async () => {
+    if (!MON) return;
+    try {
+      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+      const gltf = await new GLTFLoader().loadAsync('assets/models/monster.glb');
+      const body = gltf.scene;
+      body.scale.multiplyScalar(MON_SCALE);
+      body.traverse((o) => {
+        if (o.isMesh) {
+          o.castShadow = true; o.frustumCulled = false;
+          o.material = o.material.clone(); monster.mats.push(o.material);
+        }
+        const hm = o.isBone && /(Left|Right)Hand(Index|Middle|Ring|Pinky|Thumb)?(\d)?$/.exec(o.name);
+        if (hm) {
+          const h = monster.hands[hm[1]], part = hm[2], n = hm[3];
+          if (!part) h.hand = o;
+          else if (part === 'Middle' && n === '1') h.knuckle = o;
+          if (part && part !== 'Thumb' && '123'.includes(n)) h.fingers.push(o);
+          if (part && part !== 'Thumb' && n === '4') h.tips.push(o);
+          if (part === 'Thumb' && '123'.includes(n)) h.thumb.push(o);
+          if (part === 'Thumb' && n === '4') h.thumbTip = o;
+        }
+      });
+      monster.group.add(body);
+      // Which way its fingers bend: the axis that brings the fingertips
+      // closest to the palm (measured once per hand, on the model as loaded).
+      const v = new THREE.Vector3(), palm = new THREE.Vector3();
+      const bestAxis = (bones, measure, angle) => {
+        let best = null;
+        for (const axis of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+          const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(...axis), angle);
+          const saved = bones.map((b) => b.quaternion.clone());
+          bones.forEach((b) => b.quaternion.multiply(q));
+          body.updateMatrixWorld(true);
+          const d = measure();
+          bones.forEach((b, i) => b.quaternion.copy(saved[i]));
+          if (!best || d < best.d) best = { d, axis: new THREE.Vector3(...axis) };
+        }
+        body.updateMatrixWorld(true);
+        return best && best.axis;
+      };
+      // (In the model's rest pose -- a T-pose, palms down -- a curl brings the
+      // fingertips down and in; twisting or bending back doesn't.)
+      for (const h of Object.values(monster.hands)) {
+        if (!h.hand || !h.knuckle || !h.tips.length) continue;
+        const fingerBones = h.fingers.filter((b) => b.name.endsWith('1'));
+        const curlScore = () => h.tips.reduce((a, t) => a + t.getWorldPosition(v).y, 0) + 0.5 * h.tips.reduce((a, t) => a + t.getWorldPosition(v).distanceTo(h.hand.getWorldPosition(palm)), 0);
+        h.curlAxis = bestAxis(fingerBones, curlScore, 0.6);
+        if (h.thumbTip) h.thumbAxis = bestAxis(h.thumb.filter((b) => b.name.endsWith('1')), () => h.thumbTip.getWorldPosition(v).distanceTo(h.knuckle.getWorldPosition(palm)), 0.5);
+      }
+      monster.mixer = new THREE.AnimationMixer(body);
+      for (const clip of gltf.animations) {
+        for (const tr of clip.tracks) {
+          if (!/Hips\.position$/.test(tr.name)) continue;
+          // Take out the clip's travel (start-to-end drift); keep its bob and sway.
+          const v = tr.values, n = v.length / 3, T = tr.times;
+          for (let k = 0; k < 3; k++) {
+            const d = v[(n - 1) * 3 + k] - v[k];
+            for (let i = 0; i < n; i++) v[i * 3 + k] -= d * ((T[i] - T[0]) / (T[n - 1] - T[0] || 1));
+          }
+        }
+        const act = monster.mixer.clipAction(clip);
+        act.play(); act.paused = true; act.setEffectiveWeight(0);
+        monster.acts[clip.name] = act; monster.w[clip.name] = 0;
+      }
+      monster.ready = true;
+    } catch (e) {
+      console.warn('[stage] could not load assets/models/monster.glb', e);
+    }
+  })();
+  // Its route, in metres (x across, z towards the camera; 0 is the fight
+  // line, the fence is at -2.3): in from far out in the valley to the right
+  // (out past the end of the poles, where the barn doesn't hide it), up the
+  // hill behind the orchard beside the barn, across in front of the barn
+  // into its lane, and down the lane to just behind the fence. Back out the
+  // same way. Its feet follow the ground (the scene's terrain, sampled).
+  const MON_SIDE = 10.2, MON_Z = { barn: -33, lane: -26, runEnd: -11, front: -3.6 };
+  const MON_FAR = [[38, -150], [18, -132], [MON_SIDE, -58], [MON_SIDE, -50]];
+  const ease = (x) => x * x * (3 - 2 * x);
+  const FIST = { 1: 1.3, 2: 1.5, 3: 1.0 }, THUMB = { 1: 0.35, 2: 0.55, 3: 0.45 };
+  const MON_WALK = 3.07 * MON_SCALE, MON_STRIDE = 2.37 * MON_SCALE; // metres per loop of the walk / run clips
+  // Along a route of [x, z] points, d metres in: where, and which way it's heading.
+  function along(pts, d) {
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x0, z0] = pts[i], [x1, z1] = pts[i + 1], len = Math.hypot(x1 - x0, z1 - z0);
+      if (d <= len || i === pts.length - 2) {
+        const k = Math.min(1, d / (len || 1));
+        return { x: x0 + (x1 - x0) * k, z: z0 + (z1 - z0) * k, yaw: Math.atan2(x1 - x0, z1 - z0) };
+      }
+      d -= len;
+    }
+  }
+  const routeLen = (pts) => pts.slice(1).reduce((a, p, i) => a + Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]), 0);
+  // Ground height: a ray down onto the scene's terrain, smoothed over a few
+  // metres (a giant's stride doesn't feel every bump), cached on a 1 m grid.
+  const groundCache = new Map(), groundRay = new THREE.Raycaster(), RAY_DOWN = new THREE.Vector3(0, -1, 0);
+  function groundAt(x, z) {
+    if (z > -24 || !monster.ground.length) return 0; // the orchard floor
+    // Blended between the four nearest grid samples, so it glides rather than steps.
+    const x0 = Math.floor(x), z0 = Math.floor(z), fx = x - x0, fz = z - z0;
+    const g = (gx, gz) => groundSample(gx, gz);
+    return (g(x0, z0) * (1 - fx) + g(x0 + 1, z0) * fx) * (1 - fz) + (g(x0, z0 + 1) * (1 - fx) + g(x0 + 1, z0 + 1) * fx) * fz;
+  }
+  function groundSample(x, z) {
+    const key = Math.round(x) + ',' + Math.round(z);
+    let h = groundCache.get(key);
+    if (h === undefined) {
+      let sum = 0, n = 0;
+      for (const [dx, dz] of [[0, 0], [2.5, 0], [-2.5, 0], [0, 2.5], [0, -2.5]]) {
+        groundRay.set(new THREE.Vector3(Math.round(x) + dx, 80, Math.round(z) + dz), RAY_DOWN);
+        const hit = groundRay.intersectObjects(monster.ground, false)[0];
+        if (hit) { sum += hit.point.y; n++; }
+      }
+      h = n ? sum / n : 0;
+      groundCache.set(key, h);
+    }
+    return h;
+  }
+  // Pose: one clip at a point in it (0..1); others fade out, keeping their pose.
+  function poseMonster(name, t01, dt) {
+    for (const [k, a] of Object.entries(monster.acts)) {
+      const target = k === name ? 1 : 0;
+      const w = monster.w[k] + Math.sign(target - monster.w[k]) * Math.min(Math.abs(target - monster.w[k]), dt / MON_BLEND);
+      monster.w[k] = w;
+      a.setEffectiveWeight(w);
+      if (k === name) {
+        const loops = k === 'run' || k === 'swat';
+        a.time = (loops ? ((t01 % 1) + 1) % 1 : Math.max(0, Math.min(0.999, t01))) * a.getClip().duration;
+      }
+    }
+    monster.mixer.update(0);
+    // A fist round whoever it's holding.
+    const q = new THREE.Quaternion();
+    for (const h of Object.values(monster.hands)) {
+      if (h.curl < 0.001 || !h.curlAxis) continue;
+      // a fist: knuckles ~75 degrees, middle joints ~85, tips ~55; the thumb across
+      for (const b of h.fingers) b.quaternion.multiply(q.setFromAxisAngle(h.curlAxis, FIST[b.name.slice(-1)] * h.curl));
+      if (h.thumbAxis) for (const b of h.thumb) b.quaternion.multiply(q.setFromAxisAngle(h.thumbAxis, THUMB[b.name.slice(-1)] * h.curl));
+    }
+  }
+  // Fading in at the bottom of the hill and out as it goes back down it.
+  function fadeMonster(a) {
+    for (const mat of monster.mats) {
+      mat.opacity = a;
+      const t = a < 0.999;
+      if (mat.transparent !== t) { mat.transparent = t; mat.needsUpdate = true; }
+      mat.depthWrite = !t;
+    }
+  }
+  function updateMonster(m, dt) {
+    const g = monster.group;
+    if (!m || !monster.ready) { g.visible = false; monster.last = null; return; }
+    const fresh = !g.visible;
+    if (fresh) for (const k in monster.w) monster.w[k] = 0; // a new appearance: no blend from last time
+    g.visible = true;
+    const u = Math.min(1, m.t / MON[m.phase]);
+    const LX = toX(m.x);
+    const up = MON_FAR;
+    const flat = [[MON_SIDE, -50], [MON_SIDE, MON_Z.barn]];
+    const run = [[MON_SIDE, MON_Z.barn], [LX, MON_Z.lane], [LX, MON_Z.runEnd]];
+    const back = [[LX, MON_Z.front], [LX, MON_Z.runEnd], [LX, MON_Z.lane], [MON_SIDE, MON_Z.barn], [MON_SIDE, -50]];
+    const away = MON_FAR.slice().reverse();
+    let x = LX, z = MON_Z.front, heading = 0, clip = 'look', at = 0, alpha = 1, turnInClip = false;
+    const go = (pts, uu, perLoop) => { const L = routeLen(pts), p = along(pts, L * uu); x = p.x; z = p.z; heading = p.yaw; at = (L * uu) / perLoop; };
+    switch (m.phase) {
+      case 'climb': // in from far out in the valley and up the hill
+        go(up, u, MON_WALK); clip = 'swat'; alpha = Math.min(1, u / 0.04); break;
+      case 'swat': // wanders across the top swatting at bugs (the walk carries on from the climb)
+        go(flat, u, MON_WALK); clip = 'swat'; at += routeLen(up) / MON_WALK; break;
+      case 'run': // flat out
+        go(run, u, MON_STRIDE); clip = 'run'; break;
+      case 'jump':
+        z = MON_Z.runEnd + (MON_Z.front - MON_Z.runEnd) * u; clip = 'jump'; at = Math.min(0.99, u); break;
+      case 'look':
+        clip = 'look'; at = u; break;
+      case 'grab': { // down over the fence to the floor, then up with whoever it caught
+        const r = MON.reach;
+        clip = 'grab'; at = u < r ? 0.4 * (u / r) : 0.4 + 0.22 * ((u - r) / (1 - r)); break;
+      }
+      case 'hold':
+        clip = 'grab'; at = 0.62 + 0.01 * Math.sin(u * Math.PI * 2); break;
+      case 'throw': { // turns side-on towards the nearer end of the floor, steps in and hurls them along it
+        const r = MON.release;
+        heading = (m.dir || 1) * (Math.PI / 2);
+        clip = 'throw'; at = u < r ? 0.4 * (u / r) : 0.4 + 0.15 * ((u - r) / (1 - r)); break;
+      }
+      case 'turn': // turns round (the clip itself turns it; it's facing away by the end)
+        clip = 'turn'; at = u; turnInClip = true; break;
+      case 'back': // runs back the way it came...
+        go(back, u, MON_STRIDE); clip = 'run'; break;
+      case 'descend': // ...down the hill and away into the valley
+        go(away, u, MON_STRIDE); clip = 'run'; at += routeLen(back) / MON_STRIDE; alpha = Math.min(1, (1 - u) / 0.12); break;
+    }
+    // Heading: eases round towards where it's going (the turn clip does its own turning).
+    if (turnInClip) heading = 0;
+    // (out of the turn clip it's already facing away: no second turn)
+    if (fresh || monster.yaw === undefined || (m.phase === 'back' && monster.last === 'turn')) monster.yaw = heading;
+    else monster.yaw += Math.atan2(Math.sin(heading - monster.yaw), Math.cos(heading - monster.yaw)) * Math.min(1, dt * 5);
+    // Which fist they're in: the left (the one it grabs with) -- unless it's
+    // throwing to the right, when it turns that fist away from us, so it
+    // passes them to the right one as it winds up.
+    const holding = !!m.held && (m.phase === 'grab' || m.phase === 'hold' || m.phase === 'throw');
+    monster.carry = m.phase === 'throw' && m.dir > 0 ? ease(Math.min(1, u / 0.3)) : 0;
+    const k8 = Math.min(1, (monster.last ? dt : 1) * 8);
+    monster.hands.Left.curl += ((holding ? 1 - monster.carry : 0) - monster.hands.Left.curl) * k8;
+    monster.hands.Right.curl += ((holding ? monster.carry : 0) - monster.hands.Right.curl) * k8;
+    poseMonster(clip, at, monster.last ? dt : 1);
+    fadeMonster(alpha);
+    monster.last = m.phase;
+    // Reaching for someone: it leans over so its hand comes down on them,
+    // and keeps them in that hand as it straightens.
+    let reach = 0;
+    if (m.held && m.gx !== undefined) reach = (m.gx - (m.x + MON.hand)) * S;
+    else if (m.phase === 'look' || m.phase === 'grab') {
+      const zn = Stage.monsterZone(), st = monster.fighters;
+      if (zn && st) {
+        const c = (zn.x1 + zn.x2) / 2;
+        const inZone = st.filter((f) => f.x >= zn.x1 && f.x <= zn.x2 && f.state !== 'ko').sort((a, b) => Math.abs(a.x - c) - Math.abs(b.x - c))[0];
+        if (inZone) reach = (inZone.x - c) * S;
+      }
+    }
+    if (!(m.held || m.phase === 'look' || m.phase === 'grab' || m.phase === 'hold' || m.phase === 'throw')) reach = 0;
+    monster.reach = (monster.reach || 0) + (reach - (monster.reach || 0)) * Math.min(1, (monster.last ? dt : 1) * 4);
+    g.position.set(x + monster.reach, groundAt(x, z), z);
+    g.rotation.y = monster.yaw;
+  }
+  // The danger zone (Stage.monsterZone): a red patch on the road where its
+  // hand will come down, getting brighter and pulsing faster, with a
+  // bright edge; it flashes as it goes off.
+  const zoneMat = new THREE.MeshBasicMaterial({ color: '#ff2a1a', transparent: true, depthWrite: false, opacity: 0 });
+  const zone = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), zoneMat);
+  zone.rotation.x = -Math.PI / 2; zone.renderOrder = 1; zone.visible = false;
+  const zoneEdgeMat = new THREE.MeshBasicMaterial({ color: '#ff5a3a', transparent: true, depthWrite: false, opacity: 0 });
+  const zoneEdges = [-1, 1].map((side) => {
+    const e = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), zoneEdgeMat);
+    e.rotation.x = -Math.PI / 2; e.renderOrder = 1; e.userData.side = side; scene.add(e); return e;
+  });
+  scene.add(zone); // (not in the orchard group: the Blender scene's arrival clears that out)
+  let zoneFlash = 0;
+  function updateZone(z, now, dt) {
+    if (z) {
+      const w = (z.x2 - z.x1) * S, cx = toX((z.x1 + z.x2) / 2), k = z.k;
+      const pulse = 0.5 + 0.5 * Math.sin(now / 1000 * (4 + 18 * k * k) * Math.PI);
+      zone.visible = true;
+      zone.position.set(cx, 0.015, 0); zone.scale.set(w, 1.7, 1);
+      zoneMat.color.set('#ff2a1a');
+      zoneMat.opacity = 0.12 + 0.45 * k + 0.2 * k * pulse;
+      zoneEdgeMat.opacity = 0.4 + 0.6 * pulse;
+      for (const e of zoneEdges) { e.visible = true; e.position.set(cx + e.userData.side * w / 2, 0.017, 0); e.scale.set(0.08, 1.7, 1); }
+      zoneFlash = k > 0.995 ? 1 : zoneFlash;
+      zone.userData.last = { cx, w };
+    } else if (zoneFlash > 0 && zone.userData.last) {
+      // Gone off: a white flash that fades.
+      zoneFlash = Math.max(0, zoneFlash - dt * 3);
+      zoneMat.color.set('#fff2e0'); zoneMat.opacity = 0.8 * zoneFlash;
+      zone.visible = zoneFlash > 0;
+      for (const e of zoneEdges) e.visible = false;
+    } else {
+      zone.visible = false; for (const e of zoneEdges) e.visible = false;
+    }
+  }
+  // Whoever it's holding: drawn in its fist -- their middle at the palm, the
+  // curled fingers in front of them, head and arms above, legs below. As it
+  // lets go they leave the fist smoothly rather than jumping.
+  const handPos = new THREE.Vector3(), knucklePos = new THREE.Vector3(), otherPos = new THREE.Vector3();
+  const fistPos = (h, out) => {
+    h.hand.getWorldPosition(out);
+    if (h.knuckle) out.lerp(h.knuckle.getWorldPosition(knucklePos), 0.6);
+    return out;
+  };
+  function holdInHand(card, f, now) {
+    const L = monster.hands.Left, R = monster.hands.Right;
+    const held = L.hand && monster.group.visible && f.state === 'grabbed' && f.heldByStage;
+    if (held) {
+      fistPos(L, handPos);
+      if (monster.carry > 0 && R.hand) handPos.lerp(fistPos(R, otherPos), monster.carry);
+      const sheet = card.sheet;
+      card.mesh.position.set(handPos.x, handPos.y + (sheet.feetY - sheet.h / 2 - 0.5 * f.height) * S, handPos.z);
+      card.blob.visible = card.ring.visible = false;
+      card.fistAt = card.mesh.position.clone(); card.fistTill = now + 220;
+    } else if (card.fistTill > now) {
+      card.mesh.position.lerp(card.fistAt, (card.fistTill - now) / 220);
+    }
+  }
+
+
   // The mud road's wet patches catch the sky all along it, not only where
   // the sun happens to glint: the road reflects a soft sky (the same colours
   // as the backdrop), and its baked roughness keeps the dry bits matte.
@@ -855,6 +1154,9 @@ if (webglAvailable()) {
       }
       addLawn(root);
       fadeFarPoles(root);
+      root.updateMatrixWorld(true);
+      monster.ground = ['terrain_near', 'backdrop_valley'].map((n) => root.getObjectByName(n)).filter((o) => o && o.isMesh);
+      groundCache.clear();
       wetRoads(root);
       const carNode = root.getObjectByName('car');
       if (carNode) {
@@ -878,7 +1180,7 @@ if (webglAvailable()) {
         c.legs = []; c.custom = true;
       });
       // Out with the grey-box scenery; the moving parts stay (now wearing the new models).
-      const keep = new Set([car, ...cows.map((c) => c.cow)]);
+      const keep = new Set([car, monster.group, ...cows.map((c) => c.cow)]);
       for (const child of [...orchard.children]) if (!keep.has(child)) orchard.remove(child);
       orchard.add(root);
       // Each animation plays on whichever object holds what it moves (the
@@ -1309,6 +1611,14 @@ if (webglAvailable()) {
           dist = h / tanV;
         }
       }
+      // The orchard giant holding someone: pull back to show all of it.
+      const mon = currentLook === 'orchard' && Stage.monster();
+      if (mon && monster.group.visible && (mon.held || mon.phase === 'throw' || (mon.phase === 'grab' && mon.t > MON.grab * MON.reach))) {
+        const gx = monster.group.position.x;
+        tx = THREE.MathUtils.clamp((tx + gx) / 2, toX(STAGE_LEFT_EDGE) + 1.6, toX(STAGE_RIGHT_EDGE) - 1.6);
+        ty = Math.max(ty, 5.2);
+        dist = Math.max(dist, 24);
+      }
     } else {
       // Menus: slow drift over the empty stage.
       tx = Math.sin(t * 0.00012) * 1.5;
@@ -1369,6 +1679,10 @@ if (webglAvailable()) {
       lawnTime.value = now / 1000;
       updateCows(now);
       updateCar(state ? Stage.car() : null, now);
+      monster.fighters = state ? [state.p1, state.p2] : null;
+      updateMonster(state ? Stage.monster() : null, dt);
+      updateZone(state ? Stage.monsterZone() : null, now, dt);
+      if (state) { holdInHand(cards.p1, state.p1, now); holdInHand(cards.p2, state.p2, now); }
     }
 
     renderer.render(scene, camera);
