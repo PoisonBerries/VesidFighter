@@ -1,11 +1,19 @@
 // Match/round flow: countdown -> fight -> round end -> (next round or match
-// end). Also owns hit-detection between the two fighters each tick, the
+// end). Also owns hit-detection between the fighters each tick, the
 // projectile list (ranged specials/ultimates), the ball and the
 // ultimate-meter economy.
+//
+// Usually two fighters (p1, p2). Online free-for-all has up to four: a
+// fighter who is KO'd or falls off is out for the round, and the last one
+// standing wins it.
 
 const Game = (() => {
-  let p1 = null;
+  let fighters = []; // everyone in the match, in slot order
+  let p1 = null; // fighters[0] and fighters[1]: the two-player code, the CPU and the HUD use these
   let p2 = null;
+  let ffa = false; // free-for-all: double health, eliminations, longer rounds
+  let roundTime = ROUND_TIME;
+  let roundsToWin = ROUNDS_TO_WIN;
   let matchState = 'idle'; // idle | countdown | fight | roundEnd | matchEnd
   let stateTimer = 0; // seconds remaining in current non-fight state
   let roundTimeLeft = ROUND_TIME;
@@ -18,46 +26,112 @@ const Game = (() => {
   // { w: winner slot or null, how: 'ko' | 'ringout' | 'time' | 'draw', t: seconds fought }.
   let roundLog = [];
 
+  const bySlot = (slot) => fighters.find((f) => f.slot === slot) || null;
+  // Still in the round. (Two-player rounds end on the first KO, so there
+  // nobody is ever out while the fight goes on.)
+  const alive = () => fighters.filter((f) => !f.out);
+  // Not fallen off the stage: still simulated and drawn (a KO'd fighter
+  // lies where they dropped).
+  const onStage = () => fighters.filter((f) => f.out !== 'ringout');
+
+  // Who a fighter is up against: the other one, or in a free-for-all the
+  // nearest fighter still in (ties go to the lower slot, so every machine
+  // picks the same one).
+  function foeOf(f) {
+    if (fighters.length === 2) return f === p1 ? p2 : p1;
+    let best = null, bestD = Infinity;
+    for (const o of fighters) {
+      if (o === f || o.out) continue;
+      const d = Math.abs(o.x - f.x);
+      if (d < bestD) { bestD = d; best = o; }
+    }
+    return best || fighters.find((o) => o !== f);
+  }
+
   function aabbOverlap(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
 
+  // startMatch(char1Id, char2Id, onEnd, opts), or for more than two
+  // fighters startMatch([charIds...], onEnd, opts).
   // opts.ball: 'rally' | 'bomb' | 'off' (or false) -- defaults to BALL_MODE.
   // opts.balance: balance mode (no KOs, ring-outs only) -- defaults to BALANCE_ENABLED.
   // opts.stage: a stage id (stages.js) -- defaults to DEFAULT_STAGE.
-  function startMatch(char1Id, char2Id, matchEndCallback, opts) {
+  // opts.ffa: free-for-all rules (double health, last one standing, one round).
+  // opts.slots: the fighters' slot names (default p1, p2, p3...); online
+  //   free-for-all uses the players' room slots, which can have gaps.
+  function startMatch(a, b, c, d) {
+    if (Array.isArray(a)) return begin(a, b, c);
+    return begin([a, b], c, d);
+  }
+
+  function begin(charIds, matchEndCallback, opts) {
+    opts = opts || {};
     onMatchEnd = matchEndCallback;
-    const m = opts && opts.ball;
+    const m = opts.ball;
     ballMode = m === false ? 'off' : BALL_MODES.includes(m) ? m : BALL_MODE;
-    Stage.use(opts && opts.stage);
-    const [startX1, startX2] = Stage.def().spawns;
-    p1 = new Fighter('p1', CHARACTERS[char1Id], startX1, 1);
-    p2 = new Fighter('p2', CHARACTERS[char2Id], startX2, -1);
-    p2.paletteSwap = char1Id === char2Id;
-    p1.balanceMode = p2.balanceMode = opts && opts.balance !== undefined ? !!opts.balance : BALANCE_ENABLED;
-    p1.roundsWon = 0;
-    p2.roundsWon = 0;
+    ffa = !!opts.ffa;
+    roundTime = ffa ? FFA_ROUND_TIME : ROUND_TIME;
+    roundsToWin = ffa ? FFA_ROUNDS_TO_WIN : ROUNDS_TO_WIN;
+    Stage.use(opts.stage);
+    const balance = opts.balance !== undefined ? !!opts.balance : BALANCE_ENABLED;
+    const slots = opts.slots || charIds.map((_, i) => 'p' + (i + 1));
+    const spawns = spawnPoints(charIds.length);
+    fighters = charIds.map((id, i) => {
+      const f = new Fighter(slots[i], CHARACTERS[id], spawns[i].x, spawns[i].facing);
+      // Mirror match: the second (or later) copy of a character gets the alternate colours.
+      f.paletteSwap = charIds.indexOf(id) < i;
+      f.balanceMode = balance;
+      f.roundsWon = 0;
+      f.out = false;
+      if (ffa) {
+        f.hpMul = FFA_HP_MUL;
+        f.maxHp = f.character.maxHp * FFA_HP_MUL;
+        f.hp = f.maxHp;
+      }
+      return f;
+    });
+    p1 = fighters[0];
+    p2 = fighters[1];
     roundLog = [];
     Effects.reset();
-    // Matchup lines, once per match (not every round): each fighter's "vs:<opponent>" line, if it has one.
-    Effects.voice(char1Id, 'vs:' + char2Id);
-    if (char2Id !== char1Id) Effects.voice(char2Id, 'vs:' + char1Id);
+    if (!ffa) {
+      const [char1Id, char2Id] = charIds;
+      // Matchup lines, once per match (not every round): each fighter's "vs:<opponent>" line, if it has one.
+      Effects.voice(char1Id, 'vs:' + char2Id);
+      if (char2Id !== char1Id) Effects.voice(char2Id, 'vs:' + char1Id);
+    }
     // Then each fighter's general match-start line (skipped by the audio if a matchup line is already playing).
-    Effects.voice(char1Id, 'matchStart');
-    if (char2Id !== char1Id) Effects.voice(char2Id, 'matchStart');
+    for (const id of new Set(charIds)) Effects.voice(id, 'matchStart');
     startRound();
   }
 
+  // Where each fighter starts: the stage's two spawn points, or with more
+  // fighters, spread evenly from a little outside them (so everyone starts
+  // in shot), facing the middle.
+  function spawnPoints(n) {
+    const def = Stage.def();
+    if (n <= 2) return def.spawns.slice(0, n).map((x, i) => ({ x, facing: i === 0 ? 1 : -1 }));
+    const lo = Math.max(def.left + 120, def.spawns[0] - 100), hi = Math.min(def.right - 120, def.spawns[1] + 100);
+    const mid = (def.left + def.right) / 2;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const x = Math.round(lo + (hi - lo) * (i / (n - 1)));
+      out.push({ x, facing: x <= mid ? 1 : -1 });
+    }
+    return out;
+  }
+
   function startRound() {
-    const [startX1, startX2] = Stage.def().spawns;
+    const spawns = spawnPoints(fighters.length);
     Stage.reset();
-    p1.resetForRound();
-    p2.resetForRound();
-    p1.x = startX1; p1.y = GROUND_Y; p1.vx = 0; p1.vy = 0;
-    p1.hp = p1.maxHp; p1.state = 'idle'; p1.facing = 1; p1.specialCooldownTimer = 0; p1.ultCharge = 0; p1._visualPose = null;
-    p2.x = startX2; p2.y = GROUND_Y; p2.vx = 0; p2.vy = 0;
-    p2.hp = p2.maxHp; p2.state = 'idle'; p2.facing = -1; p2.specialCooldownTimer = 0; p2.ultCharge = 0; p2._visualPose = null;
-    roundTimeLeft = ROUND_TIME;
+    fighters.forEach((f, i) => {
+      f.resetForRound();
+      f.x = spawns[i].x; f.y = GROUND_Y; f.vx = 0; f.vy = 0;
+      f.hp = f.maxHp; f.state = 'idle'; f.facing = spawns[i].facing; f.specialCooldownTimer = 0; f.ultCharge = 0; f._visualPose = null;
+      f.out = false;
+    });
+    roundTimeLeft = roundTime;
     matchState = 'countdown';
     stateTimer = 3.0;
     projectiles = [];
@@ -66,26 +140,21 @@ const Game = (() => {
   }
 
   function endRound(winnerSlot, how) {
-    roundLog.push({ w: winnerSlot, how, t: Math.round((ROUND_TIME - roundTimeLeft) * 10) / 10 });
+    roundLog.push({ w: winnerSlot, how, t: Math.round((roundTime - roundTimeLeft) * 10) / 10 });
     matchState = 'roundEnd';
     stateTimer = 2.2;
-    if (winnerSlot === 'p1') {
-      p1.roundsWon++;
-      roundMessage = (p1.character.name + ' WINS THE ROUND');
-      p2.state = 'ko';
-      p1.state = 'victory';
-    } else if (winnerSlot === 'p2') {
-      p2.roundsWon++;
-      roundMessage = (p2.character.name + ' WINS THE ROUND');
-      p1.state = 'ko';
-      p2.state = 'victory';
+    const w = winnerSlot ? bySlot(winnerSlot) : null;
+    if (w) {
+      w.roundsWon++;
+      roundMessage = (w.character.name + ' WINS THE ROUND');
+      for (const f of fighters) if (f !== w) f.state = 'ko';
+      w.state = 'victory';
     } else {
-      roundMessage = "TIME'S UP -- DRAW";
+      roundMessage = how === 'time' || how === 'draw' ? "TIME'S UP -- DRAW" : 'DOUBLE KO -- DRAW';
     }
     // Winning the whole match (not just a round): the winner's victory line.
-    const w = winnerSlot === 'p1' ? p1 : winnerSlot === 'p2' ? p2 : null;
-    if (w && w.roundsWon >= ROUNDS_TO_WIN) {
-      Effects.voice(w.character.id, 'beats:' + (w === p1 ? p2 : p1).character.id); // a line for beating that particular fighter
+    if (w && w.roundsWon >= roundsToWin) {
+      if (!ffa) Effects.voice(w.character.id, 'beats:' + foeOf(w).character.id); // a line for beating that particular fighter
       Effects.voice(w.character.id, 'victory');
     } else if (w) {
       Effects.voice(w.character.id, 'roundWin'); // won the round, match goes on
@@ -93,9 +162,8 @@ const Game = (() => {
   }
 
   function checkMatchWinner() {
-    if (p1.roundsWon >= ROUNDS_TO_WIN) return 'p1';
-    if (p2.roundsWon >= ROUNDS_TO_WIN) return 'p2';
-    return null;
+    const w = fighters.find((f) => f.roundsWon >= roundsToWin);
+    return w ? w.slot : null;
   }
 
   function update(dt) {
@@ -131,7 +199,7 @@ const Game = (() => {
     if (matchState === 'matchEnd') {
       stateTimer -= dt;
       if (stateTimer <= 0) {
-        const winner = p1.roundsWon > p2.roundsWon ? 'p1' : 'p2';
+        const winner = checkMatchWinner();
         matchState = 'idle';
         // Once per match, even if rollback netcode replays these frames.
         const done = onMatchEnd;
@@ -145,17 +213,18 @@ const Game = (() => {
 
     roundTimeLeft -= dt;
 
-    Stage.update([p1, p2]);
-    p1.update(Net.controlsFor('p1'), p2);
-    p2.update(Net.controlsFor('p2'), p1);
+    Stage.update(alive());
+    // Everyone still on the stage moves (a KO'd fighter still drops to the
+    // floor; with no input), each against their nearest opponent.
+    for (const f of onStage()) f.update(Net.controlsFor(f.slot), foeOf(f));
     InputManager.endFrame();
 
     // "Runs away after a hit": a fighter who just landed a hit gets a voice occasion if the
     // opponent then backs off (running or jumping away) before the window closes.
-    for (const me of [p1, p2]) {
+    for (const me of alive()) {
       if (me.foeHitTimer > 0) {
         me.foeHitTimer--;
-        const foe = me === p1 ? p2 : p1, away = foe.x >= me.x ? 1 : -1;
+        const foe = foeOf(me), away = foe.x >= me.x ? 1 : -1;
         if (foe.state !== 'hitstun' && foe.state !== 'knockdown' && foe.state !== 'ko' && foe.vx * away >= 3 && Math.abs(foe.x - me.x) > 150) {
           me.foeHitTimer = 0;
           Effects.voice(me.character.id, 'foeRunsAway');
@@ -164,8 +233,9 @@ const Game = (() => {
     }
 
     // Toxic Rush: poison damage ticking this frame feeds whoever's cloud it is.
-    for (const v of [p1, p2]) {
-      if (v.poisonTickDamage > 0 && v.poisonFrom) (v.poisonFrom === 'p1' ? p1 : p2).gainFartPower(v.poisonTickDamage);
+    for (const v of fighters) {
+      const from = v.poisonTickDamage > 0 && v.poisonFrom ? bySlot(v.poisonFrom) : null;
+      if (from) from.gainFartPower(v.poisonTickDamage);
     }
 
     resolveCombat();
@@ -174,43 +244,54 @@ const Game = (() => {
     checkTransforms();
     Effects.update();
 
-    if (p1.hasFallenOff() && p1.state !== 'ko') {
-      p1.koByRingOut();
-      Effects.voice(p1.character.id, 'fallOff'); // the one who fell
-      Effects.voice(p2.character.id, 'enemyFall');
-      endRound('p2', 'ringout');
-      return;
-    }
-    if (p2.hasFallenOff() && p2.state !== 'ko') {
-      p2.koByRingOut();
-      Effects.voice(p2.character.id, 'fallOff');
-      Effects.voice(p1.character.id, 'enemyFall');
-      endRound('p1', 'ringout');
-      return;
+    // Falling off, then (balance mode aside) an empty health bar, puts a
+    // fighter out. Two players: the first one out ends the round. More:
+    // the round goes on until one is left -- and if the last ones all go
+    // out on the same frame, nobody wins it.
+    let lastHow = null;
+    for (const f of alive()) {
+      if (!f.hasFallenOff() || f.state === 'ko') continue;
+      f.koByRingOut();
+      Effects.voice(f.character.id, 'fallOff'); // the one who fell
+      if (!ffa) Effects.voice(foeOf(f).character.id, 'enemyFall');
+      if (!ffa) { loseRound(f, 'ringout'); return; }
+      lastHow = 'ringout';
+      f.out = 'ringout';
     }
     // Balance mode: an empty bar doesn't KO -- it just leaves you easy to knock off.
-    if (p1.hp <= 0 && !p1.balanceMode) {
-      p1.state = 'ko';
-      endRound('p2', 'ko');
-      return;
+    for (const f of alive()) {
+      if (f.hp > 0 || f.balanceMode) continue;
+      f.state = 'ko';
+      if (!ffa) { loseRound(f, 'ko'); return; }
+      lastHow = 'ko';
+      f.out = 'ko';
     }
-    if (p2.hp <= 0 && !p2.balanceMode) {
-      p2.state = 'ko';
-      endRound('p1', 'ko');
-      return;
+    if (lastHow) {
+      const left = alive();
+      if (left.length <= 1) { endRound(left.length ? left[0].slot : null, lastHow); return; }
+      Effects.shake(10, 14);
     }
     if (roundTimeLeft <= 0) {
       // Time up: whoever has more of their health left (not raw HP, which
       // would hand every timeout to the big characters).
-      const r1 = p1.hp / p1.maxHp, r2 = p2.hp / p2.maxHp;
-      if (r1 > r2) endRound('p1', 'time');
-      else if (r2 > r1) endRound('p2', 'time');
+      let best = null, bestR = -1, tie = false;
+      for (const f of alive()) {
+        const r = f.hp / f.maxHp;
+        if (r > bestR) { best = f; bestR = r; tie = false; } else if (r === bestR) tie = true;
+      }
+      if (best && !tie) endRound(best.slot, 'time');
       else endRound(null, 'draw');
     }
   }
 
+  // Two players: the first one out loses the round.
+  function loseRound(f, how) {
+    f.out = how;
+    endRound(foeOf(f).slot, how);
+  }
+
   function checkTransforms() {
-    for (const f of [p1, p2]) {
+    for (const f of fighters) {
       if (f.consumeTransformFlag()) {
         Effects.shake(14, 20);
         Effects.spawnHitSpark(f.x, f.y - f.height * 0.5, f.displayAccent);
@@ -219,9 +300,11 @@ const Game = (() => {
     }
   }
 
+  // Every fighter's attack against every other fighter still in. A swing
+  // that connects is spent (getHitbox goes null), so it hits one fighter.
   function resolveCombat() {
-    tryHit(p1, p2);
-    tryHit(p2, p1);
+    const live = alive();
+    for (const a of live) for (const d of live) if (a !== d) tryHit(a, d);
   }
 
   function grantUltCharge(attacker, defender, landedSpecial) {
@@ -374,12 +457,10 @@ const Game = (() => {
         continue;
       }
 
-      const defender = p.owner === p1 ? p2 : p1;
-      if (defender.state === 'ko') continue;
-
-      const hurt = defender.getHurtbox();
+      // Hits the first fighter (other than whoever fired it) in its way.
       const pbox = { x: p.x - p.w / 2, y: p.y - p.h / 2, w: p.w, h: p.h };
-      if (!aabbOverlap(pbox, hurt)) continue;
+      const defender = alive().find((f) => f !== p.owner && f.state !== 'ko' && aabbOverlap(pbox, f.getHurtbox()));
+      if (!defender) continue;
 
       if (defender.invulnerableTimer > 0) {
         if (defender._dodging) {
@@ -445,7 +526,7 @@ const Game = (() => {
   function freshBall(delay, blast) {
     return {
       phase: 'waiting', timer: delay, x: 0, y: 0, vx: 0, vy: 0, spin: 0,
-      fuse: BALL_FUSE, lastHit: null, grace: { p1: 0, p2: 0 }, hitstop: 0,
+      fuse: BALL_FUSE, lastHit: null, grace: Object.fromEntries(fighters.map((f) => [f.slot, 0])), hitstop: 0,
       heat: 0, live: false, liveBounces: 0, cool: 0, heldBy: null, holdT: 0, wallHit: false,
       blastX: blast ? blast.x : 0, blastY: blast ? blast.y : 0, blastT: blast ? 30 : 0,
     };
@@ -459,7 +540,6 @@ const Game = (() => {
   }
 
   const overStage = (x) => x > STAGE_LEFT_EDGE && x < STAGE_RIGHT_EDGE;
-  const otherOf = (f) => (f === p1 ? p2 : p1);
 
   // One frame of flight. Also used by the CPU (cpu.js) to predict the ball.
   function ballStep(b, mode) {
@@ -518,15 +598,15 @@ const Game = (() => {
     if (!ball) return;
     const b = ball;
     if (b.blastT > 0) b.blastT--;
-    if (b.grace.p1 > 0) b.grace.p1--;
-    if (b.grace.p2 > 0) b.grace.p2--;
+    for (const k of Object.keys(b.grace)) if (b.grace[k] > 0) b.grace[k]--;
 
     if (b.phase === 'waiting') {
       if (--b.timer > 0) return;
       // Materialise above the middle (rally) or between the fighters (bomb).
       b.phase = 'appearing';
       b.timer = BALL_APPEAR;
-      const mid = ballMode === 'rally' ? (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2 : (p1.x + p2.x) / 2;
+      const live = alive();
+      const mid = ballMode === 'rally' || !live.length ? (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2 : live.reduce((sum, f) => sum + f.x, 0) / live.length;
       b.x = Math.max(STAGE_LEFT_EDGE + 120, Math.min(STAGE_RIGHT_EDGE - 120, mid));
       b.y = BALL_SPAWN_Y;
       b.vx = 0; b.vy = 0;
@@ -550,15 +630,12 @@ const Game = (() => {
     ballStep(b, ballMode);
     if (b.wallHit && Math.abs(b.vx) > 2) Effects.spawnHitSpark(b.x + Math.sign(b.vx) * -BALL_RADIUS, b.y, '#b3a5d9', 'muzzle');
 
-    ballVsAttack(p1);
-    ballVsAttack(p2);
+    const live = alive();
+    for (const f of live) ballVsAttack(f);
     ballVsProjectiles();
-    if (ballMode === 'rally') {
-      ballVsBodyRally(p1);
-      ballVsBodyRally(p2);
-    } else {
-      ballVsBody(p1);
-      ballVsBody(p2);
+    for (const f of live) {
+      if (ball !== b) break;
+      if (ballMode === 'rally') ballVsBodyRally(f); else ballVsBody(f);
     }
     if (ball !== b) return;
 
@@ -596,8 +673,8 @@ const Game = (() => {
     b.vx = f.facing * vx;
     b.vy = vy;
     b.lastHit = f.slot;
+    for (const o of fighters) b.grace[o.slot] = 0;
     b.grace[f.slot] = 14 + b.hitstop;
-    b.grace[otherOf(f).slot] = 0;
     Effects.spawnHitSpark(b.x, b.y, '#fff3b0', 'ball:' + b.heat);
     Effects.spawnHitSpark(b.x, b.y, ballColor(b), 'muzzle');
     Effects.shake(4 + b.heat * 0.6, 7);
@@ -690,7 +767,7 @@ const Game = (() => {
       return;
     }
 
-    const owner = otherOf(f);
+    const owner = bySlot(b.lastHit) || foeOf(f);
     const heat = b.heat;
     const dir = b.vx >= 0 ? 1 : -1;
     const result = f.applyHit({
@@ -729,11 +806,11 @@ const Game = (() => {
   // Held in front of the catcher. Their next attack (or running out of time)
   // throws it; getting hit drops it.
   function updateHeldBall(b) {
-    const f = b.heldBy === 'p1' ? p1 : p2;
-    if (f.state === 'hitstun' || f.state === 'knockdown' || f.state === 'ko') {
+    const f = bySlot(b.heldBy);
+    if (!f || f.out || f.state === 'hitstun' || f.state === 'knockdown' || f.state === 'ko') {
       b.heldBy = null;
       b.vx = 0; b.vy = -5;
-      b.grace[f.slot] = 20;
+      if (f) b.grace[f.slot] = 20;
       return;
     }
     b.x = f.x + f.facing * (f.width / 2 + BALL_RADIUS - 6);
@@ -748,7 +825,7 @@ const Game = (() => {
 
   function explodeBall() {
     const b = ball;
-    for (const f of [p1, p2]) {
+    for (const f of alive()) {
       if (f.state === 'ko') continue;
       const d2 = distSqToRect(b.x, b.y, f.getHurtbox());
       if (d2 > BALL_BLAST_RADIUS * BALL_BLAST_RADIUS) continue;
@@ -757,8 +834,8 @@ const Game = (() => {
         damage: BALL_BLAST_DAMAGE * k, knockback: 14 * k, knockbackUp: 10 * k, hitstun: 28,
         blockDamageMul: 0.4, blockKnockbackMul: 0.6, fromFacing: f.x >= b.x ? 1 : -1,
       });
-      const other = f === p1 ? p2 : p1;
-      if ((result === 'hit' || result === 'blocked') && b.lastHit === other.slot) grantUltCharge(other, f, true);
+      const other = bySlot(b.lastHit);
+      if ((result === 'hit' || result === 'blocked') && other && other !== f) grantUltCharge(other, f, true);
     }
     Effects.spawnHitSpark(b.x, b.y, '#ff8a3d', 'boom');
     // Extra rings of sparks; 'muzzle' keeps them silent (one boom is enough).
@@ -803,7 +880,7 @@ const Game = (() => {
     const now = performance.now();
     if (now - lastSingRoll < 1000) return;
     lastSingRoll = now;
-    for (const f of [p1, p2]) if (Math.random() < 0.007) Sfx.voice(f.character.id, 'sing');
+    for (const f of alive()) if (Math.random() < 0.007) Sfx.voice(f.character.id, 'sing');
   }
 
   function render(ctx) {
@@ -811,15 +888,14 @@ const Game = (() => {
       maybeRandomVoice();
       playCountdownSounds();
       playStageSounds();
-      AbilityFX.update(p1);
-      AbilityFX.update(p2);
+      for (const f of fighters) AbilityFX.update(f);
     }
 
     // 3D view (renderer3d.js) draws the world; this canvas becomes a
     // transparent overlay for the HUD only.
     if (window.Renderer3D && Renderer3D.isActive()) {
       ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-      Renderer3D.render(p1 && p2 ? { p1, p2, projectiles, ball: visibleBall(), ballMode } : null);
+      Renderer3D.render(p1 && p2 ? { p1, p2, fighters: onStage(), projectiles, ball: visibleBall(), ballMode } : null);
       if (p1 && p2) drawOverlay(ctx);
       return;
     }
@@ -834,12 +910,10 @@ const Game = (() => {
     ctx.translate(shakeOffset.x, shakeOffset.y);
     if (view) ctx.transform(view.zoom, 0, 0, view.zoom, CANVAS_WIDTH / 2 - view.cx * view.zoom, GROUND_Y * (1 - view.zoom));
 
-    AbilityFX.drawBack(ctx, p1);
-    AbilityFX.drawBack(ctx, p2);
-    Renderer.drawFighter(ctx, p1);
-    Renderer.drawFighter(ctx, p2);
-    AbilityFX.drawFront(ctx, p1);
-    AbilityFX.drawFront(ctx, p2);
+    const shown = onStage();
+    for (const f of shown) AbilityFX.drawBack(ctx, f);
+    for (const f of shown) Renderer.drawFighter(ctx, f);
+    for (const f of shown) AbilityFX.drawFront(ctx, f);
     AbilityFX.drawTimed(ctx);
     Renderer.drawProjectiles(ctx, projectiles);
     drawBall2D(ctx, visibleBall());
@@ -851,12 +925,14 @@ const Game = (() => {
   }
 
   // Fallback 2D camera for big stages: follows the fighters, zooming out to
-  // fit both (the floor stays put on screen).
+  // fit them all (the floor stays put on screen).
   function view2D() {
-    const a = p1 || { x: 640 }, b = p2 || { x: 640 };
-    const zoom = Math.max(0.45, Math.min(1, CANVAS_WIDTH / (Math.abs(a.x - b.x) + 520)));
+    const xs = alive().map((f) => f.x);
+    if (!xs.length) xs.push(640);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const zoom = Math.max(0.45, Math.min(1, CANVAS_WIDTH / (maxX - minX + 520)));
     const w = CANVAS_WIDTH / zoom, lo = STAGE_LEFT_EDGE - 120 + w / 2, hi = STAGE_RIGHT_EDGE + 120 - w / 2;
-    const cx = lo > hi ? (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2 : Math.max(lo, Math.min(hi, (a.x + b.x) / 2));
+    const cx = lo > hi ? (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2 : Math.max(lo, Math.min(hi, (minX + maxX) / 2));
     return { zoom, cx };
   }
 
@@ -973,7 +1049,7 @@ const Game = (() => {
   }
 
   function drawOverlay(ctx) {
-    Renderer.drawHUD(ctx, p1, p2);
+    if (fighters.length > 2) Renderer.drawHUDMulti(ctx, fighters); else Renderer.drawHUD(ctx, p1, p2);
     if (matchState === 'fight') drawCarWarning(ctx);
 
     if (matchState === 'fight') {
@@ -984,7 +1060,7 @@ const Game = (() => {
     } else if (matchState === 'roundEnd') {
       Renderer.drawCenteredMessage(ctx, 'KO!', roundMessage);
     } else if (matchState === 'matchEnd') {
-      const winner = p1.roundsWon > p2.roundsWon ? p1 : p2;
+      const winner = bySlot(checkMatchWinner()) || p1;
       Renderer.drawCenteredMessage(ctx, winner.character.name + ' WINS!', 'Match Over');
     }
   }
@@ -1031,7 +1107,7 @@ const Game = (() => {
   function getSnapshot() {
     return {
       m: matchState, st: stateTimer, rt: roundTimeLeft, rm: roundMessage,
-      f: p1 && p2 ? [serializeFighter(p1), serializeFighter(p2)] : null,
+      f: p1 && p2 ? fighters.map(serializeFighter) : null,
       pr: projectiles.map(p => Object.assign({}, p, { owner: p.owner.slot })),
       bl: ball,
       sg: Stage.save(),
@@ -1045,11 +1121,8 @@ const Game = (() => {
     if (s.st !== undefined) stateTimer = s.st;
     if (s.rt !== undefined) roundTimeLeft = s.rt;
     if (s.rm !== undefined) roundMessage = s.rm;
-    if (s.f && p1 && p2) {
-      Object.assign(p1, s.f[0]);
-      Object.assign(p2, s.f[1]);
-    }
-    if (s.pr) projectiles = s.pr.map(p => Object.assign(p, { owner: p.owner === 'p1' ? p1 : p2 }));
+    if (s.f && p1 && p2) s.f.forEach((o, i) => { if (fighters[i]) Object.assign(fighters[i], o); });
+    if (s.pr) projectiles = s.pr.map(p => Object.assign(p, { owner: bySlot(p.owner) || p1 }));
     if (s.bl !== undefined) ball = s.bl;
     if (s.sg !== undefined) Stage.load(s.sg);
     Effects.replayEvents(s.fx);
@@ -1062,7 +1135,7 @@ const Game = (() => {
   function saveState() {
     return {
       m: matchState, st: stateTimer, rt: roundTimeLeft, rm: roundMessage,
-      f: p1 && p2 ? [JSON.parse(JSON.stringify(serializeFighter(p1))), JSON.parse(JSON.stringify(serializeFighter(p2)))] : null,
+      f: p1 && p2 ? fighters.map((f) => JSON.parse(JSON.stringify(serializeFighter(f)))) : null,
       pr: projectiles.map((p) => Object.assign({}, p, { owner: p.owner.slot })),
       bl: ball ? JSON.parse(JSON.stringify(ball)) : null,
       sg: Stage.save(),
@@ -1073,14 +1146,14 @@ const Game = (() => {
   function loadState(s) {
     matchState = s.m; stateTimer = s.st; roundTimeLeft = s.rt; roundMessage = s.rm;
     if (s.f && p1 && p2) {
-      [p1, p2].forEach((f, i) => {
+      fighters.forEach((f, i) => {
         const saved = s.f[i];
         // Drop fields added since the save, then copy (never share) the rest.
         for (const k of Object.keys(f)) if (!SNAPSHOT_SKIP.has(k) && !(k in saved)) delete f[k];
         Object.assign(f, JSON.parse(JSON.stringify(saved)));
       });
     }
-    projectiles = s.pr.map((p) => Object.assign({}, p, { owner: p.owner === 'p1' ? p1 : p2 }));
+    projectiles = s.pr.map((p) => Object.assign({}, p, { owner: bySlot(p.owner) || p1 }));
     ball = s.bl ? JSON.parse(JSON.stringify(s.bl)) : null;
     Stage.load(s.sg);
     roundLog = (s.rl || []).map((r) => Object.assign({}, r));
@@ -1092,7 +1165,7 @@ const Game = (() => {
 
   // Read-only view of the live match, for the CPU opponent (cpu.js).
   function world() {
-    return { p1, p2, projectiles, ball, ballMode, matchState, stage: Stage.id(), car: Stage.car(), platforms: Stage.platforms() };
+    return { p1, p2, fighters, projectiles, ball, ballMode, matchState, stage: Stage.id(), car: Stage.car(), platforms: Stage.platforms() };
   }
 
   // The finished match, for the stats: how each round ended and how much
@@ -1100,7 +1173,7 @@ const Game = (() => {
   function matchSummary() {
     if (!p1 || !p2) return null;
     const left = (f) => f.state === 'ko' ? 0 : Math.max(0, Math.round((f.hp / f.maxHp) * 100) / 100);
-    return { rounds: roundLog.map((r) => Object.assign({}, r)), hp: [left(p1), left(p2)] };
+    return { rounds: roundLog.map((r) => Object.assign({}, r)), hp: fighters.map(left) };
   }
 
   // Freeze the sim (e.g. opponent disconnected mid-match).
@@ -1114,5 +1187,6 @@ const Game = (() => {
     launch: (grounded, aim, strong, heat) => ballLaunch(grounded, aim, strong, ballMode, heat),
   };
 
-  return { fightDamageMul, startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, saveState, loadState, world, matchSummary, stop, ballDanger, ballColor, ballPhysics };
+  return { fightDamageMul, startMatch, update, render, getState, spawnProjectile, getSnapshot, applySnapshot, saveState, loadState, world, matchSummary, stop, ballDanger,
+    fighter: bySlot, fighters: () => fighters, isFfa: () => ffa, ballColor, ballPhysics };
 })();

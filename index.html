@@ -62,9 +62,10 @@
 
     <div id="screen-online" class="screen hidden">
       <h2>Play Online</h2>
-      <p class="hint">One player creates a room and shares the code, the other joins with it. Online, WASD (or the arrow keys) moves and J/K/L hit, special and ultimate.</p>
+      <p class="hint">One player creates a room and shares the code, the others join with it. Online, WASD (or the arrow keys) moves and J/K/L hit, special and ultimate.</p>
       <div class="menu-buttons">
         <button id="btn-host" class="btn-primary">Create Room</button>
+        <button id="btn-host-ffa" class="btn-primary" title="Up to four players, everyone for themselves. Double health; last one standing wins the round.">4-Player Free-for-All <span class="tag-exp">experimental</span></button>
       </div>
       <div class="online-join">
         <input id="join-code" type="text" maxlength="5" placeholder="ROOM CODE" autocomplete="off" spellcheck="false">
@@ -73,6 +74,38 @@
       <label class="direct-label"><input type="checkbox" id="direct-toggle"> Direct connection (no server -- use if the server is down; both players must match)</label>
       <p id="online-status" class="online-status"></p>
       <button id="btn-online-back">Back</button>
+    </div>
+
+    <div id="screen-ffa" class="screen hidden">
+      <h2>Free-for-All <span class="tag-exp">experimental</span></h2>
+      <p class="hint">Up to four players, everyone for themselves. Everyone has double health. Get KO'd or fall off and you're out. One round: the last one standing wins.</p>
+      <div id="ffa-code" class="ffa-code"></div>
+      <div id="ffa-players" class="ffa-players"></div>
+      <div class="ffa-pick-label">Your fighter</div>
+      <div class="roster-grid ffa-grid" id="ffa-cards"></div>
+      <div class="select-options" id="ffa-options">
+        <div id="ffa-stage" class="cpu-difficulty">
+          <span>Stage:</span>
+          <button data-stage="orchard" title="The big orchard: room for four.">Orchard</button>
+          <button data-stage="arena" title="The floating sky arena: a tight squeeze for four.">Sky Arena</button>
+        </div>
+        <div id="ffa-ball" class="cpu-difficulty">
+          <span>Ball:</span>
+          <button data-ball="rally">Rally</button>
+          <button data-ball="bomb">Bomb</button>
+          <button data-ball="off">Off</button>
+        </div>
+        <div id="ffa-balance" class="cpu-difficulty">
+          <span>Balance mode:</span>
+          <button data-balance="on" title="No KOs: you're only out when you fall off the stage.">On</button>
+          <button data-balance="off">Off</button>
+        </div>
+      </div>
+      <div class="row-buttons">
+        <button id="btn-ffa-leave">Leave</button>
+        <button id="btn-ffa-fight" class="btn-primary">Fight!</button>
+      </div>
+      <p id="ffa-note" class="online-status"></p>
     </div>
 
     <div id="screen-select" class="screen hidden">

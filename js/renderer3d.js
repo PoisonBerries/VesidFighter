@@ -1559,7 +1559,13 @@ if (webglAvailable()) {
     return { sheet, normal: sheet, wide: null, mesh: sheet.mesh, blob, ring, z, rotY: 0 };
   }
 
-  const cards = { p1: makeCard(0.03, 'p1'), p2: makeCard(-0.03, 'p2') };
+  // One card per side; p3/p4 (free-for-all) made the first time they play.
+  const CARD_Z = { p1: 0.03, p2: -0.03, p3: 0.06, p4: -0.06 };
+  const cards = { p1: makeCard(CARD_Z.p1, 'p1'), p2: makeCard(CARD_Z.p2, 'p2') };
+  const cardFor = (slot) => cards[slot] || (cards[slot] = makeCard(CARD_Z[slot] || 0, slot));
+  const hideCard = (c) => { c.mesh.visible = false; c.blob.visible = false; c.ring.visible = false; };
+  // Everyone being drawn (game.js passes the list; older callers just p1/p2).
+  const fightersOf = (state) => state.fighters || [state.p1, state.p2];
 
   function updateCard(card, f, dt) {
     // Nathan's Overgrowth punches reach far past the normal card, so while
@@ -1690,21 +1696,18 @@ if (webglAvailable()) {
       sheet.position.y = toY(v.y0 + c.height / v.k / 2);
     }
     backDrawn = false;
-    AbilityFX.drawBack(backFxCtx, state.p1);
-    AbilityFX.drawBack(backFxCtx, state.p2);
+    for (const f of fightersOf(state)) AbilityFX.drawBack(backFxCtx, f);
     if (backDrawn || backWasDrawn) backFxTex.needsUpdate = true; // (once more after the last drawing, to clear it)
     backFxSheet.userData.empty = !backDrawn && !backWasDrawn;
     backWasDrawn = backDrawn;
 
-    AbilityFX.drawFront(fxCtx, state.p1);
-    AbilityFX.drawFront(fxCtx, state.p2);
+    for (const f of fightersOf(state)) AbilityFX.drawFront(fxCtx, f);
     AbilityFX.drawTimed(fxCtx);
     Renderer.drawProjectiles(fxCtx, state.projectiles);
     Effects.draw(fxCtx);
     // P1/P2 markers live on this flat sheet rather than on the fighter cards,
     // which mirror when a fighter turns and would print the label backwards.
-    Renderer.drawPlayerMarker(fxCtx, state.p1);
-    Renderer.drawPlayerMarker(fxCtx, state.p2);
+    for (const f of fightersOf(state)) if (!f.out) Renderer.drawPlayerMarker(fxCtx, f);
     fxTex.needsUpdate = true;
   }
 
@@ -1910,16 +1913,20 @@ if (webglAvailable()) {
   function frameCamera(state, dt, t) {
     let tx, ty, dist;
     if (state) {
-      const a = state.p1, b = state.p2;
-      const ax = toX(a.x), bx = toX(b.x);
+      // Frame everyone still in (a free-for-all can have four).
+      let framed = fightersOf(state).filter((f) => !f.out);
+      if (!framed.length) framed = fightersOf(state);
+      const xs = framed.map((f) => toX(f.x));
       // Don't chase a fighter all the way down a ring-out.
-      const ay = Math.max(toY(a.y), -1.2), by = Math.max(toY(b.y), -1.2);
-      const tallest = Math.max(a.height, b.height) * S;
+      const ys = framed.map((f) => Math.max(toY(f.y), -1.2));
+      const ax = Math.min(...xs), bx = Math.max(...xs), ay = Math.min(...ys), by = Math.max(...ys);
+      const tallest = Math.max(...framed.map((f) => f.height)) * S;
       const spanX = Math.abs(ax - bx) + 2.8;
       const spanY = Math.abs(ay - by) + tallest + 1.6;
       const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
       dist = Math.max(spanY / 2 / tanV, spanX / 2 / (tanV * camera.aspect));
-      dist = THREE.MathUtils.clamp(dist, 7, LOOKS[currentLook].maxDist);
+      // (Pull back further when there are more than two to keep in shot.)
+      dist = THREE.MathUtils.clamp(dist, 7, LOOKS[currentLook].maxDist * (framed.length > 2 ? 1.3 : 1));
       // Keep the view over the stage (the arena's: +-3.2).
       tx = THREE.MathUtils.clamp((ax + bx) / 2, toX(STAGE_LEFT_EDGE) + 1.6, toX(STAGE_RIGHT_EDGE) - 1.6);
       ty = Math.max((ay + by) / 2 + tallest * 0.55, 0.9);
@@ -1976,13 +1983,14 @@ if (webglAvailable()) {
     sun.target.position.set(camTarget.x, 0, 0);
 
     if (state) {
-      updateCard(cards.p1, state.p1, dt);
-      updateCard(cards.p2, state.p2, dt);
+      const shown = fightersOf(state);
+      for (const [slot, c] of Object.entries(cards)) if (!shown.some((f) => f.slot === slot)) hideCard(c);
+      for (const f of shown) updateCard(cardFor(f.slot), f, dt);
       updateFx(state);
       updateBall(state.ball, state.ballMode, now);
     } else {
       updateBall(null, null, now);
-      for (const c of Object.values(cards)) { c.mesh.visible = false; c.blob.visible = false; c.ring.visible = false; }
+      for (const c of Object.values(cards)) hideCard(c);
       fxCtx.setTransform(1, 0, 0, 1, 0, 0);
       fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
       fxTex.needsUpdate = true;
@@ -2005,10 +2013,10 @@ if (webglAvailable()) {
       lawnTime.value = now / 1000;
       updateCows(now);
       updateCar(state ? Stage.car() : null, now);
-      monster.fighters = state ? [state.p1, state.p2] : null;
+      monster.fighters = state ? fightersOf(state) : null;
       updateMonster(state ? Stage.monster() : null, dt);
       updateZone(state ? Stage.monsterZone() : null, now, dt);
-      if (state) { holdInHand(cards.p1, state.p1, now); holdInHand(cards.p2, state.p2, now); }
+      if (state) for (const f of fightersOf(state)) holdInHand(cardFor(f.slot), f, now);
     }
 
     renderer.render(scene, camera);

@@ -7,6 +7,7 @@ const UI = (() => {
     title: document.getElementById('screen-title'),
     select: document.getElementById('screen-select'),
     online: document.getElementById('screen-online'),
+    ffa: document.getElementById('screen-ffa'),
     matchend: document.getElementById('screen-matchend'),
     pause: document.getElementById('pause-menu'),
   };
@@ -436,6 +437,7 @@ const UI = (() => {
 
   // ---- Match flow ----
   function startFight() {
+    if (Net.isFfa()) { startFfa(); return; }
     if (Net.isOnline()) {
       if (!Net.isLeader()) return; // P1 drives match start
       const mid = Net.isRollback() ? Net.newMatchId() : undefined;
@@ -549,7 +551,7 @@ const UI = (() => {
   document.getElementById('btn-rematch').addEventListener('click', startFight);
   document.getElementById('btn-change-chars').addEventListener('click', () => {
     Net.sendCtrl({ t: 'select' });
-    openSelect();
+    if (Net.isFfa()) openFfa(); else openSelect();
   });
   document.getElementById('btn-main-menu').addEventListener('click', () => {
     Net.disconnect();
@@ -620,6 +622,7 @@ const UI = (() => {
   });
   Net.on('ctrl', (msg) => {
     if (!msg) return;
+    if (Net.isFfa()) { onFfaCtrl(msg); return; }
     if (msg.t === 'pick' && (msg.slot === 'p1' || msg.slot === 'p2') && CHARACTERS[msg.id]) {
       selected[msg.slot] = msg.id;
       if (!screens.select.classList.contains('hidden')) {
@@ -639,6 +642,173 @@ const UI = (() => {
       onMatchEnd(msg.winner);
     }
   });
+
+  // ---- Free-for-all (online, experimental) ----
+  // Up to four players in one relay room. Everyone picks their own fighter
+  // here; player 1 picks the stage and ball and starts the match.
+  let ffaCode = '';
+  let ffaPicks = {}; // slot -> character id, everyone in the room
+  let ffaPick = 'keenan';
+  try { const v = localStorage.getItem('vf_ffa_pick'); if (CHARACTERS[v]) ffaPick = v; } catch (e) { /* storage blocked */ }
+  let ffaStage = 'orchard';
+
+  function openFfa() {
+    hideAll();
+    show('ffa');
+    renderFfa();
+  }
+
+  function renderFfa() {
+    const me = Net.localSlot(), leader = Net.isLeader(), roster = Net.roster();
+    document.getElementById('ffa-code').innerHTML = ffaCode
+      ? `${ffaCode}<small>${leader ? 'Send this code to the others. ' : ''}${roster.length} of ${FFA_MAX_PLAYERS} players</small>` : '';
+    const players = document.getElementById('ffa-players');
+    players.innerHTML = '';
+    for (const slot of ['p1', 'p2', 'p3', 'p4']) {
+      const el = document.createElement('div');
+      el.style.setProperty('--slot-color', PLAYER_COLORS[slot]);
+      if (!roster.includes(slot)) {
+        el.className = 'ffa-player empty';
+        el.textContent = 'Waiting for a player...';
+      } else {
+        const id = ffaPicks[slot];
+        el.className = 'ffa-player';
+        el.innerHTML = `<div class="slot">P${slot.slice(1)}${slot === me ? '<span class="you">YOU</span>' : ''}${slot === 'p1' ? ' · host' : ''}</div>
+          ${id ? `<img src="assets/heads/${id}.png" alt=""><div class="char">${CHARACTERS[id].name}</div>` : '<div class="char">Choosing...</div>'}`;
+      }
+      players.appendChild(el);
+    }
+    const grid = document.getElementById('ffa-cards');
+    grid.innerHTML = '';
+    for (const char of CHARACTER_LIST) {
+      const icon = document.createElement('div');
+      icon.className = 'roster-icon' + (ffaPick === char.id ? ' selected' : '');
+      icon.title = `${char.name} -- ${char.title}`;
+      icon.innerHTML = `
+        <div class="roster-avatar">
+          <div class="icon-fallback" style="background:${char.color}"></div>
+          <img class="icon-img" src="assets/heads/${char.id}.png" alt="" onerror="this.style.display='none'">
+        </div>
+        <div class="roster-name">${char.name}</div>`;
+      icon.addEventListener('click', () => setFfaPick(char.id, true));
+      grid.appendChild(icon);
+    }
+    const random = document.createElement('div');
+    random.className = 'roster-icon random';
+    random.title = 'Pick a random fighter';
+    random.innerHTML = '<div class="roster-avatar"><span class="random-mark">?</span></div><div class="roster-name">Random</div>';
+    random.addEventListener('click', () => {
+      const others = CHARACTER_LIST.filter((c) => c.id !== ffaPick);
+      setFfaPick(others[Math.floor(Math.random() * others.length)].id, true);
+    });
+    grid.appendChild(random);
+
+    document.getElementById('ffa-options').style.display = leader ? '' : 'none';
+    for (const b of document.querySelectorAll('#ffa-stage button')) b.classList.toggle('active', b.dataset.stage === ffaStage);
+    for (const b of document.querySelectorAll('#ffa-ball button')) b.classList.toggle('active', b.dataset.ball === ballMode);
+    for (const b of document.querySelectorAll('#ffa-balance button')) b.classList.toggle('active', (b.dataset.balance === 'on') === balanceOn);
+    const fight = document.getElementById('btn-ffa-fight');
+    fight.disabled = !leader || roster.length < 2;
+    fight.style.display = leader ? '' : 'none';
+    const k = CONTROLS.solo;
+    document.getElementById('ffa-note').innerHTML = (leader
+      ? (roster.length < 2 ? 'Waiting for at least one more player...' : `Press Fight! when everyone's ready (${roster.length} players).`)
+      : 'Waiting for the host to start...') +
+      `<br>Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} crouch · ${keyLabel(k.guard)} guard · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate`;
+  }
+
+  function setFfaPick(id, voice) {
+    ffaPick = id;
+    try { localStorage.setItem('vf_ffa_pick', id); } catch (e) { /* storage blocked */ }
+    ffaPicks[Net.localSlot()] = id;
+    Net.sendCtrl({ t: 'pick', slot: Net.localSlot(), id });
+    if (voice) Sfx.voice(id, 'selected');
+    if (!screens.ffa.classList.contains('hidden')) renderFfa();
+  }
+
+  function startFfa() {
+    if (!Net.isLeader()) return;
+    const slots = Net.roster();
+    if (slots.length < 2) return;
+    const msg = {
+      t: 'start', ffa: true, slots, chars: slots.map((s) => ffaPicks[s] || 'keenan'),
+      mid: Net.newMatchId(), ball: ballMode, balance: balanceOn, stage: ffaStage,
+    };
+    Net.sendCtrl(msg);
+    beginFfa(msg);
+  }
+
+  function beginFfa(msg) {
+    hideAll();
+    window.VF_setPaused(false);
+    isPaused = false;
+    Cpu.stop();
+    Game.startMatch(msg.chars, onFfaMatchEnd, {
+      ffa: true, slots: msg.slots, ball: msg.ball, balance: msg.balance,
+      stage: STAGE_IDS.includes(msg.stage) ? msg.stage : DEFAULT_STAGE,
+    });
+    Net.startRollback(msg.mid, msg.slots);
+  }
+
+  function onFfaMatchEnd(winnerSlot) {
+    const leader = Net.isLeader();
+    document.getElementById('btn-rematch').disabled = !leader;
+    document.getElementById('btn-rematch').textContent = leader ? 'Rematch' : 'P1 picks rematch';
+    const w = Game.fighter(winnerSlot);
+    const outcome = winnerSlot === Net.localSlot() ? ' — YOU WIN!' : ' — YOU LOSE';
+    document.getElementById('matchend-title').textContent =
+      `${w ? w.character.name : '?'} (${winnerSlot.toUpperCase()}) WINS THE FREE-FOR-ALL!${outcome}`;
+    show('matchend');
+  }
+
+  function onFfaCtrl(msg) {
+    if (msg.t === 'pick' && typeof msg.slot === 'string' && CHARACTERS[msg.id]) {
+      ffaPicks[msg.slot] = msg.id;
+      if (!screens.ffa.classList.contains('hidden')) renderFfa();
+    } else if (msg.t === 'start' && msg.ffa && !Net.isLeader() && Array.isArray(msg.slots) && Array.isArray(msg.chars)
+      && msg.slots.length === msg.chars.length && msg.slots.length >= 2 && msg.slots.length <= FFA_MAX_PLAYERS
+      && msg.slots.includes(Net.localSlot()) && msg.chars.every((c) => CHARACTERS[c])) {
+      if (BALL_MODES.includes(msg.ball)) ballMode = msg.ball;
+      if (typeof msg.balance === 'boolean') balanceOn = msg.balance;
+      beginFfa(msg);
+    } else if (msg.t === 'select') {
+      openFfa();
+    }
+  }
+
+  Net.on('ffaRoom', ({ code, slot }) => {
+    ffaCode = code;
+    ffaPicks = { [slot]: ffaPick };
+    Cpu.stop();
+    cpuMode = false;
+    openFfa();
+  });
+  Net.on('roster', (roster) => {
+    for (const s of Object.keys(ffaPicks)) if (!roster.includes(s)) delete ffaPicks[s];
+    // Tell everyone (newcomers especially) what we've picked.
+    setFfaPick(ffaPick, false);
+  });
+
+  document.getElementById('btn-host-ffa').style.display = GAME_SERVER_URL ? '' : 'none';
+  document.getElementById('btn-host-ffa').addEventListener('click', () => {
+    setOnlineStatus('Creating room...');
+    Net.hostFfa();
+  });
+  document.getElementById('btn-ffa-fight').addEventListener('click', startFfa);
+  document.getElementById('btn-ffa-leave').addEventListener('click', () => {
+    Net.disconnect();
+    setOnlineStatus('');
+    show('online');
+  });
+  for (const b of document.querySelectorAll('#ffa-stage button')) {
+    b.addEventListener('click', () => { ffaStage = b.dataset.stage; renderFfa(); });
+  }
+  for (const b of document.querySelectorAll('#ffa-ball button')) {
+    b.addEventListener('click', () => { ballMode = b.dataset.ball; renderFfa(); });
+  }
+  for (const b of document.querySelectorAll('#ffa-balance button')) {
+    b.addEventListener('click', () => { balanceOn = b.dataset.balance === 'on'; renderFfa(); });
+  }
 
   document.getElementById('btn-resume').addEventListener('click', togglePause);
   document.getElementById('btn-restart-match').addEventListener('click', () => {

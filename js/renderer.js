@@ -1958,6 +1958,66 @@ const Renderer = (() => {
     }
   }
 
+  // Free-for-all HUD: a compact panel per fighter, half of them each side
+  // of the timer (the right-hand ones fill from the right, like player 2's).
+  // No round pips: a free-for-all is a single round.
+  // A fighter who's out for the round is greyed with OUT over them.
+  function drawHUDMulti(ctx, fighters) {
+    const margin = 22, gap = 12, middle = 112;
+    const w = (CANVAS_WIDTH - 2 * margin - middle - 2 * gap) / 4;
+    const spots = [margin, margin + w + gap, CANVAS_WIDTH - margin - 2 * w - gap, CANVAS_WIDTH - margin - w];
+    const n = fighters.length, onLeft = Math.ceil(n / 2);
+    const local = typeof Net !== 'undefined' && Net.isOnline() ? Net.localSlot() : null;
+    fighters.forEach((f, i) => {
+      const right = i >= onLeft;
+      const x = right ? spots[4 - (n - i)] : spots[i];
+      const edge = right ? x + w : x; // the outer edge, where text and pips start
+      const labels = Net.controlLabelsFor(f.slot);
+      const color = PLAYER_COLORS[f.slot] || '#fff';
+
+      ctx.save();
+      ctx.font = 'bold 16px sans-serif';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = right ? 'right' : 'left';
+      const name = f.character.name + (f.transformed ? ' ★' : '');
+      ctx.fillText(name, edge, 4);
+      const nameW = ctx.measureText(name).width;
+      ctx.restore();
+      let cx = right ? edge - nameW - 8 : edge + nameW + 8;
+      const chipW = drawSlotChip(ctx, cx, 13, 'P' + f.slot.slice(1), color, right);
+      cx += right ? -(chipW + 5) : chipW + 5;
+      if (local === f.slot) drawSlotChip(ctx, cx, 13, 'YOU', '#2c2c3a', right);
+
+      ctx.fillStyle = color;
+      ctx.fillRect(x, 25, w, 3);
+      drawHealthBar(ctx, x, 28, w, 20, f.hp, f.maxHp, right);
+      const gw = w * 0.6;
+      const gx = right ? x + w - gw : x;
+      drawSpecialGauge(ctx, gx, 54, gw, 7, f.specialCooldownTimer, f.character.special.cooldown, right);
+      drawUltGauge(ctx, gx, 65, gw, 8, f.ultCharge, right);
+      if (labels) {
+        drawKeyBadge(ctx, right ? gx - 6 : gx + gw + 6, 57, keyLabel(labels.special), right);
+        drawKeyBadge(ctx, right ? gx - 6 : gx + gw + 6, 71, keyLabel(labels.ultimate), right);
+      }
+
+      if (f.out) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(10, 5, 20, 0.6)';
+        ctx.fillRect(x - 2, 0, w + 4, 96);
+        ctx.font = 'bold 26px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#000';
+        ctx.fillStyle = '#ff5a5a';
+        ctx.strokeText('OUT', x + w / 2, 46);
+        ctx.fillText('OUT', x + w / 2, 46);
+        ctx.restore();
+      }
+    });
+  }
+
   // Floating tag above a fighter (Smash-style): a pill in the side colour,
   // with "YOU" over it for the local player online. Stays readable when both
   // fighters are the same character.
@@ -1985,7 +2045,7 @@ const Renderer = (() => {
     ctx.font = 'bold 13px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(fighter.slot === 'p1' ? 'P1' : 'P2', cx, y + 1);
+    ctx.fillText(fighter.slot.toUpperCase(), cx, y + 1);
     if (you) {
       ctx.font = 'bold 12px sans-serif';
       ctx.lineWidth = 3;
@@ -2041,6 +2101,7 @@ const Renderer = (() => {
     drawPlayerMarker,
     drawProjectiles,
     drawHUD,
+    drawHUDMulti,
     drawTimer,
     drawCenteredMessage,
   };

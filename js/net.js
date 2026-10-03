@@ -10,6 +10,9 @@
 //    and both browsers stream inputs and render its (delta) snapshots. Only
 //    used when the server predates relay rooms.
 //  - direct peer-to-peer (the "Direct connection" option), described below.
+//  - free-for-all (experimental): a relay room for up to four players. The
+//    server passes every message to everyone else; each player runs the
+//    game with rollback against all the others.
 //
 // P2P model: rollback netcode (js/rollback.js). Both players run the
 // simulation and exchange only their inputs, so your own fighter responds
@@ -29,12 +32,14 @@ const Net = (() => {
 
   // Virtual key codes the fighters read in online mode (see InputManager).
   const VCONTROLS = {};
-  for (const slot of ['p1', 'p2']) {
+  for (const slot of ['p1', 'p2', 'p3', 'p4']) {
     VCONTROLS[slot] = {};
     for (const a of ACTIONS) VCONTROLS[slot][a] = 'V_' + slot + '_' + a;
   }
 
   let mode = 'offline'; // offline | host | guest | relay | server
+  let ffa = false;      // in a free-for-all room
+  let roster = [];      // free-for-all: the slots of everyone in the room
   let slot = 'p1'; // our fighter in server mode
   let ws = null;
   let peer = null;
@@ -200,7 +205,11 @@ const Net = (() => {
       slot = msg.slot;
       // An older server ignores the relay request and runs the game itself.
       mode = msg.relay ? 'relay' : 'server';
-      if (slot === 'p1') {
+      ffa = !!msg.ffa;
+      if (ffa) {
+        resetState();
+        emit('ffaRoom', { code: msg.code, slot });
+      } else if (slot === 'p1') {
         emit('status', { code: msg.code, text: 'Room code: ' + msg.code + ' -- waiting for opponent...' });
       }
     } else if (msg.t === 'connected') {
@@ -208,8 +217,11 @@ const Net = (() => {
       emit('connected');
     } else if (msg.t === 'error') {
       disconnect(msg.text);
+    } else if (msg.t === 'roster') {
+      roster = Array.isArray(msg.slots) ? msg.slots.slice() : [];
+      emit('roster', roster);
     } else if (msg.t === 'left') {
-      disconnect('Opponent disconnected.');
+      disconnect(ffa ? `Player ${String(msg.slot || '').slice(1)} left, so the free-for-all ended.` : 'Opponent disconnected.');
     } else if (msg.t === 'ri' || msg.t === 'rh' || msg.t === 'rs') {
       Rollback.receive(msg);
     } else {
@@ -218,6 +230,7 @@ const Net = (() => {
   }
 
   function hostServer() { serverConnect({ t: 'create', relay: true }); }
+  function hostFfa() { serverConnect({ t: 'create', relay: true, ffa: true }); }
   function joinServer(code) { serverConnect({ t: 'join', code: code.trim().toUpperCase(), relay: true }); }
 
   function onPeerError(err) {
@@ -234,6 +247,8 @@ const Net = (() => {
     peer = null; ctrl = null; fast = null; ws = null;
     if (sock) { try { sock.close(); } catch (e) { /* ignore */ } }
     mode = 'offline';
+    ffa = false;
+    roster = [];
     Rollback.end();
     Effects.setRecording(false);
     if (p) { try { p.destroy(); } catch (e) { /* ignore */ } }
@@ -275,9 +290,10 @@ const Net = (() => {
   // Player 1 numbers each match; player 2 uses the number from 'start'.
   function newMatchId() { return ++matchSeq; }
 
-  function startRollback(id) {
+  // slots: everyone in the match (free-for-all); default the usual two.
+  function startRollback(id, slots) {
     matchSeq = Math.max(matchSeq, id);
-    Rollback.begin(localSlot(), id, sendFast);
+    Rollback.begin(localSlot(), id, sendFast, slots);
   }
 
   // Called once per fixed tick in direct matches, instead of Game.update.
@@ -318,7 +334,8 @@ const Net = (() => {
 
   return {
     isOnline, isHost, isGuest, isServer, isRelay, isRemoteSim, isLeader, localSlot, controlsFor, controlLabelsFor,
-    host, join, hostServer, joinServer, disconnect, on, sendCtrl,
+    host, join, hostServer, hostFfa, joinServer, disconnect, on, sendCtrl,
+    isFfa: () => ffa, roster: () => roster.slice(),
     setLocalVirtual, isRollback, newMatchId, startRollback, rollbackTick, guestTick,
   };
 })();

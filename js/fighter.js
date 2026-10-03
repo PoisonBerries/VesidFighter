@@ -31,8 +31,10 @@ class Fighter {
     this.doubleJumpFlipTimer = 0;
     this.doubleJumpFlipDir = 1; // +1 front flip, -1 backflip
 
+    this.hpMul = 1;         // free-for-all doubles everyone's health (game.js)
     this.maxHp = character.maxHp;
     this.hp = character.maxHp;
+    this.out = false;       // out of the round (game.js): false | 'ko' | 'ringout'
 
     this.state = 'idle';
     this.actionTimer = 0; // frames elapsed in current action (attack/special/hitstun/etc)
@@ -92,6 +94,7 @@ class Fighter {
     this._comboHeld = false; // jump + crouch both down last frame (to catch the moment the pair is completed)
     this._crouchHeld = false; // crouch down last frame (pressing it on a platform drops you through)
     this.heldByStage = false; // held up by the stage's monster (stages.js)
+    this.grabbedBy = null;    // slot of the fighter holding us (Robert's slam, John's carry)
     this.phaseStepFrom = 0;
     this.phaseStepTo = 0;
 
@@ -577,7 +580,7 @@ class Fighter {
       // percentage of the bigger pool (50% of 108 becomes 50% of 173).
       const fraction = this.hp / this.maxHp;
       this.transformed = true;
-      this.maxHp += t.bonusHp;
+      this.maxHp += t.bonusHp * this.hpMul;
       this.hp = this.maxHp * fraction;
       this._justTransformed = true;
       Effects.voice(this.character.id, 'transform');
@@ -643,7 +646,7 @@ class Fighter {
     if (!this.transformed) return;
     this.transformed = false;
     this._justTransformed = false;
-    this.maxHp = this.character.maxHp;
+    this.maxHp = this.character.maxHp * this.hpMul;
   }
 
   consumeTransformFlag() {
@@ -660,6 +663,14 @@ class Fighter {
     this.actionTimer = 0;
   }
 
+  // Another fighter in the same match, by slot (null if we're not in the
+  // running match, e.g. a select-screen preview).
+  _matchFighter(slot) {
+    if (!slot || typeof Game === 'undefined' || !Game.fighters) return null;
+    const all = Game.fighters();
+    return all.includes(this) ? all.find((f) => f.slot === slot) || null : null;
+  }
+
   update(controls, opponent) {
     this._controls = controls;
     this._updateStatusTimers();
@@ -668,14 +679,17 @@ class Fighter {
     // around by them (they position us), no input, no physics.
     if (this.state === 'grabbed') {
       this.vx = 0; this.vy = 0;
-      if (!this.heldByStage && opponent.state !== 'grabslam' && opponent.state !== 'grabbeat') this.state = 'fall';
+      // With more than two fighters, whoever grabbed us may not be the nearest one.
+      const holder = this._matchFighter(this.grabbedBy) || opponent;
+      if (!this.heldByStage && holder.state !== 'grabslam' && holder.state !== 'grabbeat') this.state = 'fall';
       return;
     }
 
     this.rolling = false; // set again below while a crouch-roll is in progress
     if (this.state !== 'block') this.sliding = false; // a slide only lasts while crouched
-    if (this.state === 'grabslam') this._updateGrabSlam(opponent);
-    if (this.state === 'grabbeat') this._updateGrabBeat(opponent);
+    const held = (this._ability && this._matchFighter(this._ability.target)) || opponent;
+    if (this.state === 'grabslam') this._updateGrabSlam(held);
+    if (this.state === 'grabbeat') this._updateGrabBeat(held);
     if (this.state !== 'ko' && this.state !== 'victory') {
       this._handleInput(controls, opponent);
     }
@@ -1037,9 +1051,10 @@ class Fighter {
     this.comboHits = 0;
     this.vx = 0;
     this.blocking = false;
-    this._ability = { slammed: false, released: false };
+    this._ability = { slammed: false, released: false, target: opp.slot };
     opp._refundInterruptedAbility();
     opp.state = 'grabbed';
+    opp.grabbedBy = this.slot;
     opp.vx = 0; opp.vy = 0;
     opp.blocking = false; opp.stunFrames = 0; opp.launched = false; opp.facingLocked = false;
     opp.actionTimer = 0;

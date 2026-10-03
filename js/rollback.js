@@ -13,6 +13,11 @@
 //
 // Transport-agnostic: net.js hands packets in via receive() and sends what
 // this module gives its send callback (plain JSON objects).
+//
+// Works for more than two players too (online free-for-all): every packet
+// goes to everyone (the relay server broadcasts it) and carries its sender's
+// slot; each remote player's inputs are tracked and predicted separately,
+// and the game only waits on the one we've heard least from.
 
 const Rollback = (() => {
   const INPUT_DELAY = 2;   // frames between pressing a button and it applying (hides most rollbacks)
@@ -33,25 +38,33 @@ const Rollback = (() => {
   const vkey = (slot, action) => 'V_' + slot + '_' + action;
 
   let active = false;
-  let localSlot = 'p1', remoteSlot = 'p2';
+  let localSlot = 'p1';
+  let remotes = ['p2'];      // everyone else's slots
   let matchId = 0;
   let send = null;
 
+  // Per remote player (keyed by slot):
+  let remoteIn = {};          // frame -> bits (confirmed)
+  let usedRemote = {};        // frame -> bits the simulation actually used (maybe a guess)
+  let confirmed = {};         // every input of theirs up to here is known
+  let ackedBy = {};           // they have every local input up to here
+  let remoteFrame = {}, remoteAdvantage = {}; // for keeping the clocks in step
+  let theirHashes = {};       // frame -> their state hash
+
   let frame = 0;             // next frame to simulate
   let localIn = new Map();   // frame -> bits
-  let remoteIn = new Map();  // frame -> bits (confirmed)
-  let usedRemote = new Map(); // frame -> bits the simulation actually used (maybe a guess)
   let states = new Map();    // frame -> state at the *start* of that frame
-  let remoteConfirmed = -1;  // every remote input up to here is known
-  let localAcked = -1;       // the opponent has every local input up to here
   let rollbackFrom = Infinity;
-  let remoteFrame = 0, remoteAdvantage = 0; // for keeping both clocks in step
   let lastWaitFrame = -Infinity;
   let advDiff = 0; // smoothed (our advantage - theirs): packet jitter makes each sample noisy
   let nextSync = SYNC_EVERY;
-  let myHashes = new Map(), theirHashes = new Map();
+  let myHashes = new Map();
   let early = []; // packets for a match that hasn't started here yet
   const stats = { rollbacks: 0, rolledFrames: 0, stalls: 0, waits: 0, desyncs: 0, syncChecks: 0 };
+
+  const minOf = (obj) => Math.min(...remotes.map((r) => obj[r]));
+  const remoteConfirmed = () => minOf(confirmed); // every remote input up to here is known
+  const localAcked = () => minOf(ackedBy);        // every remote player has our inputs up to here
 
   function applyInput(slot, b) {
     const set = (a, down, pressed) => InputManager.setVirtual(vkey(slot, a), down, pressed);
@@ -67,18 +80,20 @@ const Rollback = (() => {
 
   // The opponent's input for a frame: the real one if we have it, otherwise
   // a guess -- whatever they were holding last, with no new presses.
-  function remoteFor(f) {
-    if (remoteIn.has(f)) return remoteIn.get(f);
-    const last = remoteIn.get(remoteConfirmed);
+  function remoteFor(r, f) {
+    if (remoteIn[r].has(f)) return remoteIn[r].get(f);
+    const last = remoteIn[r].get(confirmed[r]);
     return last === undefined ? 0 : last & ~PRESS_BITS;
   }
 
   function step(f) {
     states.set(f, Game.saveState());
-    const r = remoteFor(f);
-    usedRemote.set(f, r);
     applyInput(localSlot, localIn.has(f) ? localIn.get(f) : 0);
-    applyInput(remoteSlot, r);
+    for (const r of remotes) {
+      const bits = remoteFor(r, f);
+      usedRemote[r].set(f, bits);
+      applyInput(r, bits);
+    }
     Game.update(FIXED_STEP);
   }
 
@@ -95,21 +110,29 @@ const Rollback = (() => {
     }
   }
 
-  function begin(slot, id, sendFn) {
+  // slots: everyone in the match (default the usual two).
+  function begin(slot, id, sendFn, slots) {
     active = true;
     localSlot = slot;
-    remoteSlot = slot === 'p1' ? 'p2' : 'p1';
+    remotes = (slots || ['p1', 'p2']).filter((s) => s !== slot);
     matchId = id;
     send = sendFn;
     frame = 0;
-    localIn = new Map(); remoteIn = new Map(); usedRemote = new Map(); states = new Map();
-    myHashes = new Map(); theirHashes = new Map();
-    remoteConfirmed = -1; localAcked = -1; rollbackFrom = Infinity;
-    remoteFrame = 0; remoteAdvantage = 0; lastWaitFrame = -Infinity; advDiff = 0;
+    localIn = new Map(); states = new Map(); myHashes = new Map();
+    remoteIn = {}; usedRemote = {}; confirmed = {}; ackedBy = {}; remoteFrame = {}; remoteAdvantage = {}; theirHashes = {};
+    for (const r of remotes) {
+      remoteIn[r] = new Map(); usedRemote[r] = new Map(); theirHashes[r] = new Map();
+      ackedBy[r] = -1; remoteFrame[r] = 0; remoteAdvantage[r] = 0;
+    }
+    rollbackFrom = Infinity;
+    lastWaitFrame = -Infinity; advDiff = 0;
     nextSync = SYNC_EVERY;
-    // Both sides agree the first INPUT_DELAY frames are empty.
-    for (let f = 0; f < INPUT_DELAY; f++) { localIn.set(f, 0); remoteIn.set(f, 0); }
-    remoteConfirmed = INPUT_DELAY - 1;
+    // Everyone agrees the first INPUT_DELAY frames are empty.
+    for (let f = 0; f < INPUT_DELAY; f++) {
+      localIn.set(f, 0);
+      for (const r of remotes) remoteIn[r].set(f, 0);
+    }
+    for (const r of remotes) confirmed[r] = INPUT_DELAY - 1;
     const pending = early.filter((p) => p.m === id);
     early = [];
     pending.forEach(receive);
@@ -122,13 +145,25 @@ const Rollback = (() => {
 
   function sendInputs() {
     const last = frame + INPUT_DELAY - 1; // newest local input we have
-    // Everything the opponent hasn't confirmed yet, every time: packets can be
+    // Everything someone hasn't confirmed yet, every time: packets can be
     // dropped, and a gap would stall the game until it's filled.
-    const from = Math.max(localAcked + 1, 0);
+    const from = Math.max(localAcked() + 1, 0);
     const i = [];
     for (let f = from; f <= last && i.length < MAX_PACKET; f++) i.push(localIn.get(f) || 0);
-    send({ t: 'ri', m: matchId, f: from, i, a: remoteConfirmed, cf: frame, adv: frame - remoteFrame });
+    // a: how far we've confirmed each player; adv: how far ahead of each we are.
+    const a = {}, adv = {};
+    for (const r of remotes) { a[r] = confirmed[r]; adv[r] = frame - remoteFrame[r]; }
+    send({ t: 'ri', s: localSlot, m: matchId, f: from, i, a, cf: frame, adv });
   }
+
+  // Which remote player a packet came from. (Two-player packets from older
+  // clients don't say: it's the only one.)
+  function senderOf(msg) {
+    if (msg.s) return remotes.includes(msg.s) ? msg.s : null;
+    return remotes.length === 1 ? remotes[0] : null;
+  }
+  // Older clients send plain numbers where newer ones send per-slot maps.
+  const forMe = (v) => (v && typeof v === 'object' ? v[localSlot] : v);
 
   function receive(msg) {
     if (!msg || msg.m === undefined) return;
@@ -136,29 +171,33 @@ const Rollback = (() => {
       if (msg.m > matchId || !active) { early.push(msg); if (early.length > 120) early.shift(); }
       return;
     }
+    const r = senderOf(msg);
+    if (!r) return;
     if (msg.t === 'ri') {
+      const ins = remoteIn[r], used = usedRemote[r];
       for (let k = 0; k < msg.i.length; k++) {
         const f = msg.f + k;
-        if (remoteIn.has(f) || f < frame - HISTORY) continue;
+        if (ins.has(f) || f < frame - HISTORY) continue;
         const v = msg.i[k] | 0;
-        remoteIn.set(f, v);
-        if (f < frame && usedRemote.get(f) !== v) rollbackFrom = Math.min(rollbackFrom, f);
+        ins.set(f, v);
+        if (f < frame && used.get(f) !== v) rollbackFrom = Math.min(rollbackFrom, f);
       }
-      while (remoteIn.has(remoteConfirmed + 1)) remoteConfirmed++;
-      if (typeof msg.a === 'number') localAcked = Math.max(localAcked, msg.a);
-      if (typeof msg.cf === 'number' && msg.cf >= remoteFrame) { remoteFrame = msg.cf; remoteAdvantage = msg.adv || 0; }
+      while (ins.has(confirmed[r] + 1)) confirmed[r]++;
+      const ack = forMe(msg.a);
+      if (typeof ack === 'number') ackedBy[r] = Math.max(ackedBy[r], ack);
+      if (typeof msg.cf === 'number' && msg.cf >= remoteFrame[r]) { remoteFrame[r] = msg.cf; remoteAdvantage[r] = forMe(msg.adv) || 0; }
       // A guessed frame may now need redoing even if nothing arrived for it
       // directly: its guess was based on an older "last held" input.
       for (let f = Math.max(0, frame - MAX_AHEAD - 1); f < frame; f++) {
-        if (f > remoteConfirmed && usedRemote.has(f) && usedRemote.get(f) !== remoteFor(f)) { rollbackFrom = Math.min(rollbackFrom, f); break; }
+        if (f > confirmed[r] && used.has(f) && used.get(f) !== remoteFor(r, f)) { rollbackFrom = Math.min(rollbackFrom, f); break; }
       }
     } else if (msg.t === 'rh') {
-      theirHashes.set(msg.f, msg.h);
-      compareHash(msg.f);
-    } else if (msg.t === 'rs' && localSlot === 'p2' && msg.s && msg.f < frame && msg.f >= frame - HISTORY) {
+      theirHashes[r].set(msg.f, msg.h);
+      compareHash(msg.f, r);
+    } else if (msg.t === 'rs' && localSlot !== 'p1' && r === 'p1' && msg.st && msg.f < frame && msg.f >= frame - HISTORY) {
       // Player 1's copy of a confirmed frame: take it and replay from there.
-      states.set(msg.f, msg.s);
-      myHashes.set(msg.f, theirHashes.get(msg.f));
+      states.set(msg.f, msg.st);
+      myHashes.set(msg.f, theirHashes[r].get(msg.f));
       rollbackFrom = Math.min(rollbackFrom, msg.f);
     }
   }
@@ -182,23 +221,26 @@ const Rollback = (() => {
     return h >>> 0;
   }
 
-  function compareHash(f) {
-    if (!myHashes.has(f) || !theirHashes.has(f)) return;
-    if (myHashes.get(f) === theirHashes.get(f)) { stats.syncChecks++; return; }
+  // Player 1 is the reference: it checks everyone's hash against its own,
+  // and the others check theirs against player 1's.
+  function compareHash(f, r) {
+    if (localSlot !== 'p1' && r !== 'p1') return;
+    if (!myHashes.has(f) || !theirHashes[r].has(f)) return;
+    if (myHashes.get(f) === theirHashes[r].get(f)) { stats.syncChecks++; return; }
     stats.desyncs++;
-    console.warn('[rollback] desync at frame', f, localSlot === 'p1' ? '-- sending our state' : '-- waiting for player 1\'s state');
-    if (localSlot === 'p1' && states.has(f)) send({ t: 'rs', m: matchId, f, s: states.get(f) });
+    console.warn('[rollback] desync with', r, 'at frame', f, localSlot === 'p1' ? '-- sending our state' : '-- waiting for player 1\'s state');
+    if (localSlot === 'p1' && states.has(f)) send({ t: 'rs', s: localSlot, m: matchId, f, st: states.get(f) });
   }
 
   // Once every input before a checkpoint is confirmed, its state is final on
   // both machines: hash it and compare.
   function checkSync() {
-    while (nextSync < frame && remoteConfirmed >= nextSync - 1 && rollbackFrom > nextSync) {
+    while (nextSync < frame && remoteConfirmed() >= nextSync - 1 && rollbackFrom > nextSync) {
       if (states.has(nextSync)) {
         const h = hashState(states.get(nextSync));
         myHashes.set(nextSync, h);
-        send({ t: 'rh', m: matchId, f: nextSync, h });
-        compareHash(nextSync);
+        send({ t: 'rh', s: localSlot, m: matchId, f: nextSync, h });
+        for (const r of remotes) compareHash(nextSync, r);
       }
       nextSync += SYNC_EVERY;
     }
@@ -206,7 +248,9 @@ const Rollback = (() => {
 
   function prune() {
     const old = frame - HISTORY;
-    for (const m of [localIn, remoteIn, usedRemote, states, myHashes, theirHashes]) {
+    const maps = [localIn, states, myHashes];
+    for (const r of remotes) maps.push(remoteIn[r], usedRemote[r], theirHashes[r]);
+    for (const m of maps) {
       for (const k of m.keys()) { if (k < old) m.delete(k); else break; }
     }
   }
@@ -223,8 +267,8 @@ const Rollback = (() => {
     }
     rollbackFrom = Infinity;
 
-    // Too far ahead of what we know about the opponent: wait for them.
-    if (frame - remoteConfirmed > MAX_AHEAD) {
+    // Too far ahead of what we know about someone: wait for them.
+    if (frame - remoteConfirmed() > MAX_AHEAD) {
       stats.stalls++;
       sendInputs();
       return false;
@@ -232,7 +276,9 @@ const Rollback = (() => {
     // Keep both clocks in step: if we're consistently ahead of the opponent
     // (they started later, or their machine runs slower), pause one frame now
     // and then so neither side has to rollback much more than the other.
-    advDiff += (frame - remoteFrame - remoteAdvantage - advDiff) * ADV_SMOOTH;
+    // (With several opponents, keep in step with the one furthest behind.)
+    const gap = Math.max(...remotes.map((r) => frame - remoteFrame[r] - remoteAdvantage[r]));
+    advDiff += (gap - advDiff) * ADV_SMOOTH;
     // The further ahead, the more often: a machine that can't hold 60 fps
     // would otherwise let the faster one run a full rollback window ahead, and
     // then every packet it gets rewinds that whole window (it sees the
@@ -276,7 +322,7 @@ const Rollback = (() => {
     begin, end, tick, receive, inputBits, applyInput,
     isActive: () => active,
     frame: () => frame,
-    stats: () => Object.assign({ frame, remoteConfirmed }, stats),
+    stats: () => Object.assign({ frame, remoteConfirmed: remoteConfirmed() }, stats),
     stateAt: (f) => states.get(f), // for tests and debugging
     hashState,
     BIT,

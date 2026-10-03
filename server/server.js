@@ -37,7 +37,7 @@ const simSource = SIM_FILES
 const SIM_PRELUDE = `
   const window = { addEventListener() {} };
   const VCONTROLS = {};
-  for (const slot of ['p1', 'p2']) {
+  for (const slot of ['p1', 'p2', 'p3', 'p4']) {
     VCONTROLS[slot] = {};
     for (const a of ${JSON.stringify(HELD.concat(TAPS))}) VCONTROLS[slot][a] = 'V_' + slot + '_' + a;
   }
@@ -74,12 +74,18 @@ function newInputState() {
 // Relay rooms (current clients): both players run the game themselves with
 // rollback netcode (js/rollback.js) and the server only passes messages
 // between them. Sim rooms (older clients): the server runs the game.
-function createRoom(relay) {
+// Free-for-all rooms (relay only): up to four players; every message goes to
+// everyone else. Players can come and go in the lobby; once player 1 starts
+// the first match the room is locked, and anyone leaving ends it.
+
+function createRoom(relay, ffa) {
   const code = randomCode();
   const room = {
     code,
     relay,
-    players: { p1: null, p2: null },
+    ffa,
+    started: false,
+    players: ffa ? { p1: null, p2: null, p3: null, p4: null } : { p1: null, p2: null },
     inputs: { p1: newInputState(), p2: newInputState() },
     sim: relay ? null : createSim(),
     lastSent: null,
@@ -101,6 +107,17 @@ function broadcast(room, msg) {
 }
 
 function other(slot) { return slot === 'p1' ? 'p2' : 'p1'; }
+
+function roster(room) {
+  return Object.keys(room.players).filter((s) => room.players[s]);
+}
+
+// Everyone in the room but `slot`.
+function sendOthers(room, slot, data) {
+  for (const [s, ws] of Object.entries(room.players)) {
+    if (s !== slot && ws && ws.readyState === ws.OPEN) ws.send(data);
+  }
+}
 
 function closeRoom(room) {
   room.running = false;
@@ -316,27 +333,39 @@ function onMessage(ws, msg) {
   const room = ws.room;
 
   if (msg.t === 'create' && !room) {
-    const r = createRoom(!!msg.relay);
+    const ffa = !!msg.ffa && !!msg.relay;
+    const r = createRoom(!!msg.relay, ffa);
     r.players.p1 = ws;
     ws.room = r; ws.slot = 'p1';
-    send(ws, { t: 'room', code: r.code, slot: 'p1', relay: r.relay });
+    send(ws, { t: 'room', code: r.code, slot: 'p1', relay: r.relay, ffa });
+    if (ffa) send(ws, { t: 'roster', slots: roster(r) });
     return;
   }
 
   if (msg.t === 'join' && !room) {
     const r = rooms.get(String(msg.code || '').trim().toUpperCase());
     if (!r) return send(ws, { t: 'error', text: 'No room with that code.' });
-    if (r.players.p2) return send(ws, { t: 'error', text: 'That room is full.' });
     if (r.relay !== !!msg.relay) return send(ws, { t: 'error', text: 'That room was made with a different version of the game. Both players: refresh the page.' });
-    r.players.p2 = ws;
-    ws.room = r; ws.slot = 'p2';
-    send(ws, { t: 'room', code: r.code, slot: 'p2', relay: r.relay });
-    broadcast(r, { t: 'connected' });
+    if (r.ffa && r.started) return send(ws, { t: 'error', text: 'That free-for-all has already started.' });
+    const slot = Object.keys(r.players).find((s) => !r.players[s]);
+    if (!slot) return send(ws, { t: 'error', text: 'That room is full.' });
+    r.players[slot] = ws;
+    ws.room = r; ws.slot = slot;
+    send(ws, { t: 'room', code: r.code, slot, relay: r.relay, ffa: r.ffa });
+    if (r.ffa) broadcast(r, { t: 'roster', slots: roster(r) });
+    else broadcast(r, { t: 'connected' });
     return;
   }
 
   if (!room) return;
   const slot = ws.slot;
+
+  if (room.ffa) {
+    if (!RELAYED.has(msg.t) || (msg.t === 'start' && slot !== 'p1')) return;
+    if (msg.t === 'start') room.started = true;
+    sendOthers(room, slot, JSON.stringify(msg));
+    return;
+  }
 
   if (room.relay) {
     // Rollback inputs/hashes/repairs and menu messages go straight to the
@@ -381,6 +410,21 @@ function onClose(ws) {
   const room = ws.room;
   if (!room) return;
   room.players[ws.slot] = null;
+  // Free-for-all lobby: someone other than the host leaving before the
+  // first match just frees their spot.
+  if (room.ffa && !room.started && ws.slot !== 'p1' && roster(room).length) {
+    broadcast(room, { t: 'roster', slots: roster(room) });
+    return;
+  }
+  if (room.ffa) {
+    for (const s of roster(room)) {
+      const p = room.players[s];
+      send(p, { t: 'left', slot: ws.slot });
+      p.room = null; p.slot = null;
+    }
+    closeRoom(room);
+    return;
+  }
   send(room.players[other(ws.slot)], { t: 'left' });
   const leftover = room.players[other(ws.slot)];
   if (leftover) { leftover.room = null; leftover.slot = null; }

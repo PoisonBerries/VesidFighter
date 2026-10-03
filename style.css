@@ -697,3 +697,108 @@ body:not(:has(.screen:not(.hidden))) #gfx-panel { display: none; }
   color: #fff;
   opacity: 1;
 }
+
+/* ---- Free-for-all lobby (online, experimental) ---- */
+.tag-exp {
+  font-size: 0.55em;
+  font-weight: normal;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #ffd166;
+  border: 1px solid rgba(255, 209, 102, 0.6);
+  border-radius: 4px;
+  padding: 1px 5px;
+  vertical-align: middle;
+}
+
+.ffa-code {
+  font-size: 2rem;
+  font-weight: bold;
+  letter-spacing: 6px;
+  color: #ffd166;
+  margin: 0 0 6px;
+}
+
+#screen-ffa h2 { margin: 0 0 4px; }
+#screen-ffa .hint { margin: 0 0 8px; max-width: 720px; }
+#screen-ffa .row-buttons { margin-top: 4px; }
+#screen-ffa .online-status { margin: 6px auto 0; font-size: 0.95rem; }
+
+.ffa-code small {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: normal;
+  letter-spacing: 0;
+  color: #cbb9e0;
+}
+
+.ffa-players {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  width: 100%;
+  max-width: 720px;
+  margin-bottom: 16px;
+}
+
+.ffa-player {
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-top: 5px solid var(--slot-color);
+  border-radius: 10px;
+  padding: 10px 6px;
+  background: rgba(255, 255, 255, 0.04);
+  min-height: 132px;
+}
+
+.ffa-player.empty {
+  border-top-color: rgba(255, 255, 255, 0.12);
+  color: #8f879b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+}
+
+.ffa-player img {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--slot-color);
+  background: #1d1428;
+}
+
+.ffa-player .slot {
+  font-weight: bold;
+  color: var(--slot-color);
+  font-size: 0.85rem;
+}
+
+.ffa-player .char {
+  font-weight: bold;
+  margin-top: 4px;
+}
+
+.ffa-player .you {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.7rem;
+  background: #2c2c3a;
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #fff;
+}
+
+.ffa-pick-label {
+  color: #cbb9e0;
+  margin-bottom: 6px;
+}
+
+.ffa-grid {
+  max-width: 400px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 640px) {
+  .ffa-players { grid-template-columns: repeat(2, 1fr); }
+}

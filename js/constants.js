@@ -39,6 +39,14 @@ const FIGHTER_HEIGHT = 160;
 const ROUND_TIME = 90; // seconds per round
 const ROUNDS_TO_WIN = 2; // best of 3
 
+// Free-for-all (online, experimental): up to four players, last one
+// standing wins. One round (a draw replays it). Everyone has double health,
+// and the round runs longer to make room for it.
+const FFA_MAX_PLAYERS = 4;
+const FFA_ROUNDS_TO_WIN = 1;
+const FFA_HP_MUL = 2;
+const FFA_ROUND_TIME = 150;
+
 const FIXED_STEP = 1 / 60; // seconds, physics runs at a fixed 60hz timestep
 
 const CONTROLS = {
@@ -83,10 +91,10 @@ const SOLO_ALT_KEYS = { left: 'ArrowLeft', right: 'ArrowRight', jump: 'ArrowUp',
 // where there's no `location`.
 const GAME_SERVER_URL = (typeof location !== 'undefined' && new URLSearchParams(location.search).get('server')) || 'wss://35-223-40-228.sslip.io';
 
-// Identity colours for the two sides: HUD chips, the tag above each fighter
+// Identity colours for each side (p3/p4 only in free-for-all): HUD chips, the tag above each fighter
 // and the ring on the floor all use these, so who-is-who reads at a glance
 // even in a mirror match.
-const PLAYER_COLORS = { p1: '#ff4d5e', p2: '#4da3ff' };
+const PLAYER_COLORS = { p1: '#ff4d5e', p2: '#4da3ff', p3: '#4fd16b', p4: '#ffc23d' };
 
 // Alternate colour scheme for player 2 in a mirror match: same hue-rotated
 // treatment fighting games use for palette swaps. Memoised -- called per frame.
