@@ -76,6 +76,8 @@ class Fighter {
     this.rolling = false; // crouch-moving as a roll (characters with crouchRoll)
     this.sliding = false; // gliding along the floor on crouch momentum (characters with crouchSwim)
     this.downAttackActive = false; // the current attack is the midair down+attack shockwave (characters with downAttack)
+    this.airSuspend = 0;   // frames left hanging in the air after landing an air kick (Keenan)
+    this.airChain = 0;     // air kicks that have kept him up this jump
     this.foeHitTimer = 0;  // frames left in which the opponent backing off counts as running away (voice line)
     this.comboHits = 0;    // hits landed in a row without being hit or blocked
     this.comboTimer = 0;   // frames left to keep the string going
@@ -614,7 +616,7 @@ class Fighter {
     this.upAttackActive = false;
     this.downAttackActive = false;
     this.phaseCooldown = 0;
-    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0;
+    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0; this.airSuspend = 0; this.airChain = 0;
     this.fartPower = 0; this.jumpStacks = 0; this.poisonFrom = null; this.poisonTickDamage = 0;
     this._comboHeld = false;
     this._crouchHeld = false;
@@ -675,6 +677,7 @@ class Fighter {
     this._updateActionState();
     this._updatePlasmaJump();
     this._updateHover();
+    this._updateSuspend();
     this._applyPhysics();
     this._resolveFacing(opponent);
   }
@@ -1104,6 +1107,27 @@ class Fighter {
       return;
     }
     if (t > gs.lift + gs.hold + gs.recovery) { this.state = 'idle'; this.facingLocked = false; }
+  }
+
+  // Keenan: a kick that lands keeps him hanging in the air so he can follow it up.
+  hangAfterKick() {
+    const a = this.character.airAttack;
+    if (!a || !a.suspend || this.grounded || this.airChain >= a.maxChain) return;
+    this.airChain++;
+    this.airSuspend = a.suspend;
+    this.vy = 0;
+  }
+
+  _updateSuspend() {
+    if (this.grounded || this.state === 'hitstun' || this.state === 'knockdown' || this.state === 'ko' || this.state === 'grabbed') {
+      this.airSuspend = 0;
+      if (this.grounded) this.airChain = 0;
+      return;
+    }
+    if (this.airSuspend > 0) {
+      this.airSuspend--;
+      this.vy = -GRAVITY * (this.character.gravityMul || 1); // cancels this frame's gravity
+    }
   }
 
   // Hold-jump hover (characters with a `hover` block, e.g. Carlos). While

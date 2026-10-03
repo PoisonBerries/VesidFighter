@@ -2056,3 +2056,44 @@ test('every file named in the VOICE table exists', () => {
   }
   assert.ok(checked > 30, `only checked ${checked} files`);
 });
+
+test('Keenan: an air kick that lands leaves him hanging so he can chain kicks; a miss does not', () => {
+  const sim = createSim();
+  const k = sim.CHARACTERS.keenan.airAttack;
+  const setup = (foeX) => {
+    const C = startGame(sim, 'keenan', 'ryan', 500, foeX);
+    sim.Game.applySnapshot({ f: [{ x: 500, y: sim.GROUND_Y - 150, grounded: false, vy: 0, state: 'fall', jumpsUsed: 1 }, { x: foeX, y: sim.GROUND_Y, state: 'idle' }] });
+    return C;
+  };
+  const kick = (C) => { sim.InputManager.setVirtual(C.attack, false, true); step(sim, 1); sim.InputManager.setVirtual(C.attack, false, false); };
+  const p1 = () => sim.Game.world().p1;
+
+  // A kick that misses: he just falls.
+  let C = setup(900);
+  kick(C); step(sim, 40);
+  assert.ok(p1().y > sim.GROUND_Y - 100, 'a whiff does not suspend him');
+
+  // A kick that lands: he stays at height.
+  C = setup(560);
+  const y0 = p1().y;
+  kick(C);
+  let hit = false;
+  for (let i = 0; i < 30 && !hit; i++) { step(sim, 1); hit = sim.Game.world().p2.hp < sim.Game.world().p2.maxHp; }
+  assert.ok(hit, 'the kick landed');
+  assert.ok(p1().airSuspend > 0);
+  step(sim, 25);
+  assert.ok(Math.abs(p1().y - y0) < 25, `hung in the air (${y0} -> ${p1().y})`);
+  // Chain: kick again while the target is still in reach.
+  const hp1 = sim.Game.world().p2.hp;
+  sim.Game.applySnapshot({ f: [{}, { x: 560, state: 'idle', stunFrames: 0 }] });
+  kick(C);
+  for (let i = 0; i < 30; i++) step(sim, 1);
+  assert.ok(sim.Game.world().p2.hp < hp1, 'the second kick landed too');
+  assert.ok(p1().airChain >= 2);
+  // The opponent gets away: he falls once the suspension runs out.
+  sim.Game.applySnapshot({ f: [{}, { x: 900 }] });
+  step(sim, 120);
+  assert.strictEqual(p1().grounded, true, 'back on the ground eventually');
+  assert.strictEqual(p1().airChain, 0);
+  assert.ok(k.suspend > 0 && k.maxChain > 1);
+});

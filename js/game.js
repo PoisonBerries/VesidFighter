@@ -271,6 +271,7 @@ const Game = (() => {
     // Unanswered combo: hits in a row that aren't blocked or hit back.
     let comboNote = null;
     if (result === 'hit') {
+      if (attacker.airAttackActive) attacker.hangAfterKick(); // (Keenan) a landed air kick leaves him suspended
       attacker.foeHitTimer = 150;
       attacker.comboHits++;
       attacker.comboTimer = 100;

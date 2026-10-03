@@ -49,7 +49,11 @@ const CHARACTERS = {
     airAttack: {
       damage: 7, offset: 22, width: 66, height: 48, high: false,
       startup: 5, active: 5, recovery: 10,
-      knockback: 7, knockbackUp: 3, hitstun: 12,
+      // A kick that connects leaves him hanging in the air (suspend frames, renewed by each
+      // kick that lands, at most maxChain times per jump) and only nudges the target, so the
+      // kicks can be chained until the opponent gets away.
+      knockback: 3.5, knockbackUp: 1.5, hitstun: 16,
+      suspend: 50, maxChain: 6,
     },
     special: {
       type: 'counterDodge',
