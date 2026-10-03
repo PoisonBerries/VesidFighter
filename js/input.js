@@ -41,11 +41,23 @@ const InputManager = (() => {
     if (pressedNow) virtualPressed.add(code); else virtualPressed.delete(code);
   }
 
+  // Everything this frame's input is, so code that simulates frames ahead
+  // (the Unbeatable CPU) can put it back exactly as it was.
+  function snapshot() {
+    return [new Set(down), new Set(pressedThisFrame), new Set(virtualDown), new Set(virtualPressed)];
+  }
+  function restore(s) {
+    for (const [set, saved] of [[down, s[0]], [pressedThisFrame, s[1]], [virtualDown, s[2]], [virtualPressed, s[3]]]) {
+      set.clear();
+      for (const k of saved) set.add(k);
+    }
+  }
+
   // Call once per physics tick, after all fighters have read input.
   function endFrame() {
     pressedThisFrame.clear();
     virtualPressed.clear();
   }
 
-  return { isDown, isPressed, endFrame, setVirtual };
+  return { isDown, isPressed, endFrame, setVirtual, snapshot, restore };
 })();

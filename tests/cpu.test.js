@@ -18,7 +18,7 @@ const PRELUDE = `
   for (const slot of ['p1', 'p2']) { VCONTROLS[slot] = {}; for (const a of ${JSON.stringify(ACTIONS)}) VCONTROLS[slot][a] = 'V_' + slot + '_' + a; }
   const Net = { controlsFor: (slot) => VCONTROLS[slot], setLocalVirtual() {} };
 `;
-const script = new vm.Script(PRELUDE + source + '\n({ Game, Cpu, Rollback, Stage, CHARACTER_LIST, FIXED_STEP });', { filename: 'cpu-sim.js' });
+const script = new vm.Script(PRELUDE + source + '\n({ Game, Cpu, Rollback, Stage, InputManager, Effects, CHARACTER_LIST, FIXED_STEP });', { filename: 'cpu-sim.js' });
 const createSim = () => script.runInContext(vm.createContext({ console, Math, JSON, performance: { now: () => 0 } }));
 
 function rng(seed) {
@@ -58,17 +58,18 @@ const BOTS = {
 };
 
 // ball / balance: the match's modes (default: the game's defaults).
-function playMatch(kinds, chars, seed, ball, balance, stage) {
+// kinds: a bot name, 'cpu:<level>', or 'cpu:unbeatable'.
+function playMatch(kinds, chars, seed, ball, balance, stage, maxFrames = 16000) {
   const sim = createSim();
   let winner = null;
   sim.Game.startMatch(chars[0], chars[1], (w) => { winner = w; }, { ball, balance, stage });
-  const brains = kinds.map((k, i) => (k.startsWith('cpu:')
-    ? sim.Cpu.createBrain(i ? 'p2' : 'p1', k.slice(4), seed + i)
+  const brains = kinds.map((k, i) => (k === 'cpu:unbeatable' ? sim.Cpu.createSearchBrain(i ? 'p2' : 'p1')
+    : k.startsWith('cpu:') ? sim.Cpu.createBrain(i ? 'p2' : 'p1', k.slice(4), seed + i)
     : BOTS[k](sim, seed + i)));
   const lastHit = [-999, -999], seq = [0, 0], selfKO = [0, 0];
   const shots = [0, 0], ballDamage = [0, 0], damage = [0, 0];
   let prev = 'countdown', prevShot = null;
-  for (let f = 0; f < 16000 && !winner; f++) {
+  for (let f = 0; f < maxFrames && !winner; f++) {
     const w = sim.Game.world();
     const fs = [w.p1, w.p2];
     sim.Rollback.applyInput('p1', brains[0].think(w.p1, w.p2, w.projectiles, w.matchState, w.ball));
@@ -93,7 +94,8 @@ function playMatch(kinds, chars, seed, ball, balance, stage) {
     if (st === 'roundEnd' && prev === 'fight') fs.forEach((F, i) => { if (F.hasFallenOff() && f - lastHit[i] > 120) selfKO[i]++; });
     prev = st;
   }
-  return { winner, selfKO, shots, ballDamage, damage };
+  const end = sim.Game.world();
+  return { winner, selfKO, shots, ballDamage, damage, rounds: [end.p1.roundsWon, end.p2.roundsWon], hp: [end.p1.hp / end.p1.maxHp, end.p2.hp / end.p2.maxHp] };
 }
 
 // Every character, on both sides, against a rotating opponent character.
@@ -169,4 +171,60 @@ test('on the orchard (bigger floor, tree, car) the CPU still never walks itself 
     selfKO[0] += r.selfKO[0]; selfKO[1] += r.selfKO[1];
   });
   assert.deepStrictEqual(selfKO, [0, 0], `self ring-outs: ${selfKO}`);
+});
+
+// ---- Unbeatable (search) ----
+
+// Everything Effects draws right now, as a string (to see that nothing moved).
+function drawn(sim) {
+  const calls = [];
+  const ctx = new Proxy({}, {
+    get: (t, k) => (k in t ? t[k] : (...args) => { calls.push(String(k) + args.map((a) => (typeof a === 'number' ? a.toFixed(2) : a)).join()); }),
+    set: (t, k, v) => { t[k] = v; return true; },
+  });
+  sim.Effects.draw(ctx);
+  return calls.join(';');
+}
+
+test('Unbeatable: thinking ahead leaves the real game, the keys and the effects on screen exactly as they were', () => {
+  const sim = createSim();
+  sim.Game.startMatch('robert', 'owen', () => {}, { ball: 'rally', stage: 'orchard' });
+  const brain = sim.Cpu.createSearchBrain('p2');
+  const B = sim.Rollback.BIT;
+  for (let f = 0; f < 400; f++) {
+    const w = sim.Game.world();
+    // The human's input for this frame goes in first (as Cpu.tick does), with a fresh press.
+    sim.Rollback.applyInput('p1', B.right | (f % 20 === 0 ? B.attack : 0));
+    const before = sim.Rollback.hashState(sim.Game.saveState());
+    const keys = JSON.stringify(sim.InputManager.snapshot().map((set) => [...set].sort()));
+    sim.Effects.spawnHitSpark(100, 100, '#fff');
+    const sparks = drawn(sim);
+    const bits = brain.think(w.p2, w.p1, w.projectiles, w.matchState, w.ball);
+    assert.strictEqual(sim.Rollback.hashState(sim.Game.saveState()), before, `frame ${f}: the game changed while it thought`);
+    assert.strictEqual(JSON.stringify(sim.InputManager.snapshot().map((set) => [...set].sort())), keys, `frame ${f}: keys changed`);
+    assert.strictEqual(drawn(sim), sparks, `frame ${f}: sparks on screen aged while it thought`);
+    assert.strictEqual(bits & ~Object.values(B).reduce((a, b) => a | b, 0), 0, 'only real buttons');
+    sim.Rollback.applyInput('p2', bits);
+    sim.Game.update(sim.FIXED_STEP);
+  }
+});
+
+// A minute of fighting from the start (full matches take a while: see below).
+test('Unbeatable: comes out of a minute of fighting ahead of Hard, the rusher and the masher, every time', () => {
+  const pairs = [['keenan', 'robert'], ['owen', 'sam'], ['john', 'nathan'], ['artur', 'carlos'], ['ryan', 'keenan']];
+  for (const opp of ['cpu:hard', 'rusher', 'masher']) {
+    pairs.forEach((chars, i) => {
+      const r = playMatch(['cpu:unbeatable', opp], chars, 700 + i, i % 2 ? 'rally' : 'off', i % 2 === 0, 'arena', 3600);
+      const lead = r.winner === 'p1' || (!r.winner && (r.rounds[0] > r.rounds[1] || (r.rounds[0] === r.rounds[1] && r.hp[0] > r.hp[1])));
+      assert.ok(lead, `${chars[0]} (Unbeatable) vs ${chars[1]} (${opp}): behind after a minute (rounds ${r.rounds}, health ${r.hp.map((h) => h.toFixed(2))})`);
+    });
+  }
+});
+
+// Whole matches: slow (the CPU plays thousands of frames ahead every second),
+// so only on request: RUN_SLOW=1 npm test.
+test('Unbeatable: wins whole matches against Hard, every character, both sides', { skip: process.env.RUN_SLOW === '1' ? false : 'slow: RUN_SLOW=1 npm test' }, () => {
+  const r = series('cpu:unbeatable', 'cpu:hard', 'rally', true);
+  assert.ok(r.rate >= 0.95, `won only ${(r.rate * 100).toFixed(0)}%`);
+  assert.strictEqual(r.selfKO[0], 0);
 });

@@ -25,8 +25,8 @@ const UI = (() => {
   try { const v = localStorage.getItem('vf_stage'); if (STAGE_IDS.includes(v)) stageId = v; } catch (e) { /* storage blocked */ }
   let balanceOn = BALANCE_ENABLED;
   try { const v = localStorage.getItem('vf_balance'); if (v === 'on' || v === 'off') balanceOn = v === 'on'; } catch (e) { /* storage blocked */ }
-  if (!Cpu.LEVELS[cpuLevel]) cpuLevel = 'normal';
-  const LEVEL_NAMES = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
+  if (!Cpu.LEVELS[cpuLevel] && cpuLevel !== 'unbeatable') cpuLevel = 'normal';
+  const LEVEL_NAMES = { easy: 'Easy', normal: 'Normal', hard: 'Hard', unbeatable: 'Unbeatable' };
   let isPaused = false;
 
   function show(name) {

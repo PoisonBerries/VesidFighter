@@ -10,6 +10,7 @@ The 3D-view test is slow (software WebGL, several minutes) so it is **skipped by
 | `npm run test:fast` | no browser at all (a few seconds) |
 | `npm run test:3d` | just the 3D-view test |
 | `npm run test:all` | everything, including 3D |
+| `RUN_SLOW=1 npm test` | also whole matches against the Unbeatable CPU (several minutes) |
 
 `tools/needs-3d.js` decides when a change is worth the 3D test: it says yes for changes to the 3D
 renderer, animation, ability effects, `renderer.js`, `effects.js`, `game.js`'s render hook, `index.html`,
@@ -24,6 +25,7 @@ Locally: `git diff --name-only <base> | node tools/needs-3d.js --stdin && npm ru
 | `sim.test.js` | The simulation, built the same way `server/server.js` builds it: full matches for every character pairing with random inputs, determinism, snapshot round trips, the ledge rule, every move finishing. | no |
 | `tooling.test.js` | The rule that decides when the 3D test runs. | no |
 | `graphics.test.js` | Graphics settings: the tier guessed from the GPU, what each preset turns on, saving them, Auto stepping down when fights run slowly. | no |
+| `cpu.test.js` | The computer opponent: never walks off the stage, beats button-mashing, difficulty levels in order, plays the ball. Unbeatable: its thinking ahead never disturbs the real game, the keys or the effects on screen, and it comes out ahead of Hard and the scripted players. | no |
 | `ffa.test.js` | Online free-for-all: up to four fighters, double health, out on a KO or ring-out, last one standing; every character survives four-way matches in every ball mode; Robert's grab keeps hold of the right fighter; rollback keeps three and four players' games identical over a bad network. | no |
 | `stats.test.js` | Match stats: the sim logs how each round ended (and rollback can't log one twice); only online and live-site local matches get reported, once; the server's `/stats` endpoints store, reject junk and filter by date. | no |
 | `e2e.test.js` | The real page in headless Chrome: menus, starting a fight, both fighters actually drawn (pixel check), every character running its whole move set with rendering on, the online-guest snapshot path, mirror matches, sound and the playlist. | yes |

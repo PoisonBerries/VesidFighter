@@ -86,6 +86,9 @@ const Effects = (() => {
   }
 
   function update() {
+    // Frames simulated again or ahead of time (rollback, the CPU's lookahead)
+    // were already shown or never will be: don't age what's on screen.
+    if (suppressed) return;
     particles = particles.filter(p => p.life > 0);
     for (const p of particles) {
       p.x += p.vx;

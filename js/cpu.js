@@ -17,6 +17,10 @@
 //
 // Randomness comes from its own seeded generator, so a match with the same
 // inputs plays out the same way (useful for tests).
+//
+// Unbeatable is a different brain (createSearchBrain, below): no reaction
+// delay or deliberate mistakes, and instead of rules it plays the options
+// out ahead of time in a copy of the fight and picks the best.
 
 const Cpu = (() => {
   const LEVELS = {
@@ -536,13 +540,206 @@ const Cpu = (() => {
     return { think, level: L };
   }
 
+  // ---- Unbeatable: search instead of rules ----
+  // The game is deterministic and can save and restore its whole state (the
+  // rollback netcode relies on that), so this brain doesn't guess: every few
+  // frames it tries each thing it could do right now -- the same buttons a
+  // player has -- against each of a handful of things the opponent might be
+  // doing, plays every pair out a short way into the future in a copy of the
+  // fight, and does whatever comes out best even when the opponent picks
+  // their best answer to it.
+  //
+  // It sees what a player sees (where everyone is, what move they're in,
+  // health, meters, the ball) and never reads the opponent's controls: their
+  // side of each future is a guess from that list. What makes it so hard to
+  // beat is that it reacts on the frame and never misjudges a range.
+  const SEARCH = {
+    every: 3,     // frames between decisions
+    horizon: 32,  // frames each future is played out
+  };
+
+  // opts: override SEARCH (tests pit it against a stronger version of itself).
+  function createSearchBrain(slot, opts) {
+    const cfg = Object.assign({}, SEARCH, opts);
+    const B = Rollback.BIT;
+    const oppSlot = slot === 'p1' ? 'p2' : 'p1';
+    let plan = null, planAt = 0, tick = 0;
+
+    // A plan: inputs frame by frame, `hold` held throughout, `taps` pressed
+    // on the frames listed ({ frame: bits }).
+    const mk = (name, hold, taps) => ({ name, hold, taps: taps || {} });
+    const bitsAt = (p, t) => p.hold | (p.taps[t] || 0);
+
+    function myPlans(me, o) {
+      const toward = o.x >= me.x ? B.right : B.left, away = toward === B.right ? B.left : B.right;
+      const c = me.character;
+      const plans = [
+        mk('wait', 0),
+        mk('walk in', toward),
+        mk('back off', away),
+        mk('crouch', B.block),
+        mk('guard', B.guard),
+        mk('attack', 0, { 0: B.attack }),
+        mk('step in + attack', toward, { 0: B.attack }),
+        mk('down + attack', B.block, { 0: B.attack }),
+        mk('jump in', toward | B.jumpHeld, { 0: B.jump }),
+        mk('jump back', away | B.jumpHeld, { 0: B.jump }),
+        mk('jump in + air attack', toward | B.jumpHeld, { 0: B.jump, 8: B.attack }),
+        mk('jump + late air attack', toward | B.jumpHeld, { 0: B.jump, 16: B.attack }),
+      ];
+      if (!me.grounded) {
+        // In the air: drift, a (double) jump towards the middle, air attacks.
+        const toMid = me.x < (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2 ? B.right : B.left;
+        plans.push(mk('jump to the middle', toMid | B.jumpHeld, { 0: B.jump }));
+        plans.push(mk('drift to the middle', toMid));
+        plans.push(mk('down + air attack', B.block, { 0: B.attack }));
+      }
+      if (me.specialCooldownTimer <= 0) {
+        plans.push(mk('special', 0, { 0: B.special }));
+        plans.push(mk('special toward', toward, { 0: B.special }));
+        if (c.special.type === 'projectileCharge') plans.push(mk('charged special', B.specialHeld, { 0: B.special }));
+        if (!me.grounded) plans.push(mk('special to the middle', me.x < (STAGE_LEFT_EDGE + STAGE_RIGHT_EDGE) / 2 ? B.right : B.left, { 0: B.special }));
+      }
+      if (me.ultCharge >= ULT_METER_MAX) {
+        plans.push(mk('ultimate', 0, { 0: B.ultimate }));
+        plans.push(mk('ultimate toward', toward, { 0: B.ultimate }));
+      }
+      return plans;
+    }
+
+    // What the opponent might do over the same stretch. Only what they could
+    // plausibly be doing: not reading their keys.
+    function theirPlans(me, o) {
+      const toward = me.x >= o.x ? B.right : B.left, away = toward === B.right ? B.left : B.right;
+      const plans = [
+        mk('wait', 0),
+        mk('attack', toward, { 0: B.attack }),
+        mk('walk in', toward),
+        mk('crouch', B.block),
+        mk('jump in + air attack', toward | B.jumpHeld, { 0: B.jump, 8: B.attack }),
+      ];
+      if (o.specialCooldownTimer <= 0) plans.push(mk('special', toward, { 0: B.special }));
+      if (o.ultCharge >= ULT_METER_MAX) plans.push(mk('ultimate', toward, { 0: B.ultimate }));
+      if (Math.abs(o.x - me.x) > 420) plans.length = Math.min(plans.length, 3); // far apart: less can happen
+      return plans.concat(o.grounded ? [] : [mk('drift back', away)]);
+    }
+
+    // How good a position is for us (bigger is better).
+    function score(me, o, t0, result) {
+      if (result) return result === 'win' ? 10000 - t0 : result === 'lose' ? -10000 + t0 : 0;
+      const L = STAGE_LEFT_EDGE, R = STAGE_RIGHT_EDGE;
+      const health = (f) => Math.max(0, f.hp) / f.maxHp;
+      // Off the stage and below the floor: in danger of a ring-out.
+      const danger = (f) => {
+        const over = f.x > L && f.x < R;
+        if (over && f.y <= GROUND_Y + 1) return 0;
+        return (over ? 10 : 40) + Math.max(0, f.y - GROUND_Y) * 0.5 + (over ? 0 : Math.min(Math.abs(f.x < L ? L - f.x : f.x - R), 300) * 0.15);
+      };
+      // Room to the nearest edge (being pushed out is how rounds are lost in balance mode).
+      const room = (f) => Math.min(300, Math.max(0, Math.min(f.x - L, R - f.x)));
+      const stunned = (f) => (f.state === 'hitstun' || f.state === 'knockdown' || f.state === 'grabbed' ? 1 : 0);
+      let v = 0;
+      v += 400 * (health(me) - health(o));
+      v -= 4 * danger(me);
+      v += 4 * danger(o);
+      v += 0.08 * (room(me) - room(o));
+      v += 12 * (stunned(o) - stunned(me));
+      v += 0.05 * (me.ultCharge - o.ultCharge);
+      v -= 1.5 * me.specialCooldownTimer;
+      // Stay where it's our move to make: close enough to hit, so it doesn't
+      // stand off forever.
+      const reach = me.character.attack.offset + me.character.attack.width + o.width / 2;
+      v -= 0.03 * Math.abs(Math.abs(me.x - o.x) - reach * 0.8);
+      return v;
+    }
+
+    function outcome(me) {
+      if (Game.getState() === 'fight') return null;
+      return me.state === 'victory' ? 'win' : me.state === 'ko' ? 'lose' : 'draw';
+    }
+
+    // One future: our inputs (what we've already committed to for the next
+    // frames, then the plan being tried) against one guess at theirs.
+    function playOut(me, o, prefix, mine, theirs) {
+      for (let t = 0; t < cfg.horizon; t++) {
+        Rollback.applyInput(slot, t < prefix.length ? prefix[t] : bitsAt(mine, t - prefix.length));
+        Rollback.applyInput(oppSlot, bitsAt(theirs, t));
+        Game.update(FIXED_STEP);
+        const r = outcome(me);
+        if (r) return score(me, o, t, r);
+      }
+      return score(me, o, cfg.horizon, null);
+    }
+
+    // A decision is worked out over `every` frames, a share each frame, so
+    // no single frame has to do it all (the game would stutter). It starts
+    // from the fight as it is on the first of those frames; the inputs we
+    // send meanwhile are already known (the current plan), so each future
+    // starts with them and the new plan takes over exactly when it's ready.
+    let job = null;
+
+    function startJob(me, o) {
+      const prefix = [];
+      for (let n = 0; n < cfg.every - 1; n++) prefix.push(plan ? bitsAt(plan, tick - planAt + n) : 0);
+      const mine = myPlans(me, o), theirs = theirPlans(me, o);
+      job = { root: Game.saveState(), prefix, mine, theirs, k: 0, worst: mine.map(() => Infinity), total: mine.map(() => 0) };
+    }
+
+    function work(me, o, count) {
+      const keys = InputManager.snapshot();
+      const now = Game.saveState();
+      const n = job.mine.length * job.theirs.length;
+      Effects.setSuppressed(true);
+      try {
+        for (let c = 0; c < count && job.k < n; c++, job.k++) {
+          const i = Math.floor(job.k / job.theirs.length), j = job.k % job.theirs.length;
+          Game.loadState(job.root);
+          const v = playOut(me, o, job.prefix, job.mine[i], job.theirs[j]);
+          job.total[i] += v;
+          if (v < job.worst[i]) job.worst[i] = v;
+        }
+      } finally {
+        Game.loadState(now);
+        Effects.setSuppressed(false);
+        InputManager.restore(keys);
+      }
+      return job.k >= n;
+    }
+
+    function pick() {
+      let best = 0, bestValue = -Infinity;
+      job.mine.forEach((p, i) => {
+        // Mostly the opponent's best answer, partly the average (pure
+        // worst-case would never commit to anything).
+        const value = 0.6 * job.worst[i] + 0.4 * job.total[i] / job.theirs.length;
+        if (value > bestValue) { bestValue = value; best = i; }
+      });
+      return job.mine[best];
+    }
+
+    function think(me, o, projectiles, matchState) {
+      tick++;
+      if (matchState !== 'fight') { plan = null; job = null; return 0; }
+      if (!job) startJob(me, o);
+      const n = job.mine.length * job.theirs.length;
+      if (work(me, o, Math.ceil(n / cfg.every))) {
+        plan = pick();
+        planAt = tick;
+        job = null;
+      }
+      return plan ? bitsAt(plan, tick - planAt) : 0;
+    }
+
+    return { think, level: { name: 'unbeatable' }, plan: () => plan && plan.name };
+  }
+
   // ---- Vs-CPU game mode (the browser) ----
   let brain = null;
   let cpuSlot = 'p2';
 
   function start(slot, level, seed) {
     cpuSlot = slot;
-    brain = createBrain(slot, level, seed);
+    brain = level === 'unbeatable' ? createSearchBrain(slot) : createBrain(slot, level, seed);
     Net.setLocalVirtual(true);
   }
 
@@ -564,5 +761,5 @@ const Cpu = (() => {
     Game.update(FIXED_STEP);
   }
 
-  return { LEVELS, createBrain, start, stop, tick, isActive: () => !!brain };
+  return { LEVELS, createBrain, createSearchBrain, start, stop, tick, isActive: () => !!brain };
 })();
