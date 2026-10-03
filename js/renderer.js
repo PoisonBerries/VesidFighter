@@ -1028,6 +1028,7 @@ const Renderer = (() => {
   // (his whole kit is "Iron Claw"), drawn in the accent color.
   // Carlos's hand: a dark gauntlet with three steel claw blades, their
   // edges catching his accent colour.
+  const CLAW_FILL = '#DFDFDF'; // Carlos's claw blades: a flat light grey
   function drawHand(ctx, x, y, profile, accent) {
     ctx.save();
     for (const deg of [-22, -2, 18]) {
@@ -1040,11 +1041,7 @@ const Renderer = (() => {
       ctx.quadraticCurveTo(bx + ux * len * 0.6 - uy * w * 0.9, by + uy * len * 0.6 + ux * w * 0.9, bx + ux * len, by + uy * len - 3);
       ctx.lineTo(bx + uy * w, by - ux * w);
       ctx.closePath();
-      const g = ctx.createLinearGradient(bx - uy * w, by + ux * w, bx + uy * w, by - ux * w);
-      g.addColorStop(0, '#6f737c');
-      g.addColorStop(0.5, '#e6e8ee');
-      g.addColorStop(1, shadeColor(accent, -10));
-      ctx.fillStyle = g;
+      ctx.fillStyle = CLAW_FILL;
       ctx.fill();
       ctx.strokeStyle = OUTLINE;
       ctx.lineWidth = 0.9;
