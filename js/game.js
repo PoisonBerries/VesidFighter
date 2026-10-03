@@ -245,6 +245,9 @@ const Game = (() => {
 
     let dmg = stats.damage, kb = stats.knockback, kbUp = stats.knockbackUp, hs = stats.hitstun;
     let knockdown = false, knockdownDuration = 0;
+    // Ryan's Finale kick: more damage and knockback.
+    const fin = attacker.character.finale;
+    if (fin && attacker.state === 'attack' && attacker.finaleKick) { dmg *= fin.damage; kb *= fin.knockback; kbUp *= fin.knockback; }
 
     // Keenan's counter-dodge swings for its own (bigger) numbers, not the base special's.
     if (isSpecial && stats.type === 'counterDodge' && attacker._ability.phase === 'counter') {
@@ -274,6 +277,8 @@ const Game = (() => {
       if (attacker.airAttackActive) attacker.hangAfterKick(); // (Keenan) a landed air kick leaves him suspended
       attacker.foeHitTimer = 150;
       attacker.comboHits++;
+      // Ryan: the shockwave landing, or the combo tune getting going, arms his Finale kick.
+      if (fin && !(attacker.state === 'attack' && attacker.finaleKick) && ((attacker.state === 'attack' && attacker.downAttackActive) || attacker.comboHits >= fin.combo)) attacker.finaleArmed = fin.frames;
       attacker.comboTimer = 100;
       if (attacker.character.comboSong) comboNote = attacker.comboHits - 1;
     } else if (result === 'blocked') {

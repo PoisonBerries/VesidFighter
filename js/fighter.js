@@ -76,6 +76,8 @@ class Fighter {
     this.rolling = false; // crouch-moving as a roll (characters with crouchRoll)
     this.sliding = false; // gliding along the floor on crouch momentum (characters with crouchSwim)
     this.downAttackActive = false; // the current attack is the midair down+attack shockwave (characters with downAttack)
+    this.finaleArmed = 0;  // frames left in which Ryan's next air kick is a Finale (stronger)
+    this.finaleKick = false; // the current kick is the Finale
     this.airSuspend = 0;   // frames left hanging in the air after landing an air kick (Keenan)
     this.airChain = 0;     // air kicks that have kept him up this jump
     this.foeHitTimer = 0;  // frames left in which the opponent backing off counts as running away (voice line)
@@ -371,6 +373,9 @@ class Fighter {
     this.upAttackActive = !!this.character.upAttack && !!this._controls && InputManager.isDown(this._controls.jump);
     this.downAttackActive = !!this.character.downAttack && !this.grounded && !!this._controls && InputManager.isDown(this._controls.block);
     this.airAttackActive = !this.upAttackActive && !this.downAttackActive && !this.grounded && !!this.character.airAttack;
+    // Ryan's Finale: the next air kick after a shockwave / combo hit is the powered-up one (spent when thrown).
+    this.finaleKick = this.airAttackActive && this.finaleArmed > 0 && !!this.character.finale;
+    if (this.finaleKick) this.finaleArmed = 0;
     if (this.grounded) this.vx = 0; // in the air, keep the momentum
     const slam = this.downAttackActive && this.character.downAttack.slamSpeed;
     if (slam) { this.vy = Math.max(this.vy, slam); this.vx += this.facing * this.character.downAttack.slamVx; }
@@ -616,7 +621,7 @@ class Fighter {
     this.upAttackActive = false;
     this.downAttackActive = false;
     this.phaseCooldown = 0;
-    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0; this.airSuspend = 0; this.airChain = 0;
+    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0; this.airSuspend = 0; this.airChain = 0; this.finaleArmed = 0; this.finaleKick = false;
     this.fartPower = 0; this.jumpStacks = 0; this.poisonFrom = null; this.poisonTickDamage = 0;
     this._comboHeld = false;
     this._crouchHeld = false;
@@ -690,6 +695,7 @@ class Fighter {
     if (this.phaseCooldown > 0) this.phaseCooldown--;
     if (this.sinceHit < 999) this.sinceHit++;
     if (this.comboTimer > 0 && --this.comboTimer === 0) this.comboHits = 0;
+    if (this.finaleArmed > 0) this.finaleArmed--;
     if (this.invulnerableTimer > 0) this.invulnerableTimer--;
     if (this.reflectTimer > 0) this.reflectTimer--;
     if (this.doubleJumpFlipTimer > 0) this.doubleJumpFlipTimer--;

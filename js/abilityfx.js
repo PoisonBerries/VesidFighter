@@ -1479,9 +1479,26 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // Ryan, Finale armed: his feet gleam and sparkle, ready for the powered-up kick.
+  function drawFinaleReady(ctx, f) {
+    const now = performance.now(), pulse = 0.5 + 0.5 * Math.sin(now / 90);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const dx of [-9, 9]) glow(ctx, f.x + dx, f.y - 6, 14 + 5 * pulse, '#ffe066', 0.35 + 0.25 * pulse);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#fff6b0';
+    for (let i = 0; i < 3; i++) {
+      const ph = ((now / 600) + i / 3) % 1;
+      ctx.globalAlpha = 1 - ph;
+      ctx.beginPath(); ctx.arc(f.x + Math.sin(now / 200 + i * 2) * 14, f.y - 4 - ph * 26, 2.2 * (1 - ph) + 0.6, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawPassiveFX(ctx, f) {
     const c = f.character;
     if (f.state === 'ko') return;
+    if (c.finale && f.finaleArmed > 0) drawFinaleReady(ctx, f);
     if (c.retaliate) drawAdrenaline(ctx, f);
     if (c.fartPower && f.fartPower > 0.01) drawToxicRush(ctx, f);
     if (c.hover && c.hover.lowHealthBonus) drawDesperateFuel(ctx, f);

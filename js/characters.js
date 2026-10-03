@@ -296,7 +296,7 @@ const CHARACTERS = {
       type: 'nuke',
       name: 'Plasma Nuke',
       description: 'Channels and unleashes a devastating plasma explosion.',
-      channel: 26,
+      channel: 44, // (was 26: a longer charge-up so the other player has time to react)
       radius: 240,
       offset: 20,
       recovery: 18,
@@ -382,6 +382,9 @@ const CHARACTERS = {
       startup: 7, active: 8, recovery: 10,
       knockback: 7, knockbackUp: 5, hitstun: 14,
     },
+    // Finale: landing the shockwave, or a combo of `combo` hits (the tune is under way), arms his
+    // next air kick for `frames`: it deals more damage and knockback, then the charge is spent.
+    finale: { damage: 1.5, knockback: 1.7, combo: 3, frames: 240 },
     // Midair down + F: a musical shockwave that rings out all round him and
     // stuns (little damage, no real knockback, a long daze).
     downAttack: {

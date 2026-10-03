@@ -2097,3 +2097,38 @@ test('Keenan: an air kick that lands leaves him hanging so he can chain kicks; a
   assert.strictEqual(p1().airChain, 0);
   assert.ok(k.suspend > 0 && k.maxChain > 1);
 });
+
+test('Ryan: landing the shockwave (or a 3-hit combo) arms a Finale air kick with extra damage and knockback, spent when thrown', () => {
+  const sim = createSim();
+  const R = sim.CHARACTERS.ryan;
+  const airKick = () => {
+    const C = sim.VCONTROLS.p1;
+    sim.Game.applySnapshot({ f: [{ x: 500, y: sim.GROUND_Y - 120, grounded: false, vy: 0, state: 'fall', jumpsUsed: 1, comboHits: 0 }, { x: 565, state: 'idle', stunFrames: 0, hp: 130 }] });
+    const hp0 = sim.Game.world().p2.hp;
+    sim.InputManager.setVirtual(C.attack, false, true); step(sim, 1); sim.InputManager.setVirtual(C.attack, false, false);
+    let vx = 0;
+    for (let i = 0; i < 25; i++) { step(sim, 1); const p2 = sim.Game.world().p2; if (p2.hp < hp0) { vx = Math.abs(p2.vx); break; } }
+    return { dmg: hp0 - sim.Game.world().p2.hp, vx };
+  };
+  startGame(sim, 'ryan', 'keenan', 500, 565);
+  const plain = airKick();
+  assert.ok(Math.abs(plain.dmg - R.airAttack.damage * sim.Game.world().p1.damageMultiplier * 0.5) < 0.6 || plain.dmg > 0, 'a plain kick lands');
+
+  // The shockwave lands -> armed.
+  startGame(sim, 'ryan', 'keenan', 500, 565);
+  const C = sim.VCONTROLS.p1;
+  sim.Game.applySnapshot({ f: [{ x: 500, y: sim.GROUND_Y - 120, grounded: false, vy: 0, state: 'fall', jumpsUsed: 1 }, { x: 540, state: 'idle', hp: 130 }] });
+  setKey(sim, C.block, true, false);
+  sim.InputManager.setVirtual(C.attack, false, true); step(sim, 1); sim.InputManager.setVirtual(C.attack, false, false);
+  for (let i = 0; i < 25; i++) step(sim, 1);
+  setKey(sim, C.block, false, false);
+  assert.ok(sim.Game.world().p1.finaleArmed > 0, 'the shockwave arms the Finale');
+  step(sim, 20);
+  const boosted = airKick();
+  assert.ok(boosted.dmg > plain.dmg * 1.3, `Finale damage ${boosted.dmg} vs ${plain.dmg}`);
+  assert.strictEqual(sim.Game.world().p1.finaleArmed, 0, 'spent');
+  const again = airKick();
+  assert.ok(again.dmg < boosted.dmg * 0.9, 'the next kick is back to normal');
+  assert.ok(R.finale.knockback > 1 && R.finale.damage > 1);
+  assert.ok(sim.CHARACTERS.owen.ultimate.channel >= 40, 'Owen\'s nuke charges for longer');
+});
