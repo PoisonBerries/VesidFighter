@@ -97,7 +97,7 @@
   .h2h-facts td:first-child { text-align: right; }
   .h2h-facts td:last-child { text-align: left; }
   .key-a, .key-b { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
-  .key-a { background: var(--series-a); } .key-b { background: var(--series-b); }
+  .key-a { background: var(--series-a); } .key-b { background: var(--series-b); } .key-c { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; background: var(--muted); }
 
   /* Matchup matrix */
   .matrix td, .matrix th { text-align: center; padding: 3px; border: 0; }
@@ -129,7 +129,7 @@
     <h1>MATCH STATS</h1>
     <a href="index.html">&larr; Back to the game</a>
   </header>
-  <p class="sub">Every finished online match, and local 2-player matches played on the live site. Vs CPU games aren't counted. Mirror matches count as games played but not as wins or losses.</p>
+  <p class="sub">Every finished online match, and local 2-player matches played on the live site. Vs CPU games are left out unless you switch on &ldquo;Include vs CPU&rdquo;. Mirror matches count as games played but not as wins or losses.</p>
 
   <div class="filters" id="filters">
     <div class="seg" id="range-presets">
@@ -145,6 +145,7 @@
       <button data-mode="online">Online</button>
       <button data-mode="local">Local</button>
     </div>
+    <label title="Matches against the computer are left out unless this is on"><input type="checkbox" id="cpu"> Include vs CPU</label>
     <span class="range-note" id="range-note"></span>
   </div>
 
@@ -248,6 +249,7 @@
     from: params.get('from') || '',
     to: params.get('to') || '',
     mode: ['online', 'local'].includes(params.get('mode')) ? params.get('mode') : 'all',
+    cpu: params.get('cpu') === '1', // include vs-CPU matches (off by default)
     a: params.get('a') || '',
     b: params.get('b') || '',
     trend: params.get('trend') || '',
@@ -260,6 +262,7 @@
     if (params.get('server')) p.set('server', params.get('server'));
     for (const k of ['from', 'to', 'a', 'b', 'trend']) if (state[k]) p.set(k, state[k]);
     if (state.mode !== 'all') p.set('mode', state.mode);
+    if (state.cpu) p.set('cpu', '1');
     const qs = p.toString();
     history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
   }
@@ -290,7 +293,7 @@
     const to = state.to ? new Date(state.to + 'T00:00:00').getTime() + DAY : Infinity;
     return all.filter((m) => {
       const t = m.time;
-      return t >= from && t < to && (state.mode === 'all' || m.mode === state.mode);
+      return t >= from && t < to && (state.mode === 'all' ? (m.mode !== 'cpu' || state.cpu) : m.mode === state.mode);
     });
   }
 
@@ -327,6 +330,7 @@
   // ---- Render: tiles ----
   function renderTiles(ms, stats) {
     const online = ms.filter((m) => m.mode === 'online').length;
+    const cpuN = ms.filter((m) => m.mode === 'cpu').length;
     const durs = ms.map((m) => m.duration).filter((d) => d > 0);
     const avgDur = durs.length ? durs.reduce((a, b) => a + b, 0) / durs.length : null;
     const ranked = stats.filter((s) => s.w + s.l >= 5).sort((x, y) => y.w / (y.w + y.l) - x.w / (x.w + x.l));
@@ -334,7 +338,9 @@
     const days = new Set(ms.map((m) => ymd(new Date(m.time)))).size;
     const tiles = [
       ['Matches', ms.length, `${days} day${days === 1 ? '' : 's'} with games`],
-      ['Online / Local', `${online} / ${ms.length - online}`, pct(online, ms.length) + ' online'],
+      state.cpu
+        ? ['Online / Local / CPU', `${online} / ${ms.filter((m) => m.mode === 'local').length} / ${cpuN}`, pct(online, ms.length) + ' online']
+        : ['Online / Local', `${online} / ${ms.length - online}`, pct(online, ms.length) + ' online'],
       ['Avg match length', fmtDur(avgDur), 'time spent fighting'],
       ['Most played', most && most.played ? name(most.id) : '–', most && most.played ? `${most.played} games · ${pct(most.played, ms.length * 2)} of picks` : ''],
       ['Best win rate', ranked[0] ? name(ranked[0].id) : '–', ranked[0] ? `${pct(ranked[0].w, ranked[0].w + ranked[0].l)} over ${ranked[0].w + ranked[0].l} games` : 'needs 5+ games'],
@@ -523,29 +529,33 @@
     $('activity-sub').textContent = byWeek ? 'Per week, online and local' : 'Per day, online and local';
     const bucket = (t) => (byWeek ? weekStart(t) : new Date(t).setHours(0, 0, 0, 0));
     const buckets = [];
-    for (let t = bucket(start); t <= end; t = byWeek ? t + 7 * DAY : new Date(t + DAY * 1.5).setHours(0, 0, 0, 0)) buckets.push({ t, online: 0, local: 0 });
+    for (let t = bucket(start); t <= end; t = byWeek ? t + 7 * DAY : new Date(t + DAY * 1.5).setHours(0, 0, 0, 0)) buckets.push({ t, online: 0, local: 0, cpu: 0 });
     const idx = new Map(buckets.map((b, i) => [b.t, i]));
     for (const m of ms) { const i = idx.get(bucket(m.time)); if (i != null) buckets[i][m.mode]++; }
     const W = Math.max(300, el.clientWidth || 520), H = 200, padL = 30, padB = 22, padT = 8;
-    const max = niceMax(Math.max(...buckets.map((b) => b.online + b.local)));
+    const max = niceMax(Math.max(...buckets.map((b) => b.online + b.local + b.cpu)));
     const bw = (W - padL) / buckets.length;
     const y = (v) => padT + (H - padT - padB) * (1 - v / max);
     let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Matches played over time">`;
     for (const v of [0, max / 2, max]) svg += `<line x1="${padL}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="var(${v ? '--grid' : '--baseline'})"/><text x="${padL - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
     const labelEvery = Math.ceil(buckets.length / 7);
     buckets.forEach((b, i) => {
-      const x = padL + i * bw, w = Math.max(1, bw - 2), total = b.online + b.local;
+      const x = padL + i * bw, w = Math.max(1, bw - 2), total = b.online + b.local + b.cpu;
       // Online sits on the baseline, local stacked above it, with a 2px gap.
       const hOn = (H - padT - padB) * (b.online / max), hLo = (H - padT - padB) * (b.local / max);
       const base = y(0);
       if (b.online) svg += `<rect x="${x + 1}" y="${base - hOn}" width="${w}" height="${hOn}" rx="${Math.min(3, w / 2)}" fill="var(--series-a)"/>`;
       if (b.local) svg += `<rect x="${x + 1}" y="${base - hOn - hLo - (b.online ? 2 : 0)}" width="${w}" height="${hLo}" rx="${Math.min(3, w / 2)}" fill="var(--series-b)"/>`;
+      if (b.cpu) {
+        const hCpu = (H - padT - padB) * (b.cpu / max), top = base - hOn - hLo - (b.online ? 2 : 0) - (b.local ? 2 : 0);
+        svg += `<rect x="${x + 1}" y="${top - hCpu}" width="${w}" height="${hCpu}" rx="${Math.min(3, w / 2)}" fill="var(--muted)"/>`;
+      }
       const label = byWeek ? 'Week of ' + fmtDate(b.t) : new Date(b.t).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-      svg += `<rect x="${x}" y="${padT}" width="${bw}" height="${H - padT - padB}" fill="transparent" data-tip="${esc(`<div class='t'>${label}</div>${total} match${total === 1 ? '' : 'es'}<br><span class='key-a'></span>${b.online} online<br><span class='key-b'></span>${b.local} local`)}"/>`;
+      svg += `<rect x="${x}" y="${padT}" width="${bw}" height="${H - padT - padB}" fill="transparent" data-tip="${esc(`<div class='t'>${label}</div>${total} match${total === 1 ? '' : 'es'}<br><span class='key-a'></span>${b.online} online<br><span class='key-b'></span>${b.local} local${state.cpu ? `<br><span class='key-c'></span>${b.cpu} vs CPU` : ''}`)}"/>`;
       if (i % labelEvery === 0) svg += `<text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${fmtDate(b.t)}</text>`;
     });
     svg += '</svg>';
-    el.innerHTML = svg + `<div class="legend"><span><span class="key-a"></span>Online</span><span><span class="key-b"></span>Local</span></div>`;
+    el.innerHTML = svg + `<div class="legend"><span><span class="key-a"></span>Online</span><span><span class="key-b"></span>Local</span>${state.cpu ? '<span><span class="key-c"></span>vs CPU</span>' : ''}</div>`;
     bindTips(el);
   }
 
@@ -642,7 +652,7 @@
     if (!rows.length) { $('recent').innerHTML = '<tbody><tr><td class="muted">No matches in this range.</td></tr></tbody>'; return; }
     const fighter = (m, slot) => `<span class="who ${m.winner === slot ? 'w' : 'muted'}"><img src="${head(m[slot])}" alt="">${esc(name(m[slot]))}</span>`;
     $('recent').innerHTML = '<thead><tr><th>When</th><th class="l">Mode</th><th class="l">Player 1</th><th class="l">Player 2</th><th>Score</th><th class="l">Rounds</th><th>Length</th></tr></thead><tbody>' +
-      rows.map((m) => `<tr><td>${fmtDateTime(m.time)}</td><td class="l">${m.mode === 'online' ? 'Online' : 'Local'}</td><td class="l">${fighter(m, 'p1')}</td><td class="l">${fighter(m, 'p2')}</td><td>${score(m) || '–'}</td>
+      rows.map((m) => `<tr><td>${fmtDateTime(m.time)}</td><td class="l">${m.mode === 'online' ? 'Online' : m.mode === 'cpu' ? 'vs CPU' + (m.cpu ? ' (' + esc(m.cpu) + ')' : '') : 'Local'}</td><td class="l">${fighter(m, 'p1')}</td><td class="l">${fighter(m, 'p2')}</td><td>${score(m) || '–'}</td>
         <td class="l">${(m.rounds || []).map((r) => `<span class="finish">${r.w ? (isMirror(m) ? r.w.toUpperCase() : esc(name(m[r.w]))) + ' · ' : ''}${HOW_LABEL[r.how] || '?'}</span>`).join('')}</td><td>${fmtDur(m.duration)}</td></tr>`).join('') + '</tbody>';
   }
 
@@ -655,6 +665,7 @@
     $('from').value = state.from;
     $('to').value = state.to;
     for (const b of $('mode').children) b.classList.toggle('active', b.dataset.mode === state.mode);
+    $('cpu').checked = state.cpu;
     const today = ymd(new Date());
     for (const b of $('range-presets').children) {
       const days = Number(b.dataset.days);
@@ -696,6 +707,7 @@
   $('from').addEventListener('change', (e) => { state.from = e.target.value; render(); });
   $('to').addEventListener('change', (e) => { state.to = e.target.value; render(); });
   for (const b of $('mode').children) b.addEventListener('click', () => { state.mode = b.dataset.mode; render(); });
+  $('cpu').addEventListener('change', () => { state.cpu = $('cpu').checked; render(); });
   $('h2h-a').addEventListener('change', (e) => { state.a = e.target.value; render(); });
   $('h2h-b').addEventListener('change', (e) => { state.b = e.target.value; render(); });
   $('h2h-swap').addEventListener('click', () => { [state.a, state.b] = [state.b, state.a]; render(); });

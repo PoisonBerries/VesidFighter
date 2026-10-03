@@ -464,7 +464,7 @@ const UI = (() => {
     const online = Net.isOnline();
     document.getElementById('btn-rematch').disabled = online && !Net.isLeader();
     document.getElementById('btn-rematch').textContent = online && !Net.isLeader() ? 'P1 picks rematch' : 'Rematch';
-    if (!cpuMode) Stats.reportMatch(online ? 'online' : 'local', selected.p1, selected.p2, winnerSlot, { stage: stageId, ball: ballMode, balance: balanceOn });
+    Stats.reportMatch(cpuMode ? 'cpu' : online ? 'online' : 'local', selected.p1, selected.p2, winnerSlot, { stage: stageId, ball: ballMode, balance: balanceOn, cpuLevel });
     const winnerChar = CHARACTERS[selected[winnerSlot]];
     const you = cpuMode ? 'p1' : online ? Net.localSlot() : null;
     const outcome = !you ? '' : (winnerSlot === you ? ' — YOU WIN!' : ' — YOU LOSE');

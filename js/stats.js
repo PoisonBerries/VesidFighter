@@ -1,7 +1,8 @@
 // Match stats: reports each finished online or local 2-player match to the
 // game server (server/server.js keeps them; stats.html shows them).
 //
-// - Vs CPU matches are never reported.
+// - Vs CPU matches are reported too (mode 'cpu', with the CPU's level), only from the deployed site;
+//   the stats page leaves them out unless you switch "Include vs CPU" on.
 // - Online, only player 1 reports, so a match is counted once.
 // - Local matches are only reported from the deployed site, not from
 //   localhost / a LAN address / a file, where the game gets tested.
@@ -28,11 +29,12 @@ const Stats = (() => {
   function reportMatch(mode, p1, p2, winner, opts) {
     if (!STATS_URL || !enabled()) return null;
     if (mode === 'online' && !Net.isLeader()) return null;
-    if (mode === 'local' && isDevHost(location)) return null;
-    if (mode !== 'online' && mode !== 'local') return null;
+    if ((mode === 'local' || mode === 'cpu') && isDevHost(location)) return null;
+    if (mode !== 'online' && mode !== 'local' && mode !== 'cpu') return null;
     const summary = Game.matchSummary() || { rounds: [], hp: null };
     const rec = {
       mode, p1, p2, winner,
+      cpu: mode === 'cpu' ? opts.cpuLevel : undefined, // the CPU is always player 2
       rounds: summary.rounds,
       hp: summary.hp,
       duration: summary.rounds.reduce((s, r) => s + (r.t || 0), 0),

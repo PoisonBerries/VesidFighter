@@ -217,7 +217,8 @@ setInterval(() => {
 // One JSON object per line, appended as matches finish. Small enough (a few
 // hundred bytes a match) that the whole file is read on each stats request.
 const STATS_FILE = process.env.STATS_FILE || path.join(__dirname, 'data', 'matches.jsonl');
-const STATS_MODES = new Set(['online', 'local']);
+const STATS_MODES = new Set(['online', 'local', 'cpu']);
+const CPU_LEVELS = new Set(['easy', 'normal', 'hard', 'unbeatable']);
 const STATS_HOWS = new Set(['ko', 'ringout', 'time', 'draw']);
 const MAX_BODY = 4096;
 const statsChars = createSim().CHARACTERS;
@@ -244,6 +245,7 @@ function cleanMatch(m) {
     p1: m.p1,
     p2: m.p2,
     winner,
+    cpu: m.mode === 'cpu' && CPU_LEVELS.has(m.cpu) ? m.cpu : null, // vs-CPU matches: its level (the CPU is player 2)
     rounds,
     hp: Array.isArray(m.hp) ? m.hp.slice(0, 2).map((v) => cleanNum(v, 1)) : null,
     duration: cleanNum(m.duration, 3600),

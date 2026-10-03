@@ -112,12 +112,32 @@ test('online matches are reported once (by player 1), from anywhere', () => {
 test('nothing is reported with ?nostats, from automated browsers, or for other modes', () => {
   assert.strictEqual(loadStats({ search: '?nostats' }).Stats.reportMatch('online', 'keenan', 'owen', 'p1', OPTS), null);
   assert.strictEqual(loadStats({ webdriver: true }).Stats.reportMatch('online', 'keenan', 'owen', 'p1', OPTS), null);
-  assert.strictEqual(loadStats().Stats.reportMatch('cpu', 'keenan', 'owen', 'p1', OPTS), null);
+  assert.strictEqual(loadStats().Stats.reportMatch('ranked', 'keenan', 'owen', 'p1', OPTS), null);
 });
 
-test('vs CPU matches never reach the stats (ui.js only reports when not playing the CPU)', () => {
+test('vs CPU matches are reported too (with the CPU level), from the live site only', () => {
+  const { Stats, sent } = loadStats();
+  const rec = Stats.reportMatch('cpu', 'keenan', 'owen', 'p1', { ...OPTS, cpuLevel: 'hard' });
+  assert.ok(rec);
+  assert.strictEqual(sent[0].body.mode, 'cpu');
+  assert.strictEqual(sent[0].body.cpu, 'hard');
+  assert.strictEqual(loadStats({ host: 'localhost' }).Stats.reportMatch('cpu', 'keenan', 'owen', 'p1', OPTS), null, 'not from localhost');
+  assert.strictEqual(loadStats({ search: '?nostats' }).Stats.reportMatch('cpu', 'keenan', 'owen', 'p1', OPTS), null);
+  assert.strictEqual(loadStats({ webdriver: true }).Stats.reportMatch('cpu', 'keenan', 'owen', 'p1', OPTS), null);
+});
+
+test('ui.js reports every finished match, vs CPU ones as mode "cpu" with the level', () => {
   const ui = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
-  assert.match(ui, /if \(!cpuMode\) Stats\.reportMatch\(/);
+  assert.match(ui, /Stats\.reportMatch\(cpuMode \? 'cpu' : online \? 'online' : 'local'/);
+  assert.match(ui, /cpuLevel \}\);/);
+});
+
+test('the stats page leaves vs CPU matches out unless "Include vs CPU" is on (and remembers it in the URL)', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'stats.html'), 'utf8');
+  assert.match(html, /id="cpu"/);
+  assert.match(html, /cpu: params\.get\('cpu'\) === '1'/);
+  assert.match(html, /m\.mode !== 'cpu' \|\| state\.cpu/);
+  assert.match(html, /if \(state\.cpu\) p\.set\('cpu', '1'\)/);
 });
 
 // ---- server/server.js: /stats endpoints ----
@@ -136,8 +156,11 @@ test('the server stores valid matches and serves them back, filtered by date', a
     const good = { mode: 'online', p1: 'keenan', p2: 'owen', winner: 'p2', rounds: [{ w: 'p2', how: 'ko', t: 31.5 }, { w: 'p2', how: 'ringout', t: 12 }], hp: [0, 0.4], duration: 43.5, stage: 'orchard', ball: 'rally', balance: false, site: 'x' };
     assert.strictEqual((await post(good)).status, 200);
     assert.strictEqual((await post({ ...good, mode: 'local', winner: 'p1' })).status, 200);
-    // Rejected: CPU games, unknown characters, missing winner, junk.
-    assert.strictEqual((await post({ ...good, mode: 'cpu' })).status, 400);
+    // vs CPU games are kept too, with the CPU's level; unknown levels are dropped.
+    assert.strictEqual((await post({ ...good, mode: 'cpu', cpu: 'hard', winner: 'p1' })).status, 200);
+    assert.strictEqual((await post({ ...good, mode: 'cpu', cpu: 'nonsense' })).status, 200);
+    // Rejected: unknown modes, unknown characters, missing winner, junk.
+    assert.strictEqual((await post({ ...good, mode: 'ranked' })).status, 400);
     assert.strictEqual((await post({ ...good, p1: 'nobody' })).status, 400);
     assert.strictEqual((await post({ ...good, winner: 'p3' })).status, 400);
     assert.strictEqual((await fetch(base + '/stats/match', { method: 'POST', body: 'not json' })).status, 400);
@@ -145,15 +168,18 @@ test('the server stores valid matches and serves them back, filtered by date', a
     const res = await fetch(base + '/stats/matches');
     assert.strictEqual(res.headers.get('access-control-allow-origin'), '*');
     const { matches } = await res.json();
-    assert.strictEqual(matches.length, 2);
+    assert.strictEqual(matches.length, 4);
+    assert.strictEqual(matches[2].mode, 'cpu');
+    assert.strictEqual(matches[2].cpu, 'hard');
+    assert.strictEqual(matches[3].cpu, null);
     assert.deepStrictEqual(matches[0].rounds, good.rounds);
     assert.strictEqual(matches[0].winner, 'p2');
     assert.ok(Date.parse(matches[0].at) > Date.now() - 60000, 'the server stamps the time');
-    assert.strictEqual(fs.readFileSync(file, 'utf8').trim().split('\n').length, 2);
+    assert.strictEqual(fs.readFileSync(file, 'utf8').trim().split('\n').length, 4);
 
     const future = new Date(Date.now() + 86400000).toISOString();
     assert.strictEqual((await (await fetch(base + '/stats/matches?from=' + future)).json()).matches.length, 0);
-    assert.strictEqual((await (await fetch(base + '/stats/matches?to=' + future)).json()).matches.length, 2);
+    assert.strictEqual((await (await fetch(base + '/stats/matches?to=' + future)).json()).matches.length, 4);
   } finally {
     proc.kill();
     fs.rmSync(dir, { recursive: true, force: true });
