@@ -913,6 +913,8 @@ const Renderer = (() => {
       art.draw('upperArm', shoulder, elbow, upperArm);
       art.draw('forearm', elbow, wrist, forearm);
     }
+    // A drawn fist (Carlos's gauntlet) replaces the built-in hand, but the claw blades are still drawn: out of the knuckles, behind the drawing.
+    if (profile.clawHands && art.has('fist')) drawClawBlades(ctx, wrist.x + Math.cos(ang) * fist * 1.0, wrist.y + Math.sin(ang) * fist * 1.0);
     art.draw('fist', wrist, knuckles, () => partFistAt(ctx, wrist, knuckles, fist, colors, profile, accent));
     if (orb > 0.02) {
       ctx.save();
@@ -1029,7 +1031,8 @@ const Renderer = (() => {
   // Carlos's hand: a dark gauntlet with three steel claw blades, their
   // edges catching his accent colour.
   const CLAW_FILL = '#DFDFDF'; // Carlos's claw blades: a flat light grey
-  function drawHand(ctx, x, y, profile, accent) {
+  // The three claw blades, fanned out from (x, y).
+  function drawClawBlades(ctx, x, y) {
     ctx.save();
     for (const deg of [-22, -2, 18]) {
       const a = deg * Math.PI / 180;
@@ -1047,6 +1050,12 @@ const Renderer = (() => {
       ctx.lineWidth = 0.9;
       ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  function drawHand(ctx, x, y, profile, accent) {
+    drawClawBlades(ctx, x, y);
+    ctx.save();
     const palm = ctx.createRadialGradient(x - 2, y - 2, 1, x, y, 7);
     palm.addColorStop(0, shadeColor(GLOVE, 40));
     palm.addColorStop(1, GLOVE);
