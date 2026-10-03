@@ -2083,7 +2083,7 @@ test('Keenan: an air kick that lands leaves him hanging so he can chain kicks; a
   assert.ok(hit, 'the kick landed');
   assert.ok(p1().airSuspend > 0);
   step(sim, 25);
-  assert.ok(Math.abs(p1().y - y0) < 25, `hung in the air (${y0} -> ${p1().y})`);
+  assert.ok(p1().y < y0 + 40 && p1().y > y0 - 80, `stayed up around the same height (${y0} -> ${p1().y})`);
   // Chain: kick again while the target is still in reach.
   const hp1 = sim.Game.world().p2.hp;
   sim.Game.applySnapshot({ f: [{}, { x: 560, state: 'idle', stunFrames: 0 }] });

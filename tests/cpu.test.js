@@ -97,14 +97,14 @@ function playMatch(kinds, chars, seed, ball, balance, stage) {
 }
 
 // Every character, on both sides, against a rotating opponent character.
-function series(a, b, ball, balance) {
+function series(a, b, ball, balance, seedBase = 100) {
   const ids = createSim().CHARACTER_LIST.map((c) => c.id);
   let wins = 0, games = 0, unfinished = 0;
   const selfKO = [0, 0];
   ids.forEach((id, i) => {
     const other = ids[(i + 1) % ids.length];
     for (const flip of [false, true]) {
-      const r = flip ? playMatch([b, a], [other, id], 100 + i, ball, balance) : playMatch([a, b], [id, other], 100 + i, ball, balance);
+      const r = flip ? playMatch([b, a], [other, id], seedBase + i, ball, balance) : playMatch([a, b], [id, other], seedBase + i, ball, balance);
       const [ai, bi] = flip ? [1, 0] : [0, 1];
       games++;
       if (!r.winner) unfinished++;
@@ -134,10 +134,11 @@ test('Normal CPU beats random button-mashing', () => {
 // harder than the last. Plain fighting (no ball, no balance mode), since the
 // rusher ignores the ball and walks itself into ring-outs.
 test('difficulty ramps against a simple walk-in-and-punch player (plain fighting)', () => {
-  const [easy, normal, hard] = ['easy', 'normal', 'hard'].map((l) => series('cpu:' + l, 'rusher', 'off', false).rate);
+  // (36 games per level -- two sets of matches with different seeds -- so one lucky or unlucky game can't swing it)
+  const [easy, normal, hard] = ['easy', 'normal', 'hard'].map((l) => (series('cpu:' + l, 'rusher', 'off', false).rate + series('cpu:' + l, 'rusher', 'off', false, 200).rate) / 2);
   const pct = (r) => (r * 100).toFixed(0) + '%';
   assert.ok(easy <= 0.25, `Easy beat the rusher ${pct(easy)} of the time -- too hard`);
-  // (18 games per level, so easy/normal may swap by a game or so)
+  // (easy/normal may still swap by a game or so)
   assert.ok(easy <= normal + 0.1 && normal < hard && easy < hard, `levels out of order: easy ${pct(easy)}, normal ${pct(normal)}, hard ${pct(hard)}`);
   assert.ok(hard >= 0.3, `Hard beat the rusher only ${pct(hard)} of the time -- too easy`);
 });

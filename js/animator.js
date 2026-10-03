@@ -394,6 +394,16 @@ const Animator = (() => {
           T.float = profile.floaty ? -20 : -8;
           T.rate = 30;
         }
+        if (fighter.airSuspend > 0 && fighter.character.airAttack && fighter.character.airAttack.suspend) {
+          // Just kicked off the target: knees snap up and arms fling out, then he coils for the next kick as he drifts back down.
+          const ph = fighter.airSuspend / fighter.character.airAttack.suspend; // 1 = the kick just landed
+          const snap = clamp((ph - 0.75) / 0.25, 0, 1);
+          T.crouch = 0.1 + 0.1 * snap; T.lean = lerp(-2, -12, snap);
+          T.fA = F(lerp(-6, -2, snap), lerp(-16, -26, snap));
+          T.fB = F(lerp(16, 10, snap), lerp(-24, -30, snap));
+          T.arms = lerpArms(armsFor('balance', { R, E: 8, s: 0 }), armsFor('flail', { R, E: 8, s: 0 }), snap);
+          T.rate = 55;
+        }
         if (fighter.doubleJumpFlipTimer > 0 && fighter.character.doubleJumpFlip) {
           const u = 1 - fighter.doubleJumpFlipTimer / 24;
           T.spin = TAU * easeInOutSine(u) * (fighter.doubleJumpFlipDir || 1);

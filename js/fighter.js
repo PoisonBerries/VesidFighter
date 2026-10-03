@@ -1121,7 +1121,8 @@ class Fighter {
     if (!a || !a.suspend || this.grounded || this.airChain >= a.maxChain) return;
     this.airChain++;
     this.airSuspend = a.suspend;
-    this.vy = 0;
+    this.vy = -a.pop;                  // pushes off the target: up...
+    this.vx = -this.facing * a.recoil; // ...and a little back
   }
 
   _updateSuspend() {
@@ -1132,7 +1133,8 @@ class Fighter {
     }
     if (this.airSuspend > 0) {
       this.airSuspend--;
-      this.vy = -GRAVITY * (this.character.gravityMul || 1); // cancels this frame's gravity
+      // Mostly (not fully) cancels this frame's gravity: he arcs up off the kick and drifts down, rather than hanging.
+      this.vy -= GRAVITY * (this.character.gravityMul || 1) * (1 - this.character.airAttack.gravity);
     }
   }
 

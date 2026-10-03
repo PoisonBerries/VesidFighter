@@ -1634,6 +1634,10 @@ const AbilityFX = (() => {
     if (st === 'attack' && f.downAttackActive && f.character.comboSong && crossed(prevT, t, f.attackDef.startup)) {
       add({ kind: 'shockring', dur: 560, x: f.x, y: f.y - H * 0.5, r: f.attackDef.width * 0.55, color: 'rgba(255,150,225,A)', notes: 7, a: Math.random() * TAU });
     }
+    if (f.character.airAttack && f.character.airAttack.suspend) { // a ring where the kick pushes off the target
+      if (m.chain !== undefined && f.airChain > m.chain) add({ kind: 'shockring', dur: 260, x: f.x + f.facing * 55, y: f.y - H * 0.25, r: 26, color: 'rgba(255,236,160,A)' });
+      m.chain = f.airChain;
+    }
     if (f.character.airLeech) {
       if (m.hp !== undefined && f.hp > m.hp + 0.01 && f.state === 'attack') {
         add({ kind: 'healburst', dur: 750, x: f.x, y: f.y - H * 0.6, a: Math.random() * TAU });
