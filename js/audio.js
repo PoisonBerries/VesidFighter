@@ -372,6 +372,14 @@ const Sfx = (() => {
     victoryStreak: 'RyanVictoryStreak.m4a',         // when he wins the match again right after winning one (a streak)
     roundWin: 'RyanPostVictoryTaunt.m4a',            // he wins a round (but not the match): a taunt
   };
+  VOICE.john = {
+    hitTaken: ['JohnHitTaken.m4a', 'JohnHitTaken2.m4a'], // someone lands a punch or kick on him (one of two, at random)
+    'hitByUltimate:sam': 'JohnHitBySamUlt.mp3',     // Sam's Splashdown hits him
+    block: 'JohnGrunt.m4a',                         // he blocks a hit
+    foeRunsAway: 'JohnChuckle.mp3',                 // he lands a hit and the opponent backs off
+    enemyFall: 'JohnOpponentFallsOffMap.mp3',       // the opponent falls off the map
+    selected: 'JohnSelected.mp3',                   // he's clicked on in the character select menu
+  };
   VOICE.sam = {
     hitTaken: ['SamHitTaken.mp3', 'SamAyee.mp3'],    // someone lands a punch or kick on him (one of two, at random)
     bigHit: 'SamWoaaahh.mp3',                       // a heavy blow: 15% of his health or more
@@ -516,7 +524,12 @@ const Sfx = (() => {
     // A general match-start line gives way to a matchup line that's already playing.
     if (occasion === 'matchStart' && performance.now() - voiceVsAt < 300) return;
     // Being hit by anything (projectile, special, ultimate, the ball...) without a line of its own plays the plain hit-taken line.
-    const entry = lines[occasion] || (occasion.startsWith('hitBy') ? lines.hitTaken : null);
+    // An occasion can list fallbacks, most specific first: 'hitByUltimate:sam|hitByWater|hitByUltimate'.
+    // The first one the character has a line for wins; any 'hitBy...' with none falls back to hitTaken.
+    const chain = occasion.split('|');
+    let entry = null;
+    for (const o of chain) { if (lines[o]) { entry = lines[o]; break; } }
+    if (!entry && chain[0].startsWith('hitBy')) entry = lines.hitTaken;
     if (!entry || !ensure()) return;
     // Hit-taken lines (including when they stand in for a projectile or special hit) only play some of
     // the time, so a string of hits isn't a string of grunts.

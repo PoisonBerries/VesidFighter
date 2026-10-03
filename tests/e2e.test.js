@@ -421,13 +421,14 @@ test('hit-taken lines only play about half the time; other lines always play', a
     Sfx.hitTakenChance = 0;
     out.never = seen('hitTaken');
     out.fallbackNever = seen('hitByUltimate');   // a special/ult hit with no line of its own plays the hit-taken line, so it is chanced too
+    out.chain = seen('hitByUltimate:sam|hitByWater|hitByUltimate', 'artur'); // no line of its own anywhere in the chain: the chanced hit-taken line
     out.otherLines = seen('hitByProjectile');    // Keenan has his own projectile line: always plays
     await wait(750);
     out.big = seen('bigHit', 'carlos');           // not a hit-taken line
     return out;
   });
   assert.strictEqual(r.chance, 0.5);
-  assert.ok(r.always && !r.never && !r.fallbackNever);
+  assert.ok(r.always && !r.never && !r.fallbackNever && !r.chain);
   assert.ok(r.otherLines && r.big, 'only hit-taken lines are chanced');
   assert.deepStrictEqual(errors, []);
   await page.close();

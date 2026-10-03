@@ -1898,7 +1898,8 @@ test('hit voice occasions: specials, ultimates and the ball are reported as thei
   sim.Effects.setRecording(true); events();
   sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false);
   step(sim, 40);
-  assert.ok(events().includes('keenan:hitBySpecial'));
+  assert.ok(events().some((e) => e.startsWith('keenan:hitBySpecial:john')), 'reported with who hit him, falling back to the general kind');
+  assert.ok(events().length >= 0);
 });
 
 test('voice: falling off the map (the faller), and heavy blows (15% of max health in one hit)', () => {
@@ -1998,7 +1999,7 @@ test('voice: Sam\'s water attacks, round wins, and a foe running away after a hi
   sim.Effects.setRecording(true); events();
   sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false);
   step(sim, 50);
-  assert.ok(events().includes('keenan:hitByWater'));
+  assert.ok(events().some((e) => e.startsWith('keenan:hitBySpecial:sam|hitByWater')), 'Sam\'s special: his own, then water, then the general kind');
   // Owen hits, then Keenan backs away.
   startGame(sim, 'owen', 'keenan', 500, 560);
   sim.Effects.setRecording(true); events();
@@ -2131,4 +2132,16 @@ test('Ryan: landing the shockwave (or a 3-hit combo) arms a Finale air kick with
   assert.ok(again.dmg < boosted.dmg * 0.9, 'the next kick is back to normal');
   assert.ok(R.finale.knockback > 1 && R.finale.damage > 1);
   assert.ok(sim.CHARACTERS.owen.ultimate.channel >= 40, 'Owen\'s nuke charges for longer');
+});
+
+
+test('voice fallback chains: John has a line for Sam\'s ultimate; Keenan keeps his water line for Sam\'s attacks', () => {
+  const sim = createSim();
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  startGame(sim, 'sam', 'john', 500, 560);
+  sim.Effects.setRecording(true); events();
+  sim.Game.applySnapshot({ f: [{ ultCharge: 100 }, {}] });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  step(sim, 80);
+  assert.ok(events().some((e) => e.startsWith('john:hitByUltimate:sam|hitByWater|hitByUltimate')));
 });

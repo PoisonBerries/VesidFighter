@@ -298,7 +298,12 @@ const Game = (() => {
       Effects.voice(defender.character.id, 'bigHit');
     }
     if (result === 'blocked') Effects.voice(defender.character.id, 'block');
-    if (result === 'hit') Effects.voice(defender.character.id, attacker.state === 'attack' ? 'hitTaken' : attacker.character.id === 'sam' ? 'hitByWater' : isUlt ? 'hitByUltimate' : 'hitBySpecial');
+    if (result === 'hit') {
+      // Most specific first: 'hitByUltimate:<attacker>', then the attacker's element (Sam's water), then the general kind.
+      const kind = isUlt ? 'hitByUltimate' : 'hitBySpecial';
+      Effects.voice(defender.character.id, attacker.state === 'attack' ? 'hitTaken'
+        : [kind + ':' + attacker.character.id, attacker.character.id === 'sam' ? 'hitByWater' : null, kind].filter(Boolean).join('|'));
+    }
     if ((result === 'hit' || result === 'blocked') && stats.poisonDamage) attacker.gainFartPower(dmg);
     // Sam's Second Wind: landing a hit from the air heals a little.
     if (result === 'hit' && attacker.character.airLeech && !attacker.grounded) attacker.hp = Math.min(attacker.maxHp, attacker.hp + attacker.character.airLeech);
