@@ -812,7 +812,7 @@ test('Artur rolls when he moves while crouched: faster than anyone\'s crouch-wal
   assert.strictEqual(artur.f.isCrouching, true, 'a roll is still the crouch (same hurtbox and guard)');
   const crouchWalkSpeed = sim.CHARACTERS.artur.moveSpeed * 0.35;
   const rollSpeed = artur.dist / 30;
-  assert.ok(rollSpeed > crouchWalkSpeed * 1.4 && rollSpeed < crouchWalkSpeed * 2.2, `roll speed ${rollSpeed.toFixed(2)} vs crouch-walk ${crouchWalkSpeed.toFixed(2)}: should be "a bit faster"`);
+  assert.ok(rollSpeed > crouchWalkSpeed * 2.2 && rollSpeed <= sim.CHARACTERS.artur.moveSpeed, `roll speed ${rollSpeed.toFixed(2)} vs crouch-walk ${crouchWalkSpeed.toFixed(2)}: should be much faster, but not past running`);
   for (const c of sim.CHARACTER_LIST.filter((c) => c.id !== 'artur')) {
     const r = holdBlockMove(c.id, 20);
     assert.strictEqual(r.f.rolling, false, `${c.id} should not roll`);
@@ -2144,4 +2144,23 @@ test('voice fallback chains: John has a line for Sam\'s ultimate; Keenan keeps h
   sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
   step(sim, 80);
   assert.ok(events().some((e) => e.startsWith('john:hitByUltimate:sam|hitByWater|hitByUltimate')));
+});
+
+test('Artur\'s crouch-roll is fast: nearly his running speed, and much quicker than a normal crouch-walk', () => {
+  const sim = createSim();
+  const distance = (id) => {
+    const { f, foe } = startFighter(sim, id, 400);
+    foe.x = 900;
+    const C = sim.VCONTROLS.p1;
+    for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], a === 'block' || a === 'right', false);
+    const x0 = f.x;
+    for (let i = 0; i < 30; i++) f.update(C, foe);
+    for (const a of ACTIONS) sim.InputManager.setVirtual(C[a], false, false);
+    return { d: f.x - x0, rolling: f.rolling };
+  };
+  const artur = distance('artur'), normal = distance('ryan');
+  assert.ok(artur.rolling);
+  const run = sim.CHARACTERS.artur.moveSpeed * 30;
+  assert.ok(artur.d > run * 0.8, `rolled ${artur.d.toFixed(0)}px in 30 frames (running would be ${run.toFixed(0)})`);
+  assert.ok(artur.d / sim.CHARACTERS.artur.moveSpeed > 2.2 * (normal.d / sim.CHARACTERS.ryan.moveSpeed), 'much quicker than a plain crouch-walk');
 });

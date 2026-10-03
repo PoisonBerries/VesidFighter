@@ -92,7 +92,7 @@ const CHARACTERS = {
     // Moving while crouched is a tuck-and-roll instead of a shuffle: still
     // the crouch/guard (same hurtbox and block), but a fair bit quicker than
     // everyone's crouch-walk (which is CROUCH_SPEED_MULTIPLIER of run speed).
-    crouchRoll: { speedMul: 0.55 },
+    crouchRoll: { speedMul: 0.9 },
     // Passive: damage his fart clouds do builds power and attack speed.
     fartPower: { perDamage: 0.012, max: 0.4 },
     passive: { name: 'Toxic Rush', description: 'Every point of damage his farts deal feeds him: up to +40% damage and attack speed for the rest of the round.' },

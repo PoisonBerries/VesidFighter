@@ -303,7 +303,7 @@ const UI = (() => {
         ${controls ? `<span class="key-badge">${keyLabel(controls.block)}+${keyLabel(controls.left)}/${keyLabel(controls.right)}</span>` : ''}
         <div>
           <div class="ability-name">Crouch-roll</div>
-          <div class="ability-desc">Moving while crouched is a tuck-and-roll, a bit quicker than a crouch-walk.</div>
+          <div class="ability-desc">Moving while crouched is a tuck-and-roll, nearly as fast as running.</div>
         </div>
       </div>` : ''}
       ${char.elastic ? `<div class="ability-row">
