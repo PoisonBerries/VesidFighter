@@ -68,6 +68,8 @@ const Cpu = (() => {
     let plan = { kind: 'neutral', until: 0, dir: 0, aimError: 0 };
     let blockUntil = 0;
     let holdSpecial = 0;   // frames left to keep the special held (Owen's charge)
+    let holdJump = 0;      // frames left to keep jump held (Owen's charged jump)
+    let blockWith = 0;     // how we're defending right now: crouch (B.block) or a full guard (B.guard)
     let lastPress = -99;   // no button mashing: at most one press every few frames
     let oppAttacks = [];   // ticks when we saw the opponent start an attack (to read spamming)
     let ballKey = '';      // the ball's current flight, to decide once per flight...
@@ -76,6 +78,7 @@ const Cpu = (() => {
     let ballAim = 0, ballAimUntil = 0; // direction to keep holding through a swing at it
     let tick = 0;
     const B = Rollback.BIT;
+    blockWith = B.block;
 
     const chance = (p) => rand() < p;
     const between = (a, b) => a + Math.floor(rand() * (b - a + 1));
@@ -299,9 +302,17 @@ const Cpu = (() => {
         lastPress = pressedBefore; // the swing didn't happen: it can come right after the turn
         return (b & ~swing & ~(B.left | B.right)) | towardBit;
       }
+      // Specials and ultimates are aimed the way the fighter faces (dashes, dives, shots): never throw one
+      // over a shoulder -- turn to the opponent first, whatever the distance.
+      if (b & (B.special | B.ultimate)) {
+        lastPress = pressedBefore;
+        return (b & ~swing & ~(B.left | B.right)) | towardBit;
+      }
       if (!(b & (B.left | B.right | swing))) b |= towardBit;
       return b;
     }
+
+    const canActEarly = (me) => !ACTING.has(me.state) && me.state !== 'hitstun' && me.state !== 'knockdown' && me.state !== 'ko';
 
     function decide(me, other, projectiles, matchState, ball) {
       tick++;
@@ -345,6 +356,20 @@ const Cpu = (() => {
         return B.specialHeld | (me.x < STAGE_LEFT_EDGE + 60 ? B.right : me.x > STAGE_RIGHT_EDGE - 60 ? B.left : 0);
       }
 
+      // Owen's charged jump: keep jump held until the charge is full, then let go (a plasma jump).
+      if (holdJump > 0 && me.state !== 'hitstun' && me.state !== 'knockdown') {
+        holdJump--;
+        return B.jumpHeld;
+      }
+      holdJump = 0;
+      // The plasma whirlwind can be steered on the way down: steer into the opponent.
+      if (me.state === 'whirlwind') return dx < 0 ? B.left : B.right;
+      // Keenan's Phase Step: shortly after being hit, jump + crouch together slips him out behind them.
+      const phase = c.phaseStep;
+      if (phase && me.phaseCooldown <= 0 && me.y >= GROUND_Y - 1 && opp
+        && (me.state === 'hitstun' || me.state === 'knockdown' || (canActEarly(me) && me.sinceHit <= phase.window))
+        && chance(L.iq * 0.14)) return B.jump | B.jumpHeld | B.block;
+
       // ---- 1. Get back on the stage ----
       const overVoid = me.x < STAGE_LEFT_EDGE + 4 || me.x > STAGE_RIGHT_EDGE - 4;
       if (!me.grounded && (overVoid || me.y > GROUND_Y)) {
@@ -383,7 +408,7 @@ const Cpu = (() => {
       // ---- 2. Defend what we can see coming ----
       const threat = threatFrom(me, o);
       const shot = incomingProjectile(me, projectiles);
-      if (tick < blockUntil && (threat || shot)) return B.block;
+      if (tick < blockUntil && (threat || shot)) return blockWith;
 
       if ((threat || shot) && !chance(L.mistake)) {
         // Character tools first.
@@ -392,13 +417,20 @@ const Cpu = (() => {
         if (ultReady && c.ultimate.type === 'phase' && threat && (threat.kind !== 'melee' || me.hp < me.maxHp * 0.4)) return press(B.ultimate);
         if (threat && threat.kind === 'nuke') return away | (chance(0.5) ? press(B.jump) : 0);
         if (threat && threat.low) {
-          // Low hits go under a guard: hop over or back off.
-          if (chance(L.block)) return (me.grounded ? press(B.jump) : 0) | away;
+          // Low hits go under a crouch: stand in a full guard instead (nothing gets through it), or hop over / back off.
+          if (chance(L.block)) {
+            if (me.grounded && chance(0.5)) { blockUntil = tick + between(8, 16); blockWith = B.guard; return B.guard; }
+            return (me.grounded ? press(B.jump) : 0) | away;
+          }
         } else if (chance(L.block)) {
           blockUntil = tick + between(10, 22);
-          return B.block;
+          blockWith = chance(0.5) ? B.guard : B.block; // a full guard, or crouch under high hits
+          return blockWith;
         }
-        if (shot && me.grounded && chance(L.block * 0.6)) return press(B.jump) | toward;
+        if (shot && me.grounded && chance(L.block * 0.6)) {
+          if (chance(0.4)) { blockUntil = tick + between(8, 16); blockWith = B.guard; return B.guard; } // soak the shot with a guard
+          return press(B.jump) | toward;
+        }
       }
 
       const ballBits = playBall(me, o, ball, c, press, safeX);
@@ -410,6 +442,7 @@ const Cpu = (() => {
       const spamming = oppAttacks.length >= 3 && oc0.attack.high !== false;
       if (spamming && !ACTING.has(o.state) && dist < reachOf(oc0.attack.offset, oc0.attack.width, me.width / 2) + 30 && chance(L.block * 0.5)) {
         blockUntil = tick + between(6, 14);
+        blockWith = B.block;
         return B.block;
       }
 
@@ -422,6 +455,12 @@ const Cpu = (() => {
           if (hitDist <= myReach) return press(B.attack);
           if (dist <= myReach + 90) return toward;
         }
+      }
+
+      // Nathan's two-fisted uppercut (up + attack) reaches far above him: for someone in the air over him.
+      const up = c.upAttack;
+      if (up && me.grounded && !o.grounded && dist < up.width + 30 && me.y - o.y > 50 && me.y - o.y < up.height && chance(L.iq + 0.3)) {
+        return B.jumpHeld | press(B.attack);
       }
 
       // ---- 4. Specials and ultimates where they shine ----
@@ -512,8 +551,31 @@ const Cpu = (() => {
             return press(B.jump) | toward;
           }
           if (c.special.type === 'dive' && c.special.angle === 'down' && specialReady && dist < 70) return press(B.special);
-          if (dist <= myReach + 10 && me.vy > 0) return press(B.attack) | toward;
+          // Carlos hangs on his thrusters, then dives in claws-first.
+          if (c.hover && c.hoverDive) {
+            if (me.hovering && dist > 60 && dist < 250 && safeX(me.x + dir * Math.min(dist + 80, 260)) && chance(0.35)) return press(B.attack) | toward;
+            if (me.hoverLeft > 0 && me.vy > -3) return B.jumpHeld | toward;
+          }
+          // Down + attack in the air: Ryan's stunning shockwave, John's elbow drop.
+          const dn = c.downAttack;
+          if (c.finale && me.finaleArmed > 0 && dist <= myReach + 10) return press(B.attack) | toward; // Ryan's powered-up kick
+          if (dn && dist <= Math.min(dn.width / 2 - 10, 100) && (dn.knockdownOnHit ? o.grounded : true) && chance(0.65)) return B.block | press(B.attack);
+          // Keenan's kicks keep him up: while he's hanging after a landed kick, follow it with another.
+          const chained = me.airSuspend > 0 && dist <= myReach + 10;
+          if (chained || (dist <= myReach + 10 && me.vy > 0)) return press(B.attack) | toward;
           return toward;
+        case 'plasma': {
+          const cj = c.chargeJump;
+          const flightX = me.x + dir * Math.min(dist, 360);
+          if (!me.grounded || !safeX(flightX)) { plan.until = 0; return 0; }
+          holdJump = cj.maxFrames + 4;
+          plan.until = tick + cj.maxFrames + 8;
+          return B.jump | B.jumpHeld;
+        }
+        case 'crawl':
+          // Crouch-move: Artur rolls, Sam swims. Until they're in range.
+          if (!me.grounded || dist <= myReach + 20) { plan.until = 0; return 0; }
+          return guard(B.block | toward);
         case 'bait':
           // Opponent is turtling: back off a little and wait for them to stand up.
           return dist < myReach + 60 ? guard(away) : 0;
@@ -528,7 +590,11 @@ const Cpu = (() => {
       if (cornered && chance(0.5)) return { kind: 'escape' };
       if (o.crouching && dist < myReach + 40 && me.character.attack.high !== false && chance(0.7)) return { kind: 'bait' };
       const c = me.character;
-      const jumpy = c.special.type === 'dive' && c.special.angle === 'down';
+      const jumpy = (c.special.type === 'dive' && c.special.angle === 'down') || (c.hover && c.hoverDive) || !!c.downAttack;
+      // Owen: the longer he holds jump the higher it goes -- fully charged is a plasma jump into the whirlwind.
+      if (c.chargeJump && me.grounded && dist > 190 && dist < 480 && chance(0.3)) return { kind: 'plasma' };
+      // Artur's roll and Sam's swim: the fast low way in.
+      if ((c.crouchRoll || c.crouchSwim) && dist > 170 && dist < 460 && chance(0.2)) return { kind: 'crawl' };
       if (dist < 260 && chance(jumpy ? 0.35 : 0.08)) return { kind: 'jumpIn' };
       // Push harder when ahead or when they're near the edge (ring-out chance).
       const oNearEdge = o.x < STAGE_LEFT_EDGE + 140 || o.x > STAGE_RIGHT_EDGE - 140;
@@ -567,8 +633,9 @@ const Cpu = (() => {
 
     // A plan: inputs frame by frame, `hold` held throughout, `taps` pressed
     // on the frames listed ({ frame: bits }).
-    const mk = (name, hold, taps) => ({ name, hold, taps: taps || {} });
-    const bitsAt = (p, t) => p.hold | (p.taps[t] || 0);
+    // `holdUntil`: the hold lasts only that many frames. `fn(t)`: a plan that needs its own bits per frame.
+    const mk = (name, hold, taps, holdUntil, fn) => ({ name, hold, taps: taps || {}, holdUntil: holdUntil === undefined ? Infinity : holdUntil, fn });
+    const bitsAt = (p, t) => (p.fn ? p.fn(t) : (t < p.holdUntil ? p.hold : 0) | (p.taps[t] || 0));
 
     function myPlans(me, o) {
       const toward = o.x >= me.x ? B.right : B.left, away = toward === B.right ? B.left : B.right;
@@ -593,6 +660,15 @@ const Cpu = (() => {
         plans.push(mk('jump to the middle', toMid | B.jumpHeld, { 0: B.jump }));
         plans.push(mk('drift to the middle', toMid));
         plans.push(mk('down + air attack', B.block, { 0: B.attack }));
+      }
+      // The rest of the kit: the moves that need particular buttons together.
+      if (c.upAttack) plans.push(mk('up + attack', B.jumpHeld, { 0: B.attack })); // Nathan's two-fisted uppercut
+      if (c.crouchRoll || c.crouchSwim) plans.push(mk('crawl in', toward | B.block)); // Artur's roll, Sam's swim
+      if (c.hoverDive) plans.push(mk('hover dive', toward | B.jumpHeld, { 0: B.jump, 18: B.attack })); // Carlos: hover, then dive
+      if (c.airAttack && c.airAttack.suspend) plans.push(mk('chain kick', toward | B.jumpHeld, { 0: B.jump, 8: B.attack, 28: B.attack })); // Keenan
+      if (c.downAttack && c.finale) plans.push(mk('shockwave then kick', B.block, { 0: B.attack, 20: B.attack }, 14)); // Ryan: stun, then the Finale kick
+      if (c.phaseStep && me.phaseCooldown <= 0 && me.y >= GROUND_Y - 1 && (me.state === 'hitstun' || me.state === 'knockdown' || me.sinceHit <= c.phaseStep.window)) {
+        plans.push(mk('phase step', B.block | B.jumpHeld, { 0: B.jump })); // Keenan slips out behind them
       }
       if (me.specialCooldownTimer <= 0) {
         plans.push(mk('special', 0, { 0: B.special }));
@@ -717,9 +793,28 @@ const Cpu = (() => {
       return job.mine[best];
     }
 
+    // Owen's charged jump pays off after more frames than the search looks ahead, so it's a committed
+    // move: from range, hold jump until it's full, let go, then steer the whirlwind into the opponent.
+    let nextPlasma = 0;
+    function maybeCommit(me, o) {
+      const cj = me.character.chargeJump;
+      if (!cj || !me.grounded || tick < nextPlasma || me.state === 'hitstun' || me.state === 'knockdown') return null;
+      const dist = Math.abs(o.x - me.x);
+      if (dist < 150 || dist > 520 || o.state === 'attack' || o.state === 'special' || o.state === 'ultimate') return null;
+      const toward = o.x >= me.x ? B.right : B.left;
+      const hold = cj.maxFrames + 3;
+      nextPlasma = tick + 300;
+      const p = mk('plasma jump', 0, {}, undefined, (t) => (t < hold ? B.jumpHeld | (t === 0 ? B.jump : 0) : toward));
+      p.until = tick + hold + 90;
+      return p;
+    }
+
     function think(me, o, projectiles, matchState) {
       tick++;
       if (matchState !== 'fight') { plan = null; job = null; return 0; }
+      if (plan && plan.until && tick < plan.until && me.state !== 'hitstun' && me.state !== 'knockdown') return bitsAt(plan, tick - planAt);
+      const committed = maybeCommit(me, o);
+      if (committed) { plan = committed; planAt = tick; job = null; return bitsAt(plan, 0); }
       if (!job) startJob(me, o);
       const n = job.mine.length * job.theirs.length;
       if (work(me, o, Math.ceil(n / cfg.every))) {
@@ -730,7 +825,7 @@ const Cpu = (() => {
       return plan ? bitsAt(plan, tick - planAt) : 0;
     }
 
-    return { think, level: { name: 'unbeatable' }, plan: () => plan && plan.name };
+    return { think, level: { name: 'unbeatable' }, plan: () => plan && plan.name, plansFor: myPlans };
   }
 
   // ---- Vs-CPU game mode (the browser) ----
