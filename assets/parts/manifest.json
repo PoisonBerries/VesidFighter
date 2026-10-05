@@ -49,5 +49,10 @@
     "thigh",
     "shin",
     "shoe"
+  ],
+  "robert": [
+    "neck",
+    "torso",
+    "upperArm"
   ]
 }
