@@ -55,6 +55,7 @@
     "torso",
     "upperArm",
     "forearm",
-    "fist"
+    "fist",
+    "thigh"
   ]
 }
