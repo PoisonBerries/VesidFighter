@@ -33,6 +33,8 @@
   "owen": [
     "neck",
     "torso",
-    "upperArm"
+    "upperArm",
+    "forearm",
+    "fist"
   ]
 }
