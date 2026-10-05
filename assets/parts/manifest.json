@@ -30,6 +30,16 @@
     "shoe",
     "body"
   ],
+  "nathan": [
+    "neck",
+    "torso",
+    "upperArm",
+    "forearm",
+    "fist",
+    "thigh",
+    "shin",
+    "shoe"
+  ],
   "owen": [
     "neck",
     "torso",
