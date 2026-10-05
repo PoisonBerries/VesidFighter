@@ -29,5 +29,10 @@
     "shin",
     "shoe",
     "body"
+  ],
+  "owen": [
+    "neck",
+    "torso",
+    "upperArm"
   ]
 }
