@@ -729,9 +729,11 @@ const Cpu = (() => {
       return v;
     }
 
-    function outcome(me) {
+    function outcome(me, o) {
       if (Game.getState() === 'fight') return null;
-      return me.state === 'victory' ? 'win' : me.state === 'ko' ? 'lose' : 'draw';
+      // (a winner whose finishing ultimate is still playing out isn't in the victory pose yet: go by who is down)
+      if (me.state === 'victory' || (o.state === 'ko' && me.state !== 'ko')) return 'win';
+      return me.state === 'ko' && o.state !== 'ko' ? 'lose' : 'draw';
     }
 
     // One future: our inputs (what we've already committed to for the next
@@ -741,7 +743,7 @@ const Cpu = (() => {
         Rollback.applyInput(slot, t < prefix.length ? prefix[t] : bitsAt(mine, t - prefix.length));
         Rollback.applyInput(oppSlot, bitsAt(theirs, t));
         Game.update(FIXED_STEP);
-        const r = outcome(me);
+        const r = outcome(me, o);
         if (r) return score(me, o, t, r);
       }
       return score(me, o, cfg.horizon, null);

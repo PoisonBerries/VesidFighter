@@ -2164,3 +2164,76 @@ test('Artur\'s crouch-roll is fast: nearly his running speed, and much quicker t
   assert.ok(artur.d > run * 0.8, `rolled ${artur.d.toFixed(0)}px in 30 frames (running would be ${run.toFixed(0)})`);
   assert.ok(artur.d / sim.CHARACTERS.artur.moveSpeed > 2.2 * (normal.d / sim.CHARACTERS.ryan.moveSpeed), 'much quicker than a plain crouch-walk');
 });
+
+test('Carlos\'s ultimate has a clear tell, and when it lands the knockout it still plays out before the victory pose', () => {
+  const sim = createSim();
+  const u = sim.CHARACTERS.carlos.ultimate;
+  assert.ok(u.startup >= 20, `a tell of ${u.startup} frames before the dive`);
+  assert.ok(u.tell && u.finishOnKo);
+  const C = startGame(sim, 'carlos', 'keenan', 500, 560);
+  void C;
+  sim.Game.startMatch('carlos', 'keenan', () => {}, { ball: 'off', balance: false });
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: 500, ultCharge: 100 }, { x: 600, hp: 3 }] });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  const p1 = () => sim.Game.world().p1;
+  let ended = -1, xAtEnd = 0;
+  for (let i = 0; i < 120 && ended < 0; i++) { step(sim, 1); if (sim.Game.getState() === 'roundEnd') { ended = i; xAtEnd = p1().x; } }
+  assert.ok(ended >= u.startup - 2, `the knockout can't land until the tell is over (frame ${ended})`);
+  assert.strictEqual(p1().state, 'ultimate', 'still diving when the round ends');
+  assert.strictEqual(sim.Game.world().p2.state, 'ko');
+  // The dive carries on past where it hit, finishes, and only then the victory pose.
+  let still = 0;
+  while (p1().state === 'ultimate' && still < 200) { step(sim, 1); still++; }
+  assert.ok(still > 10, `played on for ${still} frames`);
+  assert.ok(p1().x > xAtEnd + 50, 'travelled on through the rest of the dive');
+  assert.strictEqual(p1().state, 'victory');
+  assert.strictEqual(sim.Game.getState(), 'roundEnd');
+  // Everyone else's ultimate still goes straight to the victory pose.
+  sim.Game.startMatch('robert', 'keenan', () => {}, { ball: 'off', balance: false });
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: 500, ultCharge: 100 }, { x: 560, hp: 3 }] });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  for (let i = 0; i < 60 && sim.Game.getState() === 'fight'; i++) step(sim, 1);
+  assert.strictEqual(sim.Game.world().p1.state, 'victory');
+});
+
+test('Artur\'s fart cloud lingers: someone who walks in after it went off is poisoned while inside, and not after it fades', () => {
+  const sim = createSim();
+  const sp = sim.CHARACTERS.artur.special;
+  const C = startGame(sim, 'artur', 'keenan', 500, 900);
+  sim.Game.startMatch('artur', 'keenan', () => {}, { ball: 'off', balance: false });
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 900 }] });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false);
+  const foe = () => sim.Game.world().p2;
+  const hp0 = foe().hp;
+  step(sim, sp.startup + sp.active + 6); // the burst's own hit window is over; nobody was in it
+  assert.strictEqual(foe().hp, hp0, 'nobody was hit by the burst');
+  assert.ok(sim.Game.world().p1.cloud, 'the cloud is hanging there');
+  // Walk in late.
+  sim.Game.applySnapshot({ f: [{}, { x: 585, state: 'idle', stunFrames: 0 }] });
+  step(sim, 45);
+  const inside = hp0 - foe().hp;
+  assert.ok(inside >= sp.poisonDamage, `poisoned in the cloud (lost ${inside})`);
+  // Step out: the damage stops.
+  sim.Game.applySnapshot({ f: [{}, { x: 900, state: 'idle' }] });
+  step(sim, 5);
+  const after = foe().hp;
+  step(sim, 60);
+  assert.strictEqual(foe().hp, after, 'no damage once they are out');
+  // After it has faded, going back in does nothing.
+  step(sim, sp.lingerFrames);
+  assert.strictEqual(sim.Game.world().p1.cloud, null, 'the cloud has gone');
+  sim.Game.applySnapshot({ f: [{}, { x: 585 }] });
+  const hpGone = foe().hp;
+  step(sim, 60);
+  assert.strictEqual(foe().hp, hpGone, 'no cloud, no damage');
+  void C;
+});
+
+test('Artur\'s kick is a touch quicker than before (7 / 4 / 13 frames)', () => {
+  const a = createSim().CHARACTERS.artur.attack;
+  assert.ok(a.startup + a.active + a.recovery < 7 + 4 + 13);
+  assert.ok(a.startup + a.active + a.recovery >= 7 + 4 + 13 - 4, 'slightly, not a lot');
+});

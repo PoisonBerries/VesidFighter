@@ -82,6 +82,8 @@ class Fighter {
     this.finaleKick = false; // the current kick is the Finale
     this.airSuspend = 0;   // frames left hanging in the air after landing an air kick (Keenan)
     this.airChain = 0;     // air kicks that have kept him up this jump
+    this.cloud = null;     // a lingering poison cloud this fighter has let off (Artur): { x, y, w, h, life, poison... }
+    this.finishUltimate = false; // the round is over but this ultimate is still playing out (finishOnKo)
     this.foeHitTimer = 0;  // frames left in which the opponent backing off counts as running away (voice line)
     this.comboHits = 0;    // hits landed in a row without being hit or blocked
     this.comboTimer = 0;   // frames left to keep the string going
@@ -624,7 +626,7 @@ class Fighter {
     this.upAttackActive = false;
     this.downAttackActive = false;
     this.phaseCooldown = 0;
-    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0; this.airSuspend = 0; this.airChain = 0; this.finaleArmed = 0; this.finaleKick = false;
+    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0; this.airSuspend = 0; this.airChain = 0; this.finaleArmed = 0; this.finaleKick = false; this.finishUltimate = false; this.cloud = null;
     this.fartPower = 0; this.jumpStacks = 0; this.poisonFrom = null; this.poisonTickDamage = 0;
     this._comboHeld = false;
     this._crouchHeld = false;
@@ -1272,6 +1274,12 @@ class Fighter {
 
   _updatePoisonBurstAction(def) {
     this._decelerate();
+    // The cloud is left hanging where it was let off (Game.updateClouds poisons whoever is in it).
+    if (def.lingerFrames && this.actionTimer > def.startup && !this._ability.cloudMade) {
+      this._ability.cloudMade = true;
+      const b = this._forwardBox(def.offset, def.width, def.height);
+      this.cloud = { x: b.x, y: b.y, w: b.w, h: b.h, life: def.lingerFrames, poisonDamage: def.poisonDamage, poisonTicks: def.poisonTicks, poisonTickInterval: def.poisonTickInterval };
+    }
     const total = def.startup + def.active + def.recovery;
     if (this.actionTimer > total) this._endAbility();
   }
@@ -1328,7 +1336,8 @@ class Fighter {
       // Only a downward dive ends on landing; a forward dive is allowed to
       // slide along the ground and only ends by travel timeout or a hit.
       const groundEnds = def.angle === 'down' && this.grounded;
-      if (groundEnds || this.actionTimer >= a.diveEndTimer || this.attackHasHit) {
+      // (an ultimate that has already ended the round plays out to the end of its travel: see Game.endRound)
+      if (groundEnds || this.actionTimer >= a.diveEndTimer || (this.attackHasHit && !this.finishUltimate)) {
         a.diving = false;
         a.hasHitOrLanded = true;
         a.recoveryTimer = def.recovery;

@@ -1101,6 +1101,45 @@ const AbilityFX = (() => {
   // Carlos's Guillotine Slash: the wind-up must be readable. A glowing claw
   // charges overhead, and from about halfway in the exact area the slash will
   // hit lights up on the floor, pulsing faster as it gets closer.
+  // Carlos's Rending Dive tell: the claws gather light, the body coils, and the whole line of the dive
+  // lights up along the floor, pulsing faster until he goes.
+  function drawDiveTell(ctx, f, def) {
+    const t = f.actionTimer;
+    if (t > def.startup) return;
+    const p = clamp(t / def.startup, 0, 1), now = performance.now(), H = f.height, dir = f.facing;
+    const accent = f.displayAccent;
+    const hx = f.x + dir * H * 0.34, hy = f.y - H * 0.6; // about where the claws are
+    const r = 10 + 26 * easeIn(p) + Math.sin(now / 35) * 2 * p;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    glow(ctx, hx, hy, r * 1.7, accent, 0.16 + 0.4 * p);
+    glow(ctx, hx, hy, r * 0.7, '#ffffff', 0.35 + 0.45 * p);
+    for (let k = 0; k < 8; k++) { // light streaming in to the claws
+      const u = (now / 300 + k / 8) % 1, ang = k * TAU / 8 + now / 260, d = lerp(r * 3, r * 0.4, u);
+      ctx.fillStyle = rgba(accent, u * p);
+      ctx.beginPath(); ctx.arc(hx + Math.cos(ang) * d, hy + Math.sin(ang) * d, 2, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+    // The path of the dive.
+    const len = def.speed * def.travel, x0 = f.x + dir * 20, x1 = f.x + dir * Math.min(len, 520);
+    const pulse = 0.5 + 0.5 * Math.sin(now / (110 - 80 * p));
+    ctx.save();
+    const g = ctx.createLinearGradient(x0, 0, x1, 0);
+    g.addColorStop(0, `rgba(255,120,40,${0.1 + 0.4 * p})`);
+    g.addColorStop(1, 'rgba(255,120,40,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(Math.min(x0, x1), GROUND_Y - 46, Math.abs(x1 - x0), 50);
+    ctx.strokeStyle = `rgba(255,214,150,${0.35 + 0.5 * p * pulse})`;
+    ctx.lineWidth = 3;
+    const n = 6;
+    for (let i = 0; i < n; i++) { // chevrons pointing along the dive
+      const cx = x0 + (x1 - x0) * ((i + 0.5) / n), y = GROUND_Y - 22;
+      ctx.globalAlpha = (1 - i / n) * (0.4 + 0.6 * p);
+      ctx.beginPath(); ctx.moveTo(cx - dir * 9, y - 12); ctx.lineTo(cx + dir * 5, y); ctx.lineTo(cx - dir * 9, y + 12); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawClawTelegraph(ctx, f, def) {
     const s0 = def.hits[0].start, t = f.actionTimer;
     if (t > s0) return;
@@ -1558,6 +1597,7 @@ const AbilityFX = (() => {
         break;
       case 'dive':
         if (def.angle === 'down') waterJacket(ctx, f, def);
+        else if (def.tell && !a.diving && !a.hasHitOrLanded) drawDiveTell(ctx, f, def);
         else if (a.diving) diveStreaks(ctx, f);
         break;
       case 'slam':

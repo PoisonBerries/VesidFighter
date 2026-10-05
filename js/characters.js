@@ -99,7 +99,7 @@ const CHARACTERS = {
     maxHp: 173,
     attack: {
       damage: 9, offset: 26, width: 70, height: 90,
-      startup: 7, active: 4, recovery: 13,
+      startup: 6, active: 4, recovery: 11, // (was 7 / 4 / 13: a touch quicker)
       knockback: 8, knockbackUp: 3, hitstun: 15,
       // Froggy front kick: a LOW attack. It reaches the floor so crouching
       // doesn't duck it, and it mostly goes under a crouched guard (a block
@@ -115,6 +115,8 @@ const CHARACTERS = {
       offset: 30, width: 110, height: 90,
       damage: 5, knockback: 4, knockbackUp: 2, hitstun: 10,
       poisonDamage: 3, poisonTicks: 5, poisonTickInterval: 20,
+      // The cloud hangs where it was let off for this long: anyone who walks into it is poisoned while they're in it.
+      lingerFrames: 84,
     },
     ultimate: {
       type: 'poisonBurst',
@@ -124,6 +126,7 @@ const CHARACTERS = {
       offset: 10, width: 220, height: 130,
       damage: 12, knockback: 15, knockbackUp: 6, hitstun: 20,
       poisonDamage: 5, poisonTicks: 6, poisonTickInterval: 18,
+      lingerFrames: 114,
     },
   },
 
@@ -178,7 +181,11 @@ const CHARACTERS = {
       name: 'Rending Dive',
       description: 'Launches forward with both claws for massive damage.',
       angle: 'forward',
-      startup: 6,
+      // A clear tell: he coils with glowing claws and the path of the dive lights up before he goes.
+      startup: 26,
+      tell: true,
+      // If the dive lands the knockout, the whole dive still plays out (see Game.endRound) before the victory pose.
+      finishOnKo: true,
       travel: 26,
       recovery: 14,
       speed: 19,

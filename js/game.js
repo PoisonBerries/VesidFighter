@@ -148,7 +148,9 @@ const Game = (() => {
       w.roundsWon++;
       roundMessage = (w.character.name + ' WINS THE ROUND');
       for (const f of fighters) if (f !== w) f.state = 'ko';
-      w.state = 'victory';
+      // A finishing ultimate (Carlos's dive) that ended the round still plays out before the victory pose.
+      if (w.state === 'ultimate' && w.character.ultimate.finishOnKo) w.finishUltimate = true;
+      else w.state = 'victory';
     } else {
       roundMessage = how === 'time' || how === 'draw' ? "TIME'S UP -- DRAW" : 'DOUBLE KO -- DRAW';
     }
@@ -183,6 +185,11 @@ const Game = (() => {
     }
 
     if (matchState === 'roundEnd') {
+      for (const f of fighters) {
+        if (!f.finishUltimate) continue;
+        f.update(Net.controlsFor(f.slot), foeOf(f));
+        if (f.state !== 'ultimate') { f.finishUltimate = false; f.state = 'victory'; }
+      }
       stateTimer -= dt;
       if (stateTimer <= 0) {
         const winner = checkMatchWinner();
@@ -231,6 +238,9 @@ const Game = (() => {
         }
       }
     }
+
+    // Lingering fart clouds: whoever is standing in one is poisoned, even if they walked in after it went off.
+    updateClouds();
 
     // Toxic Rush: poison damage ticking this frame feeds whoever's cloud it is.
     for (const v of fighters) {
@@ -302,6 +312,23 @@ const Game = (() => {
 
   // Every fighter's attack against every other fighter still in. A swing
   // that connects is spent (getHitbox goes null), so it hits one fighter.
+  function updateClouds() {
+    for (const owner of fighters) {
+      const c = owner.cloud;
+      if (!c) continue;
+      if (--c.life <= 0) { owner.cloud = null; continue; }
+      for (const foe of fighters) {
+        if (foe === owner || foe.state === 'ko' || foe.invulnerableTimer > 0) continue;
+        const h = foe.getHurtbox();
+        if (!(h.x < c.x + c.w && h.x + h.w > c.x && h.y < c.y + c.h && h.y + h.h > c.y)) continue;
+        const same = foe.poisonTicksLeft > 0 && foe.poisonBox && foe.poisonBox.x === c.x && foe.poisonBox.y === c.y && foe.poisonFrom === owner.slot;
+        if (!same) foe.applyPoison(c, c, owner.slot); // starts from a full tick interval; applyPoison reads poison* from its first argument
+        foe.poisonLife = Math.max(foe.poisonLife, c.life); // lasts as long as the cloud does
+        foe.poisonTicksLeft = Math.max(foe.poisonTicksLeft, 1);
+      }
+    }
+  }
+
   function resolveCombat() {
     const live = alive();
     for (const a of live) for (const d of live) if (a !== d) tryHit(a, d);
