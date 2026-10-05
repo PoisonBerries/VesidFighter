@@ -15,7 +15,10 @@
     "torso",
     "upperArm",
     "forearm",
-    "fist"
+    "fist",
+    "thigh",
+    "shin",
+    "shoe"
   ],
   "keenan": [
     "torso",
