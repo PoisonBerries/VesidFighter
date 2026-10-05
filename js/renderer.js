@@ -1335,9 +1335,16 @@ const Renderer = (() => {
     const gameLen = Math.hypot(B.x - A.x, B.y - A.y);
     // Across the part: the character's current size (buffs/transforms grow
     // it). Along it: rigid parts stretch to their joints; limbs keep their
-    // proportions (their bones never change length anyway).
-    const across = (H / (FIGHTER_HEIGHT * CHARACTERS[id].sizeScale)) / BodyArt.ART_SCALE;
-    const along = spec.rigid ? gameLen / artLen : across;
+    // proportions, except elastic limbs (Nathan's arms) whose bones lengthen:
+    // those stretch to their joints and thin out, like the procedural limb.
+    let across = (H / (FIGHTER_HEIGHT * CHARACTERS[id].sizeScale)) / BodyArt.ART_SCALE;
+    let along = across;
+    if (spec.rigid) along = gameLen / artLen;
+    else if (gameLen > artLen * across * 1.02) {
+      const s = gameLen / (artLen * across);
+      along = across * s;
+      across /= Math.sqrt(s);
+    }
     ctx.save();
     ctx.translate(A.x, A.y);
     ctx.rotate(gameAng);
