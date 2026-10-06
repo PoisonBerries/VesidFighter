@@ -2449,3 +2449,30 @@ test('Owen\'s tap-to-jump is forgiving: a tap made just before he can jump (land
   // Only Owen's jump is buffered.
   assert.strictEqual(trial('keenan', { state: 'attack', actionTimer: 12 }, 0, 2), -1, 'other characters are unchanged');
 });
+
+test('John\'s takedown hits harder the higher he is when he comes down (cast it from the top of a jump)', () => {
+  const sim = createSim();
+  const u = sim.CHARACTERS.john.ultimate;
+  const total = (castHeight) => {
+    sim.Game.startMatch('john', 'keenan', () => {}, { ball: 'off', balance: false });
+    step(sim, 200);
+    const air = castHeight > 0 ? { y: sim.GROUND_Y - castHeight, grounded: false, vy: 0, state: 'fall', jumpsUsed: 1 } : {};
+    sim.Game.applySnapshot({ f: [Object.assign({ x: 400, ultCharge: 100 }, air), { x: 560 }] });
+    const hp0 = sim.Game.world().p2.hp;
+    sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+    let mul = 1, hung = true;
+    for (let i = 0; i < 260; i++) {
+      step(sim, 1);
+      const p = sim.Game.world().p1;
+      if (p.state === 'ultimate' && p.actionTimer < u.startup - 1 && castHeight > 0 && p.y > sim.GROUND_Y - castHeight + 12) hung = false;
+      if (p.state === 'takedown' && p._ability && p._ability.mul) mul = p._ability.mul;
+      if (i > 60 && p.state !== 'ultimate' && p.state !== 'takedown') break;
+    }
+    return { dealt: hp0 - sim.Game.world().p2.hp, mul, hung };
+  };
+  const ground = total(0), high = total(260);
+  assert.ok(ground.mul < 1.15, `a normal drop is about x1 (${ground.mul})`);
+  assert.ok(high.mul > 1.5 && high.mul <= u.maxMul + 1e-9, `from the top of a jump: x${high.mul.toFixed(2)}`);
+  assert.ok(high.dealt > ground.dealt * 1.4, `${high.dealt.toFixed(1)} from up high vs ${ground.dealt.toFixed(1)} from the ground`);
+  assert.ok(high.hung, 'cast in the air he hangs there while he coils (so the height is kept)');
+});

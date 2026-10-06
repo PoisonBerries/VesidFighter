@@ -564,7 +564,7 @@ const CHARACTERS = {
     ultimate: {
       type: 'takedown',
       name: 'Takedown',
-      description: 'Leaps up and drops hip-first onto them, flattening them to the mat, then pins them and punches them a few times. An MMA takedown.',
+      description: 'Leaps up and drops hip-first onto them, flattening them to the mat, then pins them and punches them a few times. The higher he is when he comes down, the harder it hits -- use it at the top of a jump.',
       // The leap (aimed at where they are when he jumps), the hip-first plunge, then the ground and pound.
       startup: 10,
       jump: 16,            // how hard he springs up (the apex is jump / gravity frames away)
@@ -574,6 +574,10 @@ const CHARACTERS = {
       width: 96, height: 60, // what the plunge hits: around and under his hips
       damage: 6, knockback: 1, knockbackUp: 0, hitstun: 6, // the contact
       slamDamage: 14,      // the hip slam itself, as he lands on them
+      // The higher he drops from, the harder all of it hits: x(1 + heightBonus * (how much higher than a normal drop
+      // from the ground, which is about refHeight, as a fraction of refHeight)), up to maxMul. (Cast it from the top of
+      // a jump for the biggest.)
+      refHeight: 170, heightBonus: 0.6, maxMul: 2.0,
       pause: 10,           // a beat on the mat before the punches
       punches: 3, every: 14, punchDamage: 5,
       end: 16,             // getting up

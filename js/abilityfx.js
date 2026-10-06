@@ -1708,7 +1708,7 @@ const AbilityFX = (() => {
 
     if (st === 'takedown' && a.slammed && !m.slammed) { // the hip slam lands: a shock ring along the mat
       m.slammed = true;
-      add({ kind: 'shockring', dur: 520, x: f.x + f.facing * 20, y: GROUND_Y - 4, r: 150, color: 'rgba(255,214,140,A)', flat: true });
+      add({ kind: 'shockring', dur: 520, x: f.x + f.facing * 20, y: GROUND_Y - 4, r: 150 * Math.min(1.7, a.mul || 1), color: 'rgba(255,214,140,A)', flat: true }); // (bigger from higher up)
     }
     if (st !== 'takedown') m.slammed = false;
     if (st === 'flurry') { // a swoosh and a swing sound for each of the punches

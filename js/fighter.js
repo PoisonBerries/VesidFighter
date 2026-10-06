@@ -1101,7 +1101,11 @@ class Fighter {
   // startTakedown. Landing on nothing is just a heavy landing and a long recovery.
   _updateTakedownDash(def) {
     const a = this._ability, g = GRAVITY * (this.character.gravityMul || 1);
-    if (this.actionTimer <= def.startup) { this._decelerate(); return; }
+    if (this.actionTimer <= def.startup) {
+      this._decelerate();
+      if (!this.grounded) this.vy = -GRAVITY * (this.character.gravityMul || 1); // cast in the air: he hangs there while he coils
+      return;
+    }
     if (!a.phase) { // the leap: far enough to be over them at the top
       const gap = Math.max(0, (this._foeX - this.x) * this.facing), apex = def.jump / g;
       this.vx = this.facing * Math.max(2, Math.min(def.maxSpeed, gap / apex));
@@ -1111,7 +1115,7 @@ class Fighter {
       return;
     }
     if (a.phase === 'leap') {
-      if (this.vy >= 0) { a.phase = 'plunge'; this.vx = 0; this.vy = def.plunge; } // over them: drop
+      if (this.vy >= 0) { a.phase = 'plunge'; a.dropFrom = Math.max(0, GROUND_Y - this.y); this.vx = 0; this.vy = def.plunge; } // over them: drop
       return;
     }
     if (a.phase === 'plunge') {
@@ -1130,17 +1134,25 @@ class Fighter {
     if (--a.recoveryTimer <= 0) this._endAbility();
   }
 
+  // How much extra the takedown hits for, by how high he is as he comes down on them.
+  takedownMul() {
+    const d = this.character.ultimate;
+    const a = this._ability, h = a && a.dropFrom !== undefined ? a.dropFrom : Math.max(0, GROUND_Y - this.y); // (the height he dropped from)
+    return Math.min(d.maxMul, 1 + d.heightBonus * Math.max(0, h - d.refHeight) / d.refHeight);
+  }
+
   // Part 2: he lands hip-first on them -- they're flattened onto the mat beside his hip -- and then, both on the
   // ground, he punches them a few times.
   startTakedown(opp) {
     const d = this.character.ultimate;
+    const mul = this.takedownMul(); // (from the height he dropped from: read before the ability is replaced)
     this.state = 'takedown';
     this.actionTimer = 0;
     this.attackHasHit = true;
     this.facingLocked = true;
     this.vx = 0;
     this.blocking = false;
-    this._ability = { slammed: false, landed: false, punched: 0, target: opp.slot }; // (he is still coming down onto them)
+    this._ability = { slammed: false, landed: false, punched: 0, target: opp.slot, mul }; // (he is still coming down onto them)
     opp._refundInterruptedAbility();
     opp.x = Math.max(STAGE_LEFT_EDGE + 20, Math.min(STAGE_RIGHT_EDGE - 20, this.x + this.facing * 20));
     opp.y = GROUND_Y; opp.vx = 0; opp.vy = 0;
@@ -1149,9 +1161,9 @@ class Fighter {
     opp.state = 'knockdown';
     opp.knockdownTimer = d.pause + d.punches * d.every + d.end + 24; // down until he's done with them (and his drop to the mat is over)
     opp.actionTimer = 0;
-    opp.hp = Math.max(0, opp.hp - d.slamDamage * this.damageMultiplier * Game.fightDamageMul());
+    opp.hp = Math.max(0, opp.hp - d.slamDamage * this._ability.mul * this.damageMultiplier * Game.fightDamageMul());
     opp.hitFlashTimer = 14;
-    opp.noteImpact('hit', this.facing, 1.4);
+    opp.noteImpact('hit', this.facing, Math.min(1.8, 1.2 + 0.3 * this._ability.mul));
     opp._maybeTransform();
     Effects.voice(opp.character.id, 'knockedDown');
     Effects.shake(8, 10);
@@ -1174,7 +1186,7 @@ class Fighter {
     const k = t - d.pause;
     if (k >= 0 && a.punched < d.punches && k >= a.punched * d.every && opp.state === 'knockdown') {
       a.punched++;
-      opp.hp = Math.max(0, opp.hp - d.punchDamage * this.damageMultiplier * Game.fightDamageMul());
+      opp.hp = Math.max(0, opp.hp - d.punchDamage * a.mul * this.damageMultiplier * Game.fightDamageMul());
       opp.hitFlashTimer = 8;
       opp.noteImpact('hit', this.facing, 0.8);
       opp._maybeTransform();

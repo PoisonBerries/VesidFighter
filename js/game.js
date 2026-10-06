@@ -371,6 +371,7 @@ const Game = (() => {
       knockdownDuration = stats.knockdownDuration;
     }
 
+    if (isUlt && stats.type === 'takedown') dmg *= attacker.takedownMul(); // (the higher he is, the harder it lands)
     dmg *= attacker.damageMultiplier * fightDamageMul();
 
     const result = defender.applyHit({
