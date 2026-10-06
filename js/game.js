@@ -398,7 +398,7 @@ const Game = (() => {
       attacker.comboHits = 0;
     }
     // John's Takedown: the charge connecting with someone standing starts the hip slam.
-    if (result === 'hit' && isUlt && attacker.character.ultimate.type === 'takedown' && attacker.grounded && defender.y >= GROUND_Y - 1 && defender.hp > 0) {
+    if (result === 'hit' && isUlt && attacker.character.ultimate.type === 'takedown' && defender.y >= GROUND_Y - 1 && defender.hp > 0) {
       attacker.startTakedown(defender);
     }
     const gs = attacker.character.grabSlam || attacker.character.grabBeat;

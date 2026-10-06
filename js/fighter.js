@@ -351,10 +351,8 @@ class Fighter {
         }
         return null;
 
-      case 'takedown': // the charge in: live while he dashes
-        if (this.actionTimer > def.startup && this.actionTimer <= def.startup + def.travel) {
-          return this._forwardBox(def.offset, def.width, def.height);
-        }
+      case 'takedown': // the hip-first plunge is live: a box around and under his hips
+        if (a.phase === 'plunge') return this._centeredBox(def.width, def.height);
         return null;
 
       case 'growRoll':
@@ -1098,70 +1096,82 @@ class Fighter {
     opp.actionTimer = 0;
   }
 
-  // John's Takedown, part 1: the charge in. It has to connect with someone standing; Game.tryHit then
-  // calls startTakedown. A miss is just a long recovery.
+  // John's Takedown, part 1: he springs up aimed at where they are, then at the top drops hip-first onto them
+  // (steering a little as he falls). It has to connect with someone standing; Game.tryHit then calls
+  // startTakedown. Landing on nothing is just a heavy landing and a long recovery.
   _updateTakedownDash(def) {
-    const a = this._ability;
+    const a = this._ability, g = GRAVITY * (this.character.gravityMul || 1);
     if (this.actionTimer <= def.startup) { this._decelerate(); return; }
-    if (a.dashEnd === undefined) { a.dashEnd = def.startup + def.travel; a.dashing = true; }
-    if (a.dashing) {
-      this.vx = this.facing * def.speed;
-      if (this.actionTimer >= a.dashEnd || this.attackHasHit) { a.dashing = false; a.recoveryTimer = def.recovery; }
+    if (!a.phase) { // the leap: far enough to be over them at the top
+      const gap = Math.max(0, (this._foeX - this.x) * this.facing), apex = def.jump / g;
+      this.vx = this.facing * Math.max(2, Math.min(def.maxSpeed, gap / apex));
+      this.vy = -def.jump;
+      this.grounded = false;
+      a.phase = 'leap';
+      return;
+    }
+    if (a.phase === 'leap') {
+      if (this.vy >= 0) { a.phase = 'plunge'; this.vx = 0; this.vy = def.plunge; } // over them: drop
+      return;
+    }
+    if (a.phase === 'plunge') {
+      this.vy = def.plunge;
+      this.vx = Math.max(-6, Math.min(6, (this._foeX - this.x) * 0.3)); // a little steering on the way down
+      if (this.grounded) {
+        a.phase = 'landed';
+        a.recoveryTimer = def.recovery;
+        this.vx = 0;
+        Effects.shake(10, 12);
+        Effects.spawnDust(this.x, GROUND_Y, 8, 3);
+      }
       return;
     }
     this._decelerate();
     if (--a.recoveryTimer <= 0) this._endAbility();
   }
 
-  // Part 2: they're hoisted onto his hip, slammed to the mat, and then -- both on the ground -- he punches them.
+  // Part 2: he lands hip-first on them -- they're flattened onto the mat beside his hip -- and then, both on the
+  // ground, he punches them a few times.
   startTakedown(opp) {
+    const d = this.character.ultimate;
     this.state = 'takedown';
     this.actionTimer = 0;
     this.attackHasHit = true;
     this.facingLocked = true;
     this.vx = 0;
     this.blocking = false;
-    this._ability = { slammed: false, punched: 0, slamT: 0, target: opp.slot };
+    this._ability = { slammed: false, landed: false, punched: 0, target: opp.slot }; // (he is still coming down onto them)
     opp._refundInterruptedAbility();
-    opp.state = 'grabbed';
-    opp.grabbedBy = this.slot;
-    opp.vx = 0; opp.vy = 0;
+    opp.x = Math.max(STAGE_LEFT_EDGE + 20, Math.min(STAGE_RIGHT_EDGE - 20, this.x + this.facing * 20));
+    opp.y = GROUND_Y; opp.vx = 0; opp.vy = 0;
+    opp.grounded = true;
     opp.blocking = false; opp.stunFrames = 0; opp.launched = false; opp.facingLocked = false;
+    opp.state = 'knockdown';
+    opp.knockdownTimer = d.pause + d.punches * d.every + d.end + 24; // down until he's done with them (and his drop to the mat is over)
     opp.actionTimer = 0;
+    opp.hp = Math.max(0, opp.hp - d.slamDamage * this.damageMultiplier * Game.fightDamageMul());
+    opp.hitFlashTimer = 14;
+    opp.noteImpact('hit', this.facing, 1.4);
+    opp._maybeTransform();
+    Effects.voice(opp.character.id, 'knockedDown');
+    Effects.shake(8, 10);
+    Effects.spawnHitSpark(opp.x, opp.y - 30, '#ffe066');
   }
 
   _updateTakedown(opp) {
-    const d = this.character.ultimate, a = this._ability, t = this.actionTimer;
+    const d = this.character.ultimate, a = this._ability;
     this.vx = 0;
-    const done = () => { this.state = 'idle'; this.facingLocked = false; };
-    if (!a.slammed) {
-      if (opp.state !== 'grabbed') { done(); return; }
-      if (t <= d.lift) { // up onto the hip...
-        const u = t / d.lift, e = u * u * (3 - 2 * u);
-        opp.x = this.x + this.facing * (34 - 26 * e);
-        opp.y = this.y - this.height * 0.62 * e;
-        return;
-      }
-      // ...and down onto the mat in front of him: the hip slam.
-      a.slammed = true; a.slamT = t;
-      opp.x = Math.max(STAGE_LEFT_EDGE + 20, Math.min(STAGE_RIGHT_EDGE - 20, this.x + this.facing * 54));
-      opp.y = GROUND_Y;
-      opp.grounded = true;
-      opp.state = 'knockdown';
-      opp.knockdownTimer = d.pause + d.punches * d.every + d.end + 12; // down until he's done with them
-      opp.actionTimer = 0;
-      opp.hp = Math.max(0, opp.hp - d.slamDamage * this.damageMultiplier * Game.fightDamageMul());
-      opp.hitFlashTimer = 14;
-      opp.noteImpact('hit', this.facing, 1.4);
-      opp._maybeTransform();
-      Effects.voice(opp.character.id, 'knockedDown');
+    if (!a.landed) { // still dropping onto them; the pin starts when his hip hits the mat
+      if (!this.grounded) { this.vy = d.plunge; return; }
+      a.landed = true; a.slammed = true;
+      this.actionTimer = 0;
       Effects.shake(14, 18);
-      Effects.spawnHitSpark(opp.x, opp.y - 12, '#ffe066');
-      Effects.spawnDust(opp.x, GROUND_Y, 10, 4);
+      Effects.spawnDust(this.x, GROUND_Y, 12, 4);
       return;
     }
-    // On the mat: a punch every `every` frames, after a short pause.
-    const k = t - a.slamT - d.pause;
+    const t = this.actionTimer;
+    // A punch every `every` frames, after a short pause on the mat.
+    const k = t - d.pause;
     if (k >= 0 && a.punched < d.punches && k >= a.punched * d.every && opp.state === 'knockdown') {
       a.punched++;
       opp.hp = Math.max(0, opp.hp - d.punchDamage * this.damageMultiplier * Game.fightDamageMul());
@@ -1171,7 +1181,7 @@ class Fighter {
       Effects.shake(6, 8);
       Effects.spawnHitSpark(opp.x, opp.y - 14, '#ffe066');
     }
-    if (t > a.slamT + d.pause + d.punches * d.every + d.end) done();
+    if (t > d.pause + d.punches * d.every + d.end) { this.state = 'idle'; this.facingLocked = false; }
   }
 
   // John: carried over the shoulder and pummelled, then they wriggle free.

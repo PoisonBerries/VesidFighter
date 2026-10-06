@@ -564,13 +564,16 @@ const CHARACTERS = {
     ultimate: {
       type: 'takedown',
       name: 'Takedown',
-      description: 'Charges in, hip-tosses them to the mat, then drops on top of them and punches them a few times. An MMA takedown.',
-      // The charge in (a tackle that must connect), then the hip slam and the ground and pound.
-      startup: 10, speed: 16, travel: 18, recovery: 20,
-      offset: 24, width: 90, height: 120,
+      description: 'Leaps up and drops hip-first onto them, flattening them to the mat, then pins them and punches them a few times. An MMA takedown.',
+      // The leap (aimed at where they are when he jumps), the hip-first plunge, then the ground and pound.
+      startup: 10,
+      jump: 16,            // how hard he springs up (the apex is jump / gravity frames away)
+      maxSpeed: 14,        // fastest he travels forward in the leap
+      plunge: 20,          // how fast he drops once he's over them
+      recovery: 22,        // if he misses: a heavy landing
+      width: 96, height: 60, // what the plunge hits: around and under his hips
       damage: 6, knockback: 1, knockbackUp: 0, hitstun: 6, // the contact
-      lift: 14,            // frames hoisting them onto his hip
-      slamDamage: 14,      // the hip slam itself
+      slamDamage: 14,      // the hip slam itself, as he lands on them
       pause: 10,           // a beat on the mat before the punches
       punches: 3, every: 14, punchDamage: 5,
       end: 16,             // getting up

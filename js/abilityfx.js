@@ -1623,7 +1623,12 @@ const AbilityFX = (() => {
         else if (t > a.tGrowEnd - 4 && t <= a.tRollEnd + 6) rollFX(ctx, f, true);
         break;
       case 'takedown':
-        if (a.dashing) diveStreaks(ctx, f);
+        if (a.phase === 'plunge') { // speed lines straight down behind him
+          ctx.save();
+          ctx.strokeStyle = 'rgba(255,230,180,0.6)'; ctx.lineWidth = 3;
+          for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(f.x + i * 14, f.y - f.height * 1.1 - 40); ctx.lineTo(f.x + i * 14, f.y - f.height * 0.5); ctx.stroke(); }
+          ctx.restore();
+        }
         break;
       case 'dive':
         if (def.angle === 'down') waterJacket(ctx, f, def);
@@ -1703,7 +1708,7 @@ const AbilityFX = (() => {
 
     if (st === 'takedown' && a.slammed && !m.slammed) { // the hip slam lands: a shock ring along the mat
       m.slammed = true;
-      add({ kind: 'shockring', dur: 520, x: f.x + f.facing * 54, y: GROUND_Y - 4, r: 150, color: 'rgba(255,214,140,A)', flat: true });
+      add({ kind: 'shockring', dur: 520, x: f.x + f.facing * 20, y: GROUND_Y - 4, r: 150, color: 'rgba(255,214,140,A)', flat: true });
     }
     if (st !== 'takedown') m.slammed = false;
     if (st === 'flurry') { // a swoosh and a swing sound for each of the punches

@@ -2369,7 +2369,7 @@ test('Artur\'s ultimate also sends out fart darts; cast in the air, the cloud an
   assert.ok(under(900) < 1, 'far away is not');
 });
 
-test('John\'s ultimate is a takedown: charge in, hip slam, then both on the ground he punches a few times', () => {
+test('John\'s ultimate is a takedown: he leaps and drops hip-first onto them, then both on the ground he punches a few times', () => {
   const sim = createSim();
   const u = sim.CHARACTERS.john.ultimate;
   assert.strictEqual(u.type, 'takedown');
@@ -2380,31 +2380,42 @@ test('John\'s ultimate is a takedown: charge in, hip slam, then both on the grou
     sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
   };
   const p1 = () => sim.Game.world().p1, p2 = () => sim.Game.world().p2;
-  fire(560);
-  const hp0 = p2().hp;
-  const seen = new Set(), foeStates = new Set();
-  let punches = 0, prev = hp0, ground = true;
-  for (let i = 0; i < 200 && (p1().state === 'ultimate' || p1().state === 'takedown' || i < 30); i++) {
-    step(sim, 1);
-    seen.add(p1().state); foeStates.add(p2().state);
-    if (p1().state === 'takedown' && p1()._ability.slammed) { punches = p1()._ability.punched; ground = ground && p2().y >= sim.GROUND_Y - 1 && p1().y >= sim.GROUND_Y - 1; }
+  for (const gap of [90, 160]) { // close up and further off: he's aimed at them either way
+    fire(400 + gap);
+    const hp0 = p2().hp;
+    const seen = new Set(), phases = new Set(), foeStates = new Set();
+    let punches = 0, groundTogether = true, peakHeight = 0, plungeHips = false, yAtContact = null;
+    for (let i = 0; i < 220 && (p1().state === 'ultimate' || p1().state === 'takedown' || i < 40); i++) {
+      step(sim, 1);
+      seen.add(p1().state); foeStates.add(p2().state);
+      if (p1()._ability && p1()._ability.phase) phases.add(p1()._ability.phase);
+      peakHeight = Math.max(peakHeight, sim.GROUND_Y - p1().y);
+      if (p1()._ability && p1()._ability.phase === 'plunge' && p1().vy > 10) plungeHips = true;
+      if (p1().state === 'takedown' && yAtContact === null) { yAtContact = sim.GROUND_Y - p1().y; if (p1().vy > 10) plungeHips = true; }
+      if (p1().state === 'takedown' && p1()._ability.landed) { punches = p1()._ability.punched; groundTogether = groundTogether && p2().y >= sim.GROUND_Y - 1 && p1().y >= sim.GROUND_Y - 1; }
+    }
+    assert.ok(phases.has('leap'), `gap ${gap}: leapt (${[...phases]})`);
+    assert.ok(yAtContact > 20, `gap ${gap}: still above the mat when he hit them -- he comes down onto them (${yAtContact})`);
+    assert.ok(peakHeight > 100, `gap ${gap}: he really jumped (${peakHeight})`);
+    assert.ok(plungeHips, 'dropped fast');
+    assert.ok(seen.has('takedown'), `gap ${gap}: landed on them (${[...seen]})`);
+    assert.ok(foeStates.has('knockdown'), 'flattened onto the mat');
+    assert.strictEqual(punches, u.punches, 'a few punches on the mat');
+    assert.ok(groundTogether, 'both on the ground for the punches');
+    const dealt = hp0 - p2().hp, total = u.damage + u.slamDamage + u.punches * u.punchDamage;
+    assert.ok(Math.abs(dealt - total) < 2, `gap ${gap}: dealt ${dealt}, expected about ${total}`);
   }
-  assert.ok(seen.has('ultimate') && seen.has('takedown'), `states: ${[...seen]}`);
-  assert.ok(foeStates.has('grabbed') && foeStates.has('knockdown'), `foe states: ${[...foeStates]}`);
-  assert.strictEqual(punches, u.punches, 'a few punches on the mat');
-  assert.ok(ground, 'both on the ground for the punches');
-  const dealt = hp0 - p2().hp;
-  const total = u.damage + u.slamDamage + u.punches * u.punchDamage;
-  assert.ok(Math.abs(dealt - total) < 2, `dealt ${dealt}, expected about ${total}`);
-  assert.strictEqual(p1().ultCharge < 100, true);
-  // A miss is only a whiff; an airborne target is not taken down.
+  // Landing on nothing is a whiff: no damage and no pin. Someone in the air is not taken down either.
   fire(1000);
-  step(sim, 120);
+  step(sim, 140);
   assert.strictEqual(p2().hp, sim.Game.world().p2.maxHp, 'a miss deals nothing');
-  assert.notStrictEqual(p1().state, 'takedown');
-  fire(540, { y: sim.GROUND_Y - 150, grounded: false, vy: 0, state: 'fall' });
+  fire(520, { y: sim.GROUND_Y - 150, grounded: false, vy: 0, state: 'fall' });
   let tookDown = false;
-  for (let i = 0; i < 80; i++) { step(sim, 1); if (p1().state === 'takedown') tookDown = true; }
+  for (let i = 0; i < 90; i++) {
+    step(sim, 1);
+    sim.Game.applySnapshot({ f: [{}, { x: 520, y: sim.GROUND_Y - 150, grounded: false, vy: 0, state: 'fall' }] }); // (kept up in the air)
+    if (p1().state === 'takedown') tookDown = true;
+  }
   assert.strictEqual(tookDown, false, 'someone in the air is not taken down');
 });
 
