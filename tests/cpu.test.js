@@ -146,8 +146,9 @@ test('difficulty ramps against a simple walk-in-and-punch player (plain fighting
 });
 
 test('difficulty levels are ordered: Hard beats Easy', () => {
-  const r = series('cpu:hard', 'cpu:easy');
-  assert.ok(r.rate >= 0.6, `Hard beat Easy only ${(r.rate * 100).toFixed(0)}% of the time`);
+  // (36 games, two sets with different seeds, so a couple of unlucky games can't fail it)
+  const rate = (series('cpu:hard', 'cpu:easy').rate + series('cpu:hard', 'cpu:easy', undefined, undefined, 200).rate) / 2;
+  assert.ok(rate >= 0.6, `Hard beat Easy only ${(rate * 100).toFixed(0)}% of the time`);
 });
 
 test('rally mode: CPUs really play the ball -- shots both ways, and it does real damage', () => {

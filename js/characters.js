@@ -40,7 +40,7 @@ const CHARACTERS = {
     // Passive: for a while after taking a hit, he hits harder.
     retaliate: { damage: 0.15, frames: 300 },
     passive: { name: 'Adrenaline', description: 'For 5 seconds after taking a hit he deals 15% more damage.' },
-    maxHp: 135,
+    maxHp: 150,
     attack: {
       damage: 6, offset: 24, width: 60, height: 82,
       startup: 5, active: 3, recovery: 8,

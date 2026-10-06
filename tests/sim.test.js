@@ -1606,7 +1606,7 @@ test('fighters can turn around in the air (Carlos hovering)', () => {
 // ---- Passives ----
 test('every fighter has 50% more HP than before', () => {
   const sim = createSim();
-  const was = { keenan: 90, artur: 115, carlos: 115, nathan: 140, owen: 90, robert: 108, ryan: 92, sam: 90, john: 124 };
+  const was = { keenan: 100 /* (+50% = 150: a bit more than the plain +50% he got first, 135) */, artur: 115, carlos: 115, nathan: 140, owen: 90, robert: 108, ryan: 92, sam: 90, john: 124 };
   for (const [id, hp] of Object.entries(was)) assert.ok(Math.abs(sim.CHARACTERS[id].maxHp - hp * 1.5) <= 1, `${id}: ${sim.CHARACTERS[id].maxHp}`);
 });
 
@@ -2300,4 +2300,26 @@ test('John\'s, Robert\'s and Carlos\'s ultimates move more slowly than before bu
   let maxV = 0;
   for (let i = 0; i < 120; i++) { step(sim, 1); maxV = Math.max(maxV, Math.abs(sim.Game.world().p1.vx)); }
   assert.ok(maxV <= C.carlos.ultimate.speed + 0.5, `fastest ${maxV.toFixed(1)}`);
+});
+
+
+test('Keenan\'s flurry punches do not charge his own ultimate meter, though they still charge the victim\'s', () => {
+  const sim = createSim();
+  assert.strictEqual(sim.CHARACTERS.keenan.maxHp, 150);
+  sim.Game.startMatch('keenan', 'john', () => {}, { ball: 'off', balance: false });
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: 500, ultCharge: 100 }, { x: 560, ultCharge: 0 }] });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  const p1 = () => sim.Game.world().p1, p2 = () => sim.Game.world().p2;
+  assert.strictEqual(p1().ultCharge, 0, 'the ultimate spent the meter');
+  for (let i = 0; i < 160 && p1().state !== 'flurry'; i++) step(sim, 1);
+  assert.strictEqual(p1().state, 'flurry');
+  sim.Game.applySnapshot({ f: [{}, { x: p1().x + 60, state: 'idle', ultCharge: 0 }] });
+  for (let i = 0; i < 80 && p1().state === 'flurry'; i++) {
+    step(sim, 1);
+    sim.Game.applySnapshot({ f: [{}, { x: p1().x + 60, vx: 0, vy: 0, state: p2().state === 'hitstun' ? 'hitstun' : 'idle' }] });
+  }
+  assert.ok(p2().hp < p2().maxHp, 'the punches landed');
+  assert.strictEqual(p1().ultCharge, 0, 'and Keenan\'s own meter did not move');
+  assert.ok(p2().ultCharge > 0, 'the victim\'s meter still fills');
 });

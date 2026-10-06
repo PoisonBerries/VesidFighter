@@ -334,9 +334,10 @@ const Game = (() => {
     for (const a of live) for (const d of live) if (a !== d) tryHit(a, d);
   }
 
-  function grantUltCharge(attacker, defender, landedSpecial) {
+  // `noAttackerGain`: the hit gives the attacker nothing (Keenan's flurry, the tail of his own ultimate, doesn't refill his meter).
+  function grantUltCharge(attacker, defender, landedSpecial, noAttackerGain) {
     // (a character with an ultChargeMul fills the meter faster, from landing hits and from taking them)
-    attacker.ultCharge = Math.min(ULT_METER_MAX, attacker.ultCharge + (landedSpecial ? ULT_GAIN_ON_LAND_SPECIAL : ULT_GAIN_ON_LAND_NORMAL) * (attacker.character.ultChargeMul || 1));
+    if (!noAttackerGain) attacker.ultCharge = Math.min(ULT_METER_MAX, attacker.ultCharge + (landedSpecial ? ULT_GAIN_ON_LAND_SPECIAL : ULT_GAIN_ON_LAND_NORMAL) * (attacker.character.ultChargeMul || 1));
     defender.ultCharge = Math.min(ULT_METER_MAX, defender.ultCharge + ULT_GAIN_ON_TAKEN * (defender.character.ultChargeMul || 1));
   }
 
@@ -425,7 +426,7 @@ const Game = (() => {
     }
 
     if (result === 'hit' || result === 'blocked') {
-      grantUltCharge(attacker, defender, isSpecial || isUlt);
+      grantUltCharge(attacker, defender, isSpecial || isUlt, attacker.state === 'flurry');
     }
 
     spawnImpactEffect(attacker, defender, box, hurt, result, isSpecial || isUlt, comboNote);
