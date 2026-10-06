@@ -1452,7 +1452,11 @@ const Renderer = (() => {
     const handOf = (a, i) => ({ x: a.x, y: shY + a.y, hint: a.ex !== undefined ? { x: a.ex, y: shY + a.ey } : null, trail: trails[i], smear: rig.smear === 'arm' + i, stretch: a.stretch });
     const [armBack, armFront] = rig.arms;
 
-    lean(() => drawArm(ctx, shoulderBack, handOf(armBack, 0), d.arm, back, profile, armBack.orb, accent, far, 'upper'));
+    // The far arm stays behind the torso -- guard, hanging, swung back --
+    // except when it's the one punching: then its forearm and fist come
+    // across the front of the body.
+    const backHandForward = rig.punchArm === 0;
+    lean(() => drawArm(ctx, shoulderBack, handOf(armBack, 0), d.arm, back, profile, armBack.orb, accent, far, backHandForward ? 'upper' : undefined));
     drawLeg(ctx, hipBack, footOf(rig.fA, rig.knees && rig.knees[0], fa[0], 0), 0, d.leg, back, far);
     drawLeg(ctx, hipFront, footOf(rig.fB, rig.knees && rig.knees[1], fa[1], 1), rig.footPoint, d.leg, colors, near);
 
@@ -1465,8 +1469,7 @@ const Renderer = (() => {
       partSash(ctx, d, hipY, colors, sway);
     }));
 
-    // The far arm's forearm and fist come across the front of the body.
-    lean(() => drawArm(ctx, shoulderBack, handOf(armBack, 0), d.arm, back, profile, armBack.orb, accent, far, 'lower'));
+    if (backHandForward) lean(() => drawArm(ctx, shoulderBack, handOf(armBack, 0), d.arm, back, profile, armBack.orb, accent, far, 'lower'));
 
     const drawHead = () => lean(() => {
       // Head tilt (mocap), pivoting at the chin.

@@ -1106,6 +1106,8 @@ const Animator = (() => {
     // Motion smear behind the striking hand/foot, from the wind-up to the hit.
     const striking = pb.oneShot && an.mocap && an.mocap.state === 'attack' && pb.u <= pb.clip.impact + 0.02;
     T.smear = striking && pb.clip.limb ? pb.clip.limb[0] + pb.clip.limb[1] : null; // e.g. 'arm1', 'leg0'
+    // Which arm is throwing this attack (0 = far arm), for the whole move: the renderer brings the far arm in front of the body only then.
+    T.punchArm = pb.oneShot && an.mocap && an.mocap.state === 'attack' && pb.clip.limb && pb.clip.limb[0] === 'arm' ? Number(pb.clip.limb[1]) : null;
   }
 
   // ---- Per-fighter state & integration ---------------------------------
@@ -1414,6 +1416,7 @@ const Animator = (() => {
       fA: c.fA, fB: c.fB, arms: c.arms, knees: c.knees,
       sh: c.sh, hips: c.hips, footAngles: c.footAngles, rootX: c.rootX, headTilt: c.headTilt,
       smear: T.smear || null,
+      punchArm: T.punchArm ?? null,
       rigidTorso: !!T.rigidTorso,
       rot, ball: c.ball, pv, wh: wh + an.hop + c.lift, lift: an.hop + c.lift,
       stretch: an.str,
