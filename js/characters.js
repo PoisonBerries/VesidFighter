@@ -195,9 +195,10 @@ const CHARACTERS = {
       tell: true,
       // If the dive lands the knockout, the whole dive still plays out (see Game.endRound) before the victory pose.
       finishOnKo: true,
-      travel: 26,
+      // Slower than it was (speed 19 over 26 frames): the same distance covered over a longer time, so it can be reacted to.
+      travel: 31,
       recovery: 14,
-      speed: 19,
+      speed: 16,
       width: 100, height: 110,
       damage: 34, knockback: 20, knockbackUp: 8, hitstun: 30,
     },
@@ -364,9 +365,10 @@ const CHARACTERS = {
       description: 'Charges forward and tackles the opponent with full body weight.',
       angle: 'forward',
       startup: 6,
-      travel: 24,
+      // Slower than it was (speed 18 over 24 frames): the same distance, over a longer time.
+      travel: 29,
       recovery: 14,
-      speed: 18,
+      speed: 15,
       width: 110, height: 120,
       damage: 28, knockback: 20, knockbackUp: 8, hitstun: 26,
     },
@@ -544,8 +546,9 @@ const CHARACTERS = {
       description: 'Grows huge, then rolls straight over the opponent.',
       growFrames: 14,
       sizeMul: 1.5,
-      dashSpeed: 20,
-      active: 22,
+      // Slower than it was (dash 20 over 22 frames): the same distance, over a longer time.
+      dashSpeed: 17,
+      active: 26,
       recovery: 18,
       shrinkFrames: 14,
       offset: 30, width: 120, height: 140,

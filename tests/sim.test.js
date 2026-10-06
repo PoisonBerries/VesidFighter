@@ -2278,3 +2278,26 @@ test('Keenan: when the phase ultimate ends he unphases into a 9-punch flurry; hi
   };
   assert.ok(gain('keenan') > gain('ryan') * 1.4, 'Keenan\'s meter fills faster');
 });
+
+test('John\'s, Robert\'s and Carlos\'s ultimates move more slowly than before but still cover the same ground', () => {
+  const sim = createSim();
+  const C = sim.CHARACTERS;
+  const was = { carlos: { speed: 19, dist: 19 * 26 }, robert: { speed: 18, dist: 18 * 24 }, john: { speed: 20, dist: 20 * 22 } };
+  const now = {
+    carlos: { speed: C.carlos.ultimate.speed, dist: C.carlos.ultimate.speed * C.carlos.ultimate.travel },
+    robert: { speed: C.robert.ultimate.speed, dist: C.robert.ultimate.speed * C.robert.ultimate.travel },
+    john: { speed: C.john.ultimate.dashSpeed, dist: C.john.ultimate.dashSpeed * C.john.ultimate.active },
+  };
+  for (const id of Object.keys(was)) {
+    assert.ok(now[id].speed <= was[id].speed * 0.88 && now[id].speed >= was[id].speed * 0.75, `${id}: slightly slower (${now[id].speed} vs ${was[id].speed})`);
+    assert.ok(Math.abs(now[id].dist - was[id].dist) <= 6, `${id}: covers the same ground (${now[id].dist} vs ${was[id].dist})`);
+  }
+  // And Carlos really travels that far in the sim.
+  sim.Game.startMatch('carlos', 'keenan', () => {}, { ball: 'off', balance: false });
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: 300, ultCharge: 100 }, { x: 1000 }] });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  let maxV = 0;
+  for (let i = 0; i < 120; i++) { step(sim, 1); maxV = Math.max(maxV, Math.abs(sim.Game.world().p1.vx)); }
+  assert.ok(maxV <= C.carlos.ultimate.speed + 0.5, `fastest ${maxV.toFixed(1)}`);
+});
