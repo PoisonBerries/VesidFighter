@@ -148,3 +148,33 @@ test('the CPU sometimes guards against a telegraphed ultimate: about 5% on Easy,
   assert.ok(normal > easy && hard > normal * 0.9, `Normal ${(normal * 100).toFixed(1)}%, Hard ${(hard * 100).toFixed(1)}%`);
   assert.ok(hard < 0.18, `Hard guards ${(hard * 100).toFixed(1)}%: still only occasionally`);
 });
+
+test('a CPU that is taking hit after hit without answering back puts its guard up (and blocks more than without that logic)', () => {
+  const blocksFor = (pinnedBlock) => {
+    let blocked = 0, hit = 0;
+    for (let seed = 1; seed <= 8; seed++) {
+      const sim = createSim();
+      sim.Cpu.LEVELS.normal.pinnedBlock = pinnedBlock;
+      sim.Game.startMatch('keenan', 'ryan', () => {}, { ball: 'off', balance: false });
+      const brain = sim.Cpu.createBrain('p1', 'normal', seed), B = sim.Rollback.BIT;
+      let seq = 0;
+      for (let f = 0; f < 1800; f++) {
+        const w = sim.Game.world();
+        sim.Rollback.applyInput('p1', brain.think(w.p1, w.p2, w.projectiles, w.matchState, w.ball));
+        // a relentless attacker: walks in and swings over and over
+        const d = w.p1.x - w.p2.x, a = w.p2.character.attack;
+        let bits = d < 0 ? B.left : B.right;
+        if (Math.abs(d) < a.offset + a.width + 10 && f % 5 === 0) bits |= B.attack;
+        sim.Rollback.applyInput('p2', bits);
+        sim.Game.update(sim.FIXED_STEP);
+        const p1 = sim.Game.world().p1;
+        if (sim.Game.getState() === 'roundEnd') break;
+        if (p1.impactSeq !== seq) { seq = p1.impactSeq; if (p1.impactKind === 'hit') hit++; else if (p1.impactKind === 'blocked') blocked++; }
+      }
+    }
+    return { blocked, hit };
+  };
+  const without = blocksFor(0), withLogic = blocksFor(0.45);
+  assert.ok(withLogic.blocked >= without.blocked + 3, `blocks with the logic ${withLogic.blocked} vs without ${without.blocked}`);
+  assert.ok(withLogic.hit < without.hit + 5, 'and it does not get hit more for it');
+});

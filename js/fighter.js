@@ -408,6 +408,7 @@ class Fighter {
   startSpecial() {
     const def = this.character.special;
     if (this.specialCooldownTimer > 0) return;
+    if (def.airOnly && this.grounded) return; // (Sam's dives: only from the air)
     this._cooldownBefore = this.specialCooldownTimer;
     this.specialCooldownTimer = def.cooldown;
     this._beginAbility(def, false);
@@ -416,6 +417,7 @@ class Fighter {
   startUltimate() {
     const def = this.character.ultimate;
     if (this.ultCharge < ULT_METER_MAX) return;
+    if (def.airOnly && this.grounded) return; // (nothing is spent)
     Effects.voice(this.character.id, 'ultimate'); // (only fires when the ultimate really goes off)
 
     // Phase is instant and non-committing -- it wouldn't make sense to lock

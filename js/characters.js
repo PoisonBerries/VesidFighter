@@ -495,7 +495,8 @@ const CHARACTERS = {
     special: {
       type: 'dive',
       name: 'Cannonball Dive',
-      description: 'Dives down onto the opponent from above.',
+      description: 'In the air only: dives down onto the opponent from above.',
+      airOnly: true, // can't be started on the ground (nothing is spent if you try)
       angle: 'down',
       cooldown: 3.2,
       startup: 6,
@@ -508,7 +509,8 @@ const CHARACTERS = {
     ultimate: {
       type: 'dive',
       name: 'Splashdown',
-      description: 'A crushing dive that knocks the opponent down on landing.',
+      description: 'In the air only: a crushing dive that knocks the opponent down on landing.',
+      airOnly: true,
       angle: 'down',
       startup: 6,
       travel: 34,

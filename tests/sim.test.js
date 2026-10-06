@@ -1996,6 +1996,7 @@ test('voice: Sam\'s water attacks, round wins, and a foe running away after a hi
   assert.ok(events().includes('owen:roundWin'));
   // Sam's Cannonball Dive on Keenan is a water attack.
   startGame(sim, 'sam', 'keenan', 500, 560);
+  sim.Game.applySnapshot({ f: [{ x: 540, y: sim.GROUND_Y - 120, grounded: false, vy: 0, state: 'fall', jumpsUsed: 1 }, {}] }); // (his dives are air-only)
   sim.Effects.setRecording(true); events();
   sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.special, false, false);
   step(sim, 50);
@@ -2140,7 +2141,7 @@ test('voice fallback chains: John has a line for Sam\'s ultimate; Keenan keeps h
   const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
   startGame(sim, 'sam', 'john', 500, 560);
   sim.Effects.setRecording(true); events();
-  sim.Game.applySnapshot({ f: [{ ultCharge: 100 }, {}] });
+  sim.Game.applySnapshot({ f: [{ x: 540, y: sim.GROUND_Y - 120, grounded: false, vy: 0, state: 'fall', jumpsUsed: 1, ultCharge: 100 }, {}] }); // (his dives are air-only)
   sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
   step(sim, 80);
   assert.ok(events().some((e) => e.startsWith('john:hitByUltimate:sam|hitByWater|hitByUltimate')));
@@ -2519,4 +2520,38 @@ test('the screen shake dies away on the victory screen (it used to freeze there 
   assert.ok(early <= 10 * 0.3 * (24 / 12) + 1e-6, `gentle on the victory screen (${early.toFixed(1)}px, it would be up to ${(10 * 2).toFixed(0)}px mid-fight)`);
   step(sim, 40); // a little under a second of the victory screen
   assert.strictEqual(worst(), 0, 'and it has stopped shaking');
+});
+
+
+test('Sam\'s special and ultimate can only be started in the air; trying on the ground spends nothing', () => {
+  const sim = createSim();
+  const C = sim.VCONTROLS.p1;
+  const press = (k) => { sim.InputManager.setVirtual(C[k], false, true); step(sim, 1); sim.InputManager.setVirtual(C[k], false, false); };
+  sim.Game.startMatch('sam', 'keenan', () => {}, { ball: 'off', balance: false });
+  step(sim, 200);
+  const p1 = () => sim.Game.world().p1;
+  // On the ground: nothing happens, and nothing is used up.
+  sim.Game.applySnapshot({ f: [{ x: 400, ultCharge: 100 }, { x: 900 }] });
+  press('special'); step(sim, 3);
+  assert.notStrictEqual(p1().state, 'special');
+  assert.strictEqual(p1().specialCooldownTimer, 0, 'no cooldown spent');
+  press('ultimate'); step(sim, 3);
+  assert.notStrictEqual(p1().state, 'ultimate');
+  assert.strictEqual(p1().ultCharge, 100, 'the ultimate meter is untouched');
+  // In the air: both go off.
+  sim.Game.applySnapshot({ f: [{ x: 400, y: sim.GROUND_Y - 150, grounded: false, vy: 0, state: 'fall', jumpsUsed: 1 }, {}] });
+  press('special');
+  assert.strictEqual(p1().state, 'special');
+  assert.ok(p1().specialCooldownTimer > 0);
+  sim.Game.applySnapshot({ f: [{ x: 400, y: sim.GROUND_Y - 150, grounded: false, vy: 0, state: 'fall', jumpsUsed: 1, specialCooldownTimer: 0, ultCharge: 100 }, {}] });
+  step(sim, 40);
+  sim.Game.applySnapshot({ f: [{ x: 400, y: sim.GROUND_Y - 150, grounded: false, vy: 0, state: 'fall', jumpsUsed: 1, ultCharge: 100 }, {}] });
+  press('ultimate');
+  assert.strictEqual(p1().state, 'ultimate');
+  assert.strictEqual(p1().ultCharge, 0);
+  // Everyone else is unchanged: John's special works from the ground.
+  sim.Game.startMatch('john', 'keenan', () => {}, { ball: 'off', balance: false });
+  step(sim, 200);
+  press('special');
+  assert.strictEqual(sim.Game.world().p1.state, 'special');
 });

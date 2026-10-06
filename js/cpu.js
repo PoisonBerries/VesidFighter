@@ -31,9 +31,9 @@ const Cpu = (() => {
     // idle: chance each new plan is to just stand there for a moment.
     // teleBlock: chance it blocks (a full guard) a telegraphed move -- an ultimate charging up, or a special with a long
     // wind-up -- the moment it sees it.
-    easy: { teleBlock: 0.05, reaction: 45, block: 0.05, punish: 0.05, iq: 0.15, mistake: 0.55, aggression: 0.2, spacing: 0.2, anticipate: 0.1, aim: 70, replan: [24, 48], pressGap: 22, idle: 0.4 },
-    normal: { teleBlock: 0.07, reaction: 34, block: 0.1, punish: 0.1, iq: 0.3, mistake: 0.38, aggression: 0.25, spacing: 0.4, anticipate: 0.3, aim: 50, replan: [18, 36], pressGap: 20, idle: 0.3 },
-    hard: { teleBlock: 0.10, reaction: 28, block: 0.2, punish: 0.2, iq: 0.45, mistake: 0.25, aggression: 0.3, spacing: 0.55, anticipate: 0.45, aim: 36, replan: [14, 28], pressGap: 16, idle: 0.2 },
+    easy: { pinnedBlock: 0.3, teleBlock: 0.05, reaction: 45, block: 0.05, punish: 0.05, iq: 0.15, mistake: 0.55, aggression: 0.2, spacing: 0.2, anticipate: 0.1, aim: 70, replan: [24, 48], pressGap: 22, idle: 0.4 },
+    normal: { pinnedBlock: 0.45, teleBlock: 0.07, reaction: 34, block: 0.1, punish: 0.1, iq: 0.3, mistake: 0.38, aggression: 0.25, spacing: 0.4, anticipate: 0.3, aim: 50, replan: [18, 36], pressGap: 20, idle: 0.3 },
+    hard: { pinnedBlock: 0.65, teleBlock: 0.10, reaction: 28, block: 0.2, punish: 0.2, iq: 0.45, mistake: 0.25, aggression: 0.3, spacing: 0.55, anticipate: 0.45, aim: 36, replan: [14, 28], pressGap: 16, idle: 0.2 },
   };
 
   function rng(seed) {
@@ -67,7 +67,11 @@ const Cpu = (() => {
     const L = LEVELS[levelName] || LEVELS.normal;
     const rand = rng(seed || 1);
     const randTele = rng(((seed || 1) ^ 0x9e3779b9) >>> 0); // its own stream, so the telegraph-block roll doesn't shift every other random choice
+    const randPin = rng(((seed || 1) ^ 0x7f4a7c15) >>> 0); // and another for the "I'm being pinned down" guard roll
     const history = [];
+    let hitsTaken = [];    // ticks when we were hit (to tell when we're being pinned down)
+    let hitSeq = 0, foeSeq = 0, lastLanded = -999; // last seen impact counters, and when we last landed a hit
+    let pinRollAt = -99, pinUntil = 0; // when we last rolled the pinned-guard dice, and how long the current guard lasts
     let plan = { kind: 'neutral', until: 0, dir: 0, aimError: 0 };
     let blockUntil = 0;
     let holdSpecial = 0;   // frames left to keep the special held (Owen's charge)
@@ -348,6 +352,9 @@ const Cpu = (() => {
       const prev = history[Math.max(0, history.length - 2 - L.reaction)];
       if (cur !== prev && ACTING.has(cur.state) && (!ACTING.has(prev.state) || cur.t < prev.t)) oppAttacks.push(tick);
       oppAttacks = oppAttacks.filter((t) => tick - t < 180);
+      if (me.impactSeq !== hitSeq) { hitSeq = me.impactSeq; if (me.impactKind === 'hit') hitsTaken.push(tick); }
+      if (other.impactSeq !== foeSeq) { foeSeq = other.impactSeq; if (other.impactKind === 'hit') lastLanded = tick; }
+      hitsTaken = hitsTaken.filter((t) => tick - t < 150);
       if (matchState !== 'fight') return 0;
 
       const c = me.character;
@@ -442,6 +449,16 @@ const Cpu = (() => {
       }
       if (tick < blockUntil && (threat || shot)) return blockWith;
 
+      // Taking hit after hit without answering back: put the guard up and hold it while they're on us.
+      const pinned = hitsTaken.length >= 3 && tick - lastLanded > 120;
+      if (pinned && me.grounded && canActEarly(me) && dist < 190) {
+        if (tick < pinUntil) return B.guard;
+        if (tick - pinRollAt >= 20) {
+          pinRollAt = tick;
+          if (randPin() < Math.min(0.95, L.pinnedBlock * (1 + 0.2 * (hitsTaken.length - 3)))) { pinUntil = tick + 14 + Math.floor(randPin() * 14); return B.guard; }
+        }
+      }
+
       if ((threat || shot) && !chance(L.mistake)) {
         // Character tools first.
         if (specialReady && c.special.type === 'counterDodge' && threat && threat.kind !== 'nuke' && chance(L.iq)) return press(B.special);
@@ -502,7 +519,7 @@ const Cpu = (() => {
         let go = false;
         switch (u.type) {
           case 'poisonBurst': go = dist < reachOf(u.offset, u.width, oppHalf) - 20; break;
-          case 'dive': go = u.angle === 'down' ? dist < 70 : (dist > 60 && dist < u.speed * u.travel * 0.8 && o.grounded && !o.crouching && dashSafe(u.speed * u.travel)); break;
+          case 'dive': go = u.angle === 'down' ? (dist < 70 && !me.grounded) : (dist > 60 && dist < u.speed * u.travel * 0.8 && o.grounded && !o.crouching && dashSafe(u.speed * u.travel)); break;
           case 'nuke': go = dist < u.radius - 20 && !o.invuln; break;
           case 'growRoll': go = dist > 80 && dist < 380 && o.grounded && dashSafe(u.dashSpeed * u.active); break;
           case 'takedown': go = dist > 40 && dist < u.maxSpeed * (u.jump / GRAVITY) * 0.85 && o.grounded && !o.invuln && me.grounded; break;
@@ -703,6 +720,9 @@ const Cpu = (() => {
       if (c.phaseStep && me.phaseCooldown <= 0 && me.y >= GROUND_Y - 1 && (me.state === 'hitstun' || me.state === 'knockdown' || me.sinceHit <= c.phaseStep.window)) {
         plans.push(mk('phase step', B.block | B.jumpHeld, { 0: B.jump })); // Keenan slips out behind them
       }
+      // Sam's dives can only be started in the air: jump first, then use them.
+      if (c.special.airOnly && me.grounded && me.specialCooldownTimer <= 0) plans.push(mk('jump then special', toward | B.jumpHeld, { 0: B.jump, 12: B.special }));
+      if (c.ultimate.airOnly && me.grounded && me.ultCharge >= ULT_METER_MAX) plans.push(mk('jump then ultimate', toward | B.jumpHeld, { 0: B.jump, 12: B.ultimate }));
       if (me.specialCooldownTimer <= 0) {
         plans.push(mk('special', 0, { 0: B.special }));
         plans.push(mk('special toward', toward, { 0: B.special }));
