@@ -2476,3 +2476,27 @@ test('John\'s takedown hits harder the higher he is when he comes down (cast it 
   assert.ok(high.dealt > ground.dealt * 1.4, `${high.dealt.toFixed(1)} from up high vs ${ground.dealt.toFixed(1)} from the ground`);
   assert.ok(high.hung, 'cast in the air he hangs there while he coils (so the height is kept)');
 });
+
+test('John\'s takedown from the top of the orchard\'s apple tree goes crazy', () => {
+  const sim = createSim();
+  const u = sim.CHARACTERS.john.ultimate;
+  sim.Game.startMatch('john', 'keenan', () => {}, { ball: 'off', balance: false, stage: 'orchard' });
+  step(sim, 200);
+  const canopy = sim.Stage.platforms().find((p) => p.id === 'canopy');
+  assert.ok(canopy, 'the canopy platform');
+  sim.Game.applySnapshot({ f: [{ x: 600, y: canopy.y, vy: 0, grounded: true, platform: 'canopy', ultCharge: 100, state: 'idle' }, { x: 700, state: 'idle' }] });
+  const hp0 = sim.Game.world().p2.hp;
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  let mul = 0, tookDown = false;
+  for (let i = 0; i < 400; i++) {
+    step(sim, 1);
+    const p = sim.Game.world().p1;
+    if (p.state === 'takedown' && p._ability.mul) { tookDown = true; mul = p._ability.mul; }
+    if (i > 80 && p.state !== 'ultimate' && p.state !== 'takedown') break;
+  }
+  const dealt = hp0 - sim.Game.world().p2.hp;
+  assert.ok(tookDown, 'it came down through the branches and landed on them');
+  assert.ok(mul > 3, `x${mul.toFixed(2)} from the top of the tree`);
+  assert.ok(mul <= u.maxMul + 1e-9);
+  assert.ok(dealt > 90, `dealt ${dealt.toFixed(0)}`);
+});

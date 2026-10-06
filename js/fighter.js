@@ -1119,6 +1119,7 @@ class Fighter {
       return;
     }
     if (a.phase === 'plunge') {
+      this.dropThrough = 3; // straight down through any branches or platforms, all the way to them
       this.vy = def.plunge;
       this.vx = Math.max(-6, Math.min(6, (this._foeX - this.x) * 0.3)); // a little steering on the way down
       if (this.grounded) {
@@ -1174,7 +1175,7 @@ class Fighter {
     const d = this.character.ultimate, a = this._ability;
     this.vx = 0;
     if (!a.landed) { // still dropping onto them; the pin starts when his hip hits the mat
-      if (!this.grounded) { this.vy = d.plunge; return; }
+      if (!this.grounded) { this.vy = d.plunge; this.dropThrough = 3; return; }
       a.landed = true; a.slammed = true;
       this.actionTimer = 0;
       Effects.shake(14, 18);

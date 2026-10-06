@@ -577,7 +577,8 @@ const CHARACTERS = {
       // The higher he drops from, the harder all of it hits: x(1 + heightBonus * (how much higher than a normal drop
       // from the ground, which is about refHeight, as a fraction of refHeight)), up to maxMul. (Cast it from the top of
       // a jump for the biggest.)
-      refHeight: 170, heightBonus: 0.6, maxMul: 2.0,
+      // (Dropped from the top of the orchard's apple tree -- about 540px -- it hits for well over three times as much.)
+      refHeight: 170, heightBonus: 1.1, maxMul: 5.0,
       pause: 10,           // a beat on the mat before the punches
       punches: 3, every: 14, punchDamage: 5,
       end: 16,             // getting up
