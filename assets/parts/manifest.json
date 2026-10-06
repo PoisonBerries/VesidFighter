@@ -84,6 +84,7 @@
   "sam": [
     "neck",
     "torso",
-    "upperArm"
+    "upperArm",
+    "forearm"
   ]
 }
