@@ -2407,3 +2407,34 @@ test('John\'s ultimate is a takedown: charge in, hip slam, then both on the grou
   for (let i = 0; i < 80; i++) { step(sim, 1); if (p1().state === 'takedown') tookDown = true; }
   assert.strictEqual(tookDown, false, 'someone in the air is not taken down');
 });
+
+test('Owen\'s tap-to-jump is forgiving: a tap made just before he can jump (landing, move recovery) is kept and used; a quick tap always jumps', () => {
+  const sim = createSim();
+  const cj = sim.CHARACTERS.owen.chargeJump;
+  assert.ok(cj.buffer >= 6);
+  const trial = (id, setup, tapAt, tapFrames) => {
+    sim.Game.startMatch(id, 'keenan', () => {}, { ball: 'off', balance: false });
+    step(sim, 200);
+    sim.Game.applySnapshot({ f: [Object.assign({ x: 400 }, setup), { x: 900 }] });
+    const C = sim.VCONTROLS.p1;
+    let jumpedAt = -1;
+    for (let f = 0; f < 50; f++) {
+      const down = f >= tapAt && f < tapAt + tapFrames;
+      sim.InputManager.setVirtual(C.jump, down, f === tapAt);
+      step(sim, 1);
+      const p = sim.Game.world().p1;
+      if (jumpedAt < 0 && p.vy < -8) jumpedAt = f;
+    }
+    return jumpedAt;
+  };
+  // Plain taps of every length up to a charge still jump.
+  for (const n of [1, 2, 4, 8]) assert.ok(trial('owen', {}, 0, n) >= 0, `a ${n}-frame tap jumps`);
+  // Tapped 4 frames before a move's recovery ends: it goes off as soon as he can.
+  assert.ok(trial('owen', { state: 'attack', actionTimer: 25 }, 0, 2) >= 0, 'a tap during the end of a move is not lost');
+  // Tapped in the last frames of a fall: he jumps on landing.
+  assert.ok(trial('owen', { y: sim.GROUND_Y - 30, grounded: false, state: 'fall', vy: 6, jumpsUsed: 1 }, 0, 2) >= 0, 'a tap just before landing is not lost');
+  // Too early (well before landing) is not remembered.
+  assert.strictEqual(trial('owen', { y: sim.GROUND_Y - 260, grounded: false, state: 'fall', vy: 2, jumpsUsed: 1 }, 0, 2), -1);
+  // Only Owen's jump is buffered.
+  assert.strictEqual(trial('keenan', { state: 'attack', actionTimer: 12 }, 0, 2), -1, 'other characters are unchanged');
+});

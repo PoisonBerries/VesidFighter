@@ -286,10 +286,12 @@ const CHARACTERS = {
     // attacks, specials and ultimate play out faster (like Encore, but only
     // while he's acting).
     bloodDonor: { damage: 0.5, attackSpeed: 0.35, speed: 0.25 },
+    // (buffer: a jump press that can't be used right away -- still landing, in the recovery of a move -- is kept for
+    // this many frames and used the moment he can, so a tap isn't lost.)
     // Charged jump: hold jump to crouch and build power (release to go, higher
     // the longer it was held). Held to the max it's a plasma jump: he rockets
     // up, then throws his arms out and spins straight down in a whirlwind.
-    chargeJump: { tapFrames: 9, maxFrames: 24, holdFrames: 50, maxForce: 21, plasmaForce: 27 },
+    chargeJump: { buffer: 8, tapFrames: 9, maxFrames: 24, holdFrames: 50, maxForce: 21, plasmaForce: 27 },
     whirlwind: {
       startAt: -1, fallSpeed: 17, steer: 7, hitEvery: 7,
       width: 150, height: 120,

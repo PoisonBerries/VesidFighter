@@ -90,6 +90,7 @@ class Fighter {
     this.foeHitTimer = 0;  // frames left in which the opponent backing off counts as running away (voice line)
     this.comboHits = 0;    // hits landed in a row without being hit or blocked
     this.comboTimer = 0;   // frames left to keep the string going
+    this.jumpBuffer = 0;   // frames a jump press is still remembered (Owen's charged jump; see chargeJump.buffer)
     this.jumpCharge = 0;   // frames a charged jump has been held (characters with chargeJump)
     this.plasmaJumping = false; // on a fully charged jump, heading for the whirlwind
     this.upAttackActive = false; // the current attack is the two-fisted upward punch (characters with upAttack)
@@ -647,7 +648,7 @@ class Fighter {
     this.upAttackActive = false;
     this.downAttackActive = false;
     this.phaseCooldown = 0;
-    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0; this.airSuspend = 0; this.airChain = 0; this.finaleArmed = 0; this.finaleKick = false; this.finishUltimate = false; this.cloud = null; this.phaseFlurryIn = 0; this._flurryPending = false;
+    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0; this.airSuspend = 0; this.airChain = 0; this.finaleArmed = 0; this.finaleKick = false; this.finishUltimate = false; this.jumpBuffer = 0; this.cloud = null; this.phaseFlurryIn = 0; this._flurryPending = false;
     this.fartPower = 0; this.jumpStacks = 0; this.poisonFrom = null; this.poisonTickDamage = 0;
     this._comboHeld = false;
     this._crouchHeld = false;
@@ -698,6 +699,12 @@ class Fighter {
     this._controls = controls;
     this._updateStatusTimers();
     if (opponent) this._foeX = opponent.x;
+    // Owen: remember a jump press for a few frames, so one made while he's still landing or recovering from a move still counts.
+    const cjb = this.character.chargeJump;
+    if (cjb && cjb.buffer) {
+      if (InputManager.isPressed(controls.jump)) this.jumpBuffer = cjb.buffer;
+      else if (this.jumpBuffer > 0) this.jumpBuffer--;
+    }
 
     // Picked up by Robert (or the orchard's monster, stages.js): carried
     // around by them (they position us), no input, no physics.
@@ -994,7 +1001,8 @@ class Fighter {
       this.state = 'idle';
     }
 
-    if (pressed.jump && this.character.chargeJump && this.grounded && this.jumpsUsed < this.character.maxJumps) {
+    if ((pressed.jump || this.jumpBuffer > 0) && this.character.chargeJump && this.grounded && this.jumpsUsed < this.character.maxJumps) {
+      this.jumpBuffer = 0;
       // Owen: jump is charged -- the longer it's held the higher he goes.
       this.state = 'jumpcharge';
       this.actionTimer = 0;
