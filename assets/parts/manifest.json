@@ -80,5 +80,10 @@
     "thigh",
     "shin",
     "shoe"
+  ],
+  "sam": [
+    "neck",
+    "torso",
+    "upperArm"
   ]
 }
