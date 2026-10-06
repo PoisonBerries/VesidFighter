@@ -152,8 +152,9 @@ test('difficulty levels are ordered: Hard beats Easy', () => {
 });
 
 test('rally mode: CPUs really play the ball -- shots both ways, and it does real damage', () => {
+  // (six matches rather than three: with so few, the share of damage from the ball swung either side of its floor with any small change)
   let shots = [0, 0], ballDamage = 0, damage = 0;
-  for (const [i, chars] of [['ryan', 'carlos'], ['owen', 'sam'], ['nathan', 'john']].entries()) {
+  for (const [i, chars] of [['ryan', 'carlos'], ['owen', 'sam'], ['nathan', 'john'], ['keenan', 'artur'], ['robert', 'ryan'], ['sam', 'john']].entries()) {
     const r = playMatch(['cpu:normal', 'cpu:normal'], chars, 300 + i);
     shots = shots.map((v, k) => v + r.shots[k]);
     ballDamage += r.ballDamage[0] + r.ballDamage[1];
