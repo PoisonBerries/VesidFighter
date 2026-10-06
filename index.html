@@ -185,16 +185,12 @@
     <div id="gfx-panel" hidden>
       <div class="gfx-label">Graphics</div>
       <div class="gfx-presets" role="radiogroup" aria-label="Graphics quality">
-        <button data-gfx="auto" title="Picks a level for this computer, and lowers it if fights run slowly">Auto</button>
         <button data-gfx="cartoon" title="Simple cartoon shapes instead of the detailed scenery -- runs on anything">Cartoon</button>
         <button data-gfx="low" title="For older or weaker laptops">Low</button>
         <button data-gfx="medium">Medium</button>
         <button data-gfx="high">High</button>
       </div>
-      <div id="gfx-auto-note" class="gfx-note"></div>
-      <label>Resolution <span id="gfx-scale-value"></span>
-        <input id="gfx-scale" type="range" min="50" max="100" step="5">
-      </label>
+      <div id="gfx-note" class="gfx-note"></div>
       <label class="gfx-check"><input id="gfx-fps" type="checkbox"> Show FPS</label>
       <div id="gfx-reload" class="gfx-note" hidden>
         Some changes apply after reloading.

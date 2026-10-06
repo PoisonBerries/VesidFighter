@@ -64,7 +64,7 @@ if (webglAvailable()) {
   function resize() {
     const w = canvas.clientWidth || CANVAS_WIDTH;
     const h = canvas.clientHeight || CANVAS_HEIGHT;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, gfx.maxPixelRatio) * gfx.scale);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, gfx.maxPixelRatio));
     renderer.setSize(w, h, false);
   }
   new ResizeObserver(resize).observe(canvas);
@@ -407,6 +407,9 @@ if (webglAvailable()) {
   const CAR = orchardDef.car;
   const carJoin = (side) => toX(side < 0 ? orchardDef.left + CAR.width / 2 + 20 : orchardDef.right - CAR.width / 2 - 20);
   const ROAD_BACK = -26; // how far back the farm roads come from
+  // The orchard's sign: on the grass behind the fence, left of the apple tree
+  // (the real model in addSign, the low-poly one with the Cartoon scenery).
+  const SIGN = { x: -3.0, z: -3.1, height: 1.84, turn: 0.18 }; // 3D units; turn: radians toward the fight
 
   // The low-poly orchard: the same layout and colours as the Blender scene
   // (blender/orchard.blend -- positions measured from it), as simple shapes.
@@ -649,11 +652,94 @@ if (webglAvailable()) {
     }
   }
 
-  // Cows grazing and wandering behind the fence (scenery only).
+  // The orchard sign, low-poly: two posts and a crossbar, the arched board
+  // (gold edge) on iron brackets, its face painted on -- the same layout as
+  // assets/models/sign.glb. Built at SIGN.height = 1.84 (scaled to it).
+  {
+    const sign = new THREE.Group();
+    sign.name = 'orchard_sign_toy';
+    const WOOD = '#7d7466', IRON = '#3b3631', GOLD = '#c9a04a';
+    for (const side of [-1, 1]) {
+      sign.add(box('sign_post', 0.14, 1.62, 0.14, WOOD, side * 0.73, 0.81, 0));
+      for (const y of [0.58, 1.27]) sign.add(box('sign_bracket', 0.1, 0.03, 0.03, IRON, side * 0.62, y, 0));
+    }
+    sign.add(box('sign_rail', 1.6, 0.1, 0.08, WOOD, 0, 0.25, 0.06));
+    // The board's outline: a rectangle with an arched top, set in at the shoulders.
+    const BW = 0.6, BOT = 0.42, SH = 1.42, TOP = 1.84, AW = 0.49;
+    const outline = (path) => {
+      path.moveTo(-BW, BOT); path.lineTo(BW, BOT); path.lineTo(BW, SH); path.lineTo(AW, SH);
+      path.absellipse(0, SH, AW, TOP - SH, 0, Math.PI, false);
+      path.lineTo(-BW, SH); path.closePath();
+      return path;
+    };
+    const DEPTH = 0.05;
+    const board = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(outline(new THREE.Shape()), { depth: DEPTH, bevelEnabled: false, curveSegments: 10 }),
+      [new THREE.MeshStandardMaterial({ color: '#1d3b2e', roughness: 1, flatShading: true }), new THREE.MeshStandardMaterial({ color: GOLD, roughness: 1, flatShading: true })],
+    );
+    board.name = 'sign_board';
+    board.position.z = -DEPTH / 2;
+    board.castShadow = board.receiveShadow = true;
+    sign.add(board);
+    // The face, painted: gold edge, the arched picture of a tree, the lettering.
+    const CW = 512, CH = Math.round(CW * (TOP - BOT) / (BW * 2));
+    const px = (x) => ((x + BW) / (BW * 2)) * CW, py = (y) => ((TOP - y) / (TOP - BOT)) * CH;
+    const c = document.createElement('canvas');
+    c.width = CW; c.height = CH;
+    const g = c.getContext('2d');
+    const trace = (inset) => { // the outline, `inset` canvas pixels in
+      const k = inset / CW * BW * 2;
+      g.beginPath();
+      g.moveTo(px(-BW + k), py(BOT + k)); g.lineTo(px(BW - k), py(BOT + k)); g.lineTo(px(BW - k), py(SH));
+      g.lineTo(px(AW - k), py(SH));
+      g.ellipse(px(0), py(SH), px(AW - k) - px(0), py(SH) - py(TOP - k), 0, 0, Math.PI, true);
+      g.lineTo(px(-BW + k), py(SH)); g.closePath();
+    };
+    g.fillStyle = '#1d3b2e'; trace(0); g.fill();
+    g.strokeStyle = GOLD; g.lineWidth = 12; trace(6); g.stroke();
+    g.strokeStyle = '#4f8a7a'; g.lineWidth = 4; trace(26); g.stroke();
+    // The picture: an arched light-blue panel, gold-framed, with a little apple tree.
+    const PX = px(0), PW = px(0.26) - px(0), PB = py(1.1), PT = py(1.62), PS = PT + PW;
+    g.beginPath(); g.moveTo(PX - PW, PB); g.lineTo(PX - PW, PS); g.arc(PX, PS, PW, Math.PI, 0); g.lineTo(PX + PW, PB); g.closePath();
+    g.fillStyle = '#b9d3e0'; g.fill();
+    g.strokeStyle = GOLD; g.lineWidth = 8; g.stroke();
+    g.fillStyle = '#6b4a2e'; g.fillRect(PX - 7, PB - 46, 14, 40);
+    g.fillStyle = '#3f7d5c';
+    for (const [dx, dy, r] of [[0, -98, 30], [-26, -76, 24], [26, -76, 24], [-14, -118, 20], [14, -118, 20], [0, -62, 22]]) { g.beginPath(); g.arc(PX + dx, PB + dy, r, 0, Math.PI * 2); g.fill(); }
+    g.fillStyle = '#a8321f';
+    for (const [dx, dy] of [[-18, -84], [16, -100], [4, -70], [-6, -118], [24, -72]]) { g.beginPath(); g.arc(PX + dx, PB + dy, 4, 0, Math.PI * 2); g.fill(); }
+    // The lettering.
+    const fit = (text, font, maxW) => { g.font = font; const w = g.measureText(text).width; return w > maxW ? maxW / w : 1; };
+    const write = (text, font, color, y, maxW, skew) => {
+      const k = fit(text, font, maxW);
+      g.save(); g.translate(CW / 2, y); g.transform(1, 0, skew, 1, 0, 0); g.scale(k, k);
+      g.fillStyle = color; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 0, 0);
+      g.restore();
+    };
+    write('Alyson\'s', 'bold italic 96px "Brush Script MT", "Snell Roundhand", "Segoe Script", cursive', '#c0262e', py(0.93), CW * 0.66, -0.15);
+    write('APPLE ORCHARD INC.', 'bold 40px "Trebuchet MS", "Arial Narrow", sans-serif', '#e0b85a', py(0.68), CW * 0.74, 0);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const faceGeo = new THREE.ShapeGeometry(outline(new THREE.Shape()), 10);
+    const uv = faceGeo.attributes.uv, pos = faceGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) + BW) / (BW * 2), (pos.getY(i) - BOT) / (TOP - BOT));
+    const face = new THREE.Mesh(faceGeo, new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }));
+    face.name = 'sign_face';
+    face.position.z = DEPTH / 2 + 0.002;
+    face.receiveShadow = true;
+    sign.add(face);
+    sign.scale.setScalar(SIGN.height / TOP);
+    sign.position.set(SIGN.x, 0, SIGN.z);
+    sign.rotation.y = SIGN.turn;
+    orchard.add(sign);
+  }
+
+  // Cows grazing and wandering behind the fence (scenery only). The first
+  // turns round just short of the orchard sign (SIGN, x -3), in view left of the tree.
   const cows = [];
   {
     const white = '#f2efe8', black = '#2c2a28';
-    for (const [z, xa, xb, speed, phase] of [[-3.4, -9, -3, 0.35, 0], [-6, 2.5, 9, 0.28, 2], [-9, -4, 4, 0.22, 4.5], [-12.5, 5, 11, 0.3, 1]]) {
+    for (const [z, xa, xb, speed, phase] of [[-3.4, -9, -4.8, 0.35, 0], [-6, 2.5, 9, 0.28, 2], [-9, -4, 4, 0.22, 4.5], [-12.5, 5, 11, 0.3, 1]]) {
       const cow = new THREE.Group();
       cow.name = 'cow';
       cow.add(box('cow_body', 1.2, 0.55, 0.5, white, 0, 0.75, 0));
@@ -760,7 +846,7 @@ if (webglAvailable()) {
       const m = o.material;
       if (!made.has(m)) {
         made.set(m, new THREE.MeshToonMaterial({
-          name: m.name, color: m.color, gradientMap: gradient, fog: m.fog,
+          name: m.name, color: m.color, map: m.map, gradientMap: gradient, fog: m.fog,
           emissive: m.emissive, emissiveIntensity: m.emissiveIntensity,
         }));
       }
@@ -1389,6 +1475,24 @@ if (webglAvailable()) {
     slot.userData.model = node;
   }
   let stageReady = false;
+  // The orchard's sign (its own model, assets/models/sign.glb), on the
+  // grass behind the fence, left of the apple tree. Scenery only: nothing
+  // stands on it. Part of the real scene, so Cartoon doesn't show it.
+  async function addSign(root, loader) {
+    try {
+      const sign = (await loader.loadAsync('assets/models/sign.glb')).scene;
+      sign.name = 'orchard_sign';
+      const box = new THREE.Box3().setFromObject(sign);
+      const k = SIGN.height / (box.max.y - box.min.y);
+      sign.scale.setScalar(k);
+      sign.position.set(SIGN.x, -box.min.y * k, SIGN.z);
+      sign.rotation.y = SIGN.turn;
+      root.add(sign);
+    } catch (e) {
+      console.warn('[stage] could not load the orchard sign', e);
+    }
+  }
+
   async function loadStageScenes() {
     let list = [];
     try {
@@ -1443,6 +1547,7 @@ if (webglAvailable()) {
           m.renderOrder = 1;
         });
       }
+      await addSign(root, loader);
       addLawn(root);
       fadeFarPoles(root);
       root.updateMatrixWorld(true);

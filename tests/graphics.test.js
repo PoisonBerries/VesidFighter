@@ -1,5 +1,5 @@
 // Graphics settings (js/graphics.js) without a browser: the tier guessed from
-// the GPU, what each preset turns on, what's saved, and Auto stepping down
+// the GPU, what each preset turns on, what's saved, and dropping to Cartoon
 // when fights run slowly.
 const { test } = require('node:test');
 const assert = require('node:assert');
@@ -46,10 +46,9 @@ test('a weak machine (few cores) holds High back to Medium', () => {
   assert.strictEqual(Graphics.guessTier('NVIDIA GeForce GTX 1050'), 'medium');
 });
 
-test('each step down the presets costs less: resolution, shadows, grass, materials, scene file', () => {
+test('each step down the presets costs less: pixel ratio, shadows, grass, materials, scene file', () => {
   const { Graphics } = load();
   const [low, med, high] = ['low', 'medium', 'high'].map((t) => Graphics.PRESETS[t]);
-  assert.ok(low.scale <= med.scale && med.scale <= high.scale);
   assert.ok(low.maxPixelRatio <= med.maxPixelRatio && med.maxPixelRatio <= high.maxPixelRatio);
   assert.ok(low.grassLayers < med.grassLayers && med.grassLayers < high.grassLayers);
   assert.deepStrictEqual([low.shadows, med.shadows, high.shadows], ['off', 'low', 'high']);
@@ -65,62 +64,57 @@ test('Cartoon, below Low, swaps the scenery for low-poly shapes instead of blurr
   assert.strictEqual(Graphics.TIERS[0], 'cartoon');
   assert.ok(toon.cartoon);
   assert.strictEqual(toon.stageFile, 'none');
-  assert.strictEqual(toon.scale, 1);
   // Dropping to it is live; going back up to a scene file it never loaded needs a reload.
-  Graphics.set({ preset: 'medium', scale: null }); // the page "loaded" on Low (UHD 620), lite scene
+  Graphics.set({ preset: 'medium' }); // the page "loaded" on Low (UHD 620), lite scene
   assert.strictEqual(Graphics.needsReload(), false);
-  Graphics.set({ preset: 'cartoon', scale: null });
+  Graphics.set({ preset: 'cartoon' });
   assert.strictEqual(Graphics.needsReload(), false);
   const fromToon = load({ stored: { 'vesid.graphics': JSON.stringify({ preset: 'cartoon' }) } });
-  fromToon.Graphics.set({ preset: 'low', scale: null });
+  fromToon.Graphics.set({ preset: 'low' });
   assert.strictEqual(fromToon.Graphics.needsReload(), true);
 });
 
-test('Auto uses the guessed tier; picking a preset and a resolution is saved and reported to listeners', () => {
+test('the first visit starts on the guessed tier; picking a preset is saved and reported to listeners', () => {
   const { Graphics, store } = load();
   assert.strictEqual(Graphics.config().tier, 'low'); // UHD 620
+  assert.strictEqual(JSON.parse(store['vesid.graphics']).preset, 'low', 'the guess is saved as the choice');
   const seen = [];
   Graphics.onChange((c) => seen.push(c.tier));
-  Graphics.set({ preset: 'high', scale: 0.8 });
+  Graphics.set({ preset: 'high' });
   assert.strictEqual(Graphics.config().tier, 'high');
-  assert.strictEqual(Graphics.config().scale, 0.8);
   assert.deepStrictEqual(seen, ['high']);
-  assert.deepStrictEqual(JSON.parse(store['vesid.graphics']), { preset: 'high', scale: 0.8, fps: false });
+  assert.deepStrictEqual(JSON.parse(store['vesid.graphics']), { preset: 'high', fps: false });
   // A reload keeps it.
   const again = load({ stored: store });
   assert.strictEqual(again.Graphics.config().tier, 'high');
   // The scene file and antialiasing only change on the next load.
   assert.strictEqual(again.Graphics.needsReload(), false);
-  again.Graphics.set({ preset: 'low', scale: null });
+  again.Graphics.set({ preset: 'low' });
   assert.strictEqual(again.Graphics.needsReload(), true);
 });
 
-test('Auto steps down when a fight runs slowly: resolution first, then a tier -- and remembers it', () => {
-  const { Graphics, store } = load({ gpu: 'NVIDIA GeForce RTX 3060' });
+test('an old save (Auto, or a lower resolution) starts over from the GPU guess', () => {
+  const { Graphics } = load({ gpu: 'NVIDIA GeForce RTX 3060', stored: { 'vesid.graphics': JSON.stringify({ preset: 'auto', scale: 0.7, fps: true }) } });
   assert.strictEqual(Graphics.config().tier, 'high');
-  const run = (fps, seconds) => { for (let i = 0; i < fps * seconds; i++) Graphics.frame(1 / fps, true); };
-  run(60, 10);
-  assert.deepStrictEqual([Graphics.config().tier, Graphics.config().scale], ['high', 1], 'a smooth fight changes nothing');
-  run(30, 6); // 2s to settle, then a 3s window
-  assert.deepStrictEqual([Graphics.config().tier, Graphics.config().scale], ['high', 0.85], 'first: a little less resolution');
-  run(30, 6);
-  assert.strictEqual(Graphics.config().scale, 0.7);
-  run(30, 6);
-  assert.deepStrictEqual([Graphics.config().tier, Graphics.config().scale], ['medium', 1], 'then a whole tier');
-  run(20, 40);
-  assert.strictEqual(Graphics.config().tier, 'cartoon', 'and finally the cartoon scenery');
-  assert.strictEqual(JSON.parse(store['vesid.graphics.auto']).tier, 'cartoon', 'remembered for next time');
-  run(20, 40);
-  assert.strictEqual(Graphics.config().tier, 'cartoon', 'nothing below that');
-  // Menus and pauses don't count, and neither does a fixed preset.
-  const fixed = load({ gpu: 'NVIDIA GeForce RTX 3060', stored: { 'vesid.graphics': JSON.stringify({ preset: 'high', scale: null }) } });
-  for (let i = 0; i < 600; i++) fixed.Graphics.frame(1 / 20, true);
-  assert.strictEqual(fixed.Graphics.config().tier, 'high');
+  assert.strictEqual(Graphics.settings.fps, true);
+  assert.ok(!('scale' in Graphics.config()), 'no resolution setting: always full');
 });
 
-test('choosing Auto again starts over from the GPU guess', () => {
-  const { Graphics } = load({ gpu: 'NVIDIA GeForce RTX 3060', stored: { 'vesid.graphics.auto': JSON.stringify({ tier: 'low', scale: 0.7, gpu: 'NVIDIA GeForce RTX 3060' }) } });
-  assert.strictEqual(Graphics.config().tier, 'low');
-  Graphics.set({ preset: 'auto', scale: null });
-  assert.deepStrictEqual([Graphics.config().tier, Graphics.config().scale], ['high', 1]);
+test('a fight that runs slowly drops to Cartoon -- from any preset -- and remembers it', () => {
+  const { Graphics, store } = load({ gpu: 'NVIDIA GeForce RTX 3060' });
+  assert.strictEqual(Graphics.config().tier, 'high');
+  const run = (G, fps, seconds, fighting = true) => { for (let i = 0; i < fps * seconds; i++) G.frame(1 / fps, fighting); };
+  run(Graphics, 60, 10);
+  assert.strictEqual(Graphics.config().tier, 'high', 'a smooth fight changes nothing');
+  run(Graphics, 30, 10, false);
+  assert.strictEqual(Graphics.config().tier, 'high', 'menus and pauses do not count');
+  run(Graphics, 30, 6); // 2s to settle, then a 3s window
+  assert.strictEqual(Graphics.config().tier, 'cartoon', 'straight to the cartoon scenery');
+  assert.ok(Graphics.slowedDown());
+  assert.strictEqual(JSON.parse(store['vesid.graphics']).preset, 'cartoon', 'remembered for next time');
+  // Picking a preset again is allowed (and watched the same way).
+  Graphics.set({ preset: 'low' });
+  assert.ok(!Graphics.slowedDown());
+  run(Graphics, 20, 6);
+  assert.strictEqual(Graphics.config().tier, 'cartoon');
 });

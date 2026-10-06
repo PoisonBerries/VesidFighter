@@ -1,6 +1,7 @@
-// Graphics settings: Low / Medium / High presets, or Auto (the default),
-// which guesses a tier from the GPU and then steps down on its own if a
-// fight runs slowly. The 3D view (renderer3d.js) reads Graphics.config()
+// Graphics settings: Cartoon / Low / Medium / High. The first visit starts
+// on a tier guessed from the GPU; if a fight runs slowly on any of them, it
+// drops to Cartoon on its own. Always full resolution. The 3D view
+// (renderer3d.js) reads Graphics.config()
 // and listens for changes; the settings panel (the gear by the sound
 // button) writes them. Saved in localStorage.
 //
@@ -10,33 +11,31 @@
 
 const Graphics = (() => {
   const KEY = 'vesid.graphics';
-  const AUTO_KEY = 'vesid.graphics.auto';
   const TIERS = ['cartoon', 'low', 'medium', 'high'];
 
-  // What each tier turns on. `scale` multiplies the render resolution
-  // (after capping the screen's pixel ratio at `maxPixelRatio`).
+  // What each tier turns on. (`maxPixelRatio` caps the screen's pixel ratio.)
   const PRESETS = {
     // The simplest: the Orchard as low-poly cartoon shapes (the original
     // grey-box scenery, toon-shaded) instead of the Blender scene -- so cheap
     // it can run at full resolution, with shadows.
     cartoon: {
-      maxPixelRatio: 1, scale: 1, antialias: false,
+      maxPixelRatio: 1, antialias: false,
       shadows: 'low', grassLayers: 0, grassFar: 0,
       materials: 'simple', stageFile: 'none', cardRes: 1, fxRes: 0.75, reflections: false, farTrees: false,
       cartoon: true,
     },
     low: {
-      maxPixelRatio: 1, scale: 0.75, antialias: false,
+      maxPixelRatio: 1, antialias: false,
       shadows: 'off', grassLayers: 0, grassFar: 0,
       materials: 'simple', stageFile: 'lite', cardRes: 0.75, fxRes: 0.5, reflections: false, farTrees: false,
     },
     medium: {
-      maxPixelRatio: 1.5, scale: 1, antialias: false,
+      maxPixelRatio: 1.5, antialias: false,
       shadows: 'low', grassLayers: 6, grassFar: 22,
       materials: 'standard', stageFile: 'lite', cardRes: 1, fxRes: 0.75, reflections: true, farTrees: true,
     },
     high: {
-      maxPixelRatio: 2, scale: 1, antialias: true,
+      maxPixelRatio: 2, antialias: true,
       shadows: 'high', grassLayers: 14, grassFar: 32,
       materials: 'full', stageFile: 'full', cardRes: 1.25, fxRes: 1, reflections: true, farTrees: true,
     },
@@ -47,10 +46,10 @@ const Graphics = (() => {
   };
   const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
 
-  // preset: 'auto' | tier. scale: null (the preset's own) or 0.5..1. fps: show the counter.
-  const settings = Object.assign({ preset: 'auto', scale: null, fps: false }, read(KEY, {}));
-  // What Auto has settled on (from the GPU, then from how fights actually ran).
-  let auto = read(AUTO_KEY, null);
+  // preset: a tier. fps: show the counter. (Older saves had 'auto' and a
+  // resolution; those start over from the GPU guess, at full resolution.)
+  const saved = read(KEY, {});
+  const settings = { preset: saved.preset, fps: !!saved.fps };
 
   // ---- Guessing a tier from the GPU ----
   function gpuName() {
@@ -82,21 +81,17 @@ const Graphics = (() => {
     return tier;
   }
 
-  if (!auto || !TIERS.includes(auto.tier)) {
-    const gpu = gpuName();
-    auto = { tier: guessTier(gpu), scale: null, gpu };
-    write(AUTO_KEY, auto);
+  if (!TIERS.includes(settings.preset)) {
+    settings.preset = guessTier(gpuName());
+    write(KEY, settings);
   }
 
-  const tier = () => (settings.preset === 'auto' ? auto.tier : settings.preset);
+  const tier = () => settings.preset;
 
   // The settings the renderer actually uses.
   function config() {
     const t = tier();
-    const c = Object.assign({ tier: t }, PRESETS[t]);
-    if (settings.scale) c.scale = settings.scale;
-    else if (settings.preset === 'auto' && auto.scale) c.scale = auto.scale;
-    return c;
+    return Object.assign({ tier: t }, PRESETS[t]);
   }
 
   // What the page was loaded with (for the reload-only settings). Going
@@ -118,26 +113,21 @@ const Graphics = (() => {
 
   function set(patch) {
     Object.assign(settings, patch);
-    if (patch.preset === 'auto') { // choosing Auto again starts the learning over
-      auto = { tier: guessTier(auto.gpu || gpuName()), scale: null, gpu: auto.gpu };
-      write(AUTO_KEY, auto);
-      perf.reset();
-    }
+    if (patch.preset) { perf.reset(); slowedDown = false; }
     changed();
   }
 
-  // ---- Auto: step down when fights run slowly ----
+  // ---- Slow fights drop to Cartoon ----
   // The renderer reports each frame (fight frames only). Every few seconds,
-  // if the average is under the target, take one step: render resolution
-  // first (cheap and hard to notice), then a whole tier.
-  const SCALE_STEPS = [1, 0.85, 0.7];
+  // if the average is under the target, switch to Cartoon (and save it).
   const perf = {
     frames: 0, time: 0, warm: 0,
     reset() { this.frames = 0; this.time = 0; this.warm = 0; },
   };
+  let slowedDown = false; // (for the settings panel's note)
   function frame(dt, fighting) {
     fps.tick(dt);
-    if (!fighting || settings.preset !== 'auto' || settings.scale) { perf.reset(); return; }
+    if (!fighting || settings.preset === 'cartoon') { perf.reset(); return; }
     if (dt >= 0.25) return; // a hitch (tab switch, loading), not the steady rate
     perf.warm += dt;
     if (perf.warm < 2) return; // settle in first
@@ -146,19 +136,10 @@ const Graphics = (() => {
     const rate = perf.frames / perf.time;
     perf.frames = 0; perf.time = 0;
     if (rate >= 48) return;
-    const cur = auto.scale || PRESETS[auto.tier].scale;
-    const next = SCALE_STEPS.find((s) => s < cur - 0.01);
-    if (next && cur > 0.7) {
-      auto.scale = next;
-    } else if (auto.tier !== TIERS[0]) {
-      auto.tier = TIERS[TIERS.indexOf(auto.tier) - 1];
-      auto.scale = null;
-    } else {
-      return; // nothing left to give
-    }
-    write(AUTO_KEY, auto);
-    perf.warm = 0;
-    console.info(`[graphics] running at ${rate.toFixed(0)} fps -- stepping down to ${auto.tier}, resolution ${Math.round((auto.scale || PRESETS[auto.tier].scale) * 100)}%`);
+    console.info(`[graphics] running at ${rate.toFixed(0)} fps on ${settings.preset} -- switching to cartoon`);
+    settings.preset = 'cartoon';
+    slowedDown = true;
+    perf.reset();
     changed();
   }
 
@@ -176,13 +157,13 @@ const Graphics = (() => {
       this.n++; this.t += dt;
       if (this.t >= 0.5) {
         const c = config();
-        this.el.textContent = `${Math.round(this.n / this.t)} fps · ${c.tier} · ${Math.round(c.scale * 100)}%`;
+        this.el.textContent = `${Math.round(this.n / this.t)} fps · ${c.tier}`;
         this.n = 0; this.t = 0;
       }
     },
   };
 
-  return { PRESETS, TIERS, settings, config, set, onChange, frame, needsReload, guessTier, autoInfo: () => auto };
+  return { PRESETS, TIERS, settings, config, set, onChange, frame, needsReload, guessTier, slowedDown: () => slowedDown };
 })();
 
 // ---- The settings panel (the gear by the sound button) ----
@@ -191,19 +172,15 @@ const Graphics = (() => {
   const panel = document.getElementById('gfx-panel');
   if (!btn || !panel) return;
   const presets = [...panel.querySelectorAll('[data-gfx]')];
-  const scale = document.getElementById('gfx-scale');
-  const scaleValue = document.getElementById('gfx-scale-value');
   const fps = document.getElementById('gfx-fps');
-  const note = document.getElementById('gfx-auto-note');
+  const note = document.getElementById('gfx-note');
   const reload = document.getElementById('gfx-reload');
-  const name = (t) => t[0].toUpperCase() + t.slice(1);
 
   function refresh() {
-    const s = Graphics.settings, c = Graphics.config();
+    const s = Graphics.settings;
     for (const b of presets) b.classList.toggle('active', b.dataset.gfx === s.preset);
-    note.textContent = s.preset === 'auto' ? `Using ${name(c.tier)} on this computer` : '';
-    scale.value = Math.round(c.scale * 100);
-    scaleValue.textContent = `${scale.value}%`;
+    note.textContent = Graphics.slowedDown() ? 'Switched to Cartoon: fights were running slowly' : '';
+    note.hidden = !note.textContent;
     fps.checked = !!s.fps;
     reload.hidden = !Graphics.needsReload();
   }
@@ -213,12 +190,9 @@ const Graphics = (() => {
     if (!panel.hidden) { document.getElementById('audio-panel').hidden = true; refresh(); }
   });
   document.getElementById('btn-audio').addEventListener('click', () => { panel.hidden = true; });
-  for (const b of presets) b.addEventListener('click', () => Graphics.set({ preset: b.dataset.gfx, scale: null }));
-  scale.addEventListener('input', () => Graphics.set({ scale: scale.value / 100 }));
+  for (const b of presets) b.addEventListener('click', () => Graphics.set({ preset: b.dataset.gfx }));
   fps.addEventListener('change', () => Graphics.set({ fps: fps.checked }));
   document.getElementById('btn-gfx-reload').addEventListener('click', () => location.reload());
-  // (arrow keys on the slider would also move the fighters)
-  scale.addEventListener('keydown', (e) => e.stopPropagation());
   Graphics.onChange(refresh);
   refresh();
 })();

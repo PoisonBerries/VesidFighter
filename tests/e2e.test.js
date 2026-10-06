@@ -545,7 +545,7 @@ test('graphics settings: the Orchard runs on Low (lite scene), Medium and High, 
   }
   const page = await browser3d.newPage();
   await page.setViewport({ width: 640, height: 360 });
-  await page.evaluateOnNewDocument(() => localStorage.setItem('vesid.graphics', JSON.stringify({ preset: 'low', scale: null, fps: true })));
+  await page.evaluateOnNewDocument(() => localStorage.setItem('vesid.graphics', JSON.stringify({ preset: 'low', fps: true })));
   const errors = [];
   const scenes = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
@@ -568,16 +568,16 @@ test('graphics settings: the Orchard runs on Low (lite scene), Medium and High, 
     return { ...info, lit: lit / (64 * 36), tier: Graphics.config().tier };
   });
   const low = await draw();
-  await page.evaluate(() => Graphics.set({ preset: 'medium', scale: null }));
+  await page.evaluate(() => Graphics.set({ preset: 'medium' }));
   const medium = await draw();
-  await page.evaluate(() => Graphics.set({ preset: 'high', scale: null }));
+  await page.evaluate(() => Graphics.set({ preset: 'high' }));
   const high = await draw();
   for (const r of [low, medium, high]) assert.ok(r.lit > 0.5, `${r.tier}: the scene should be drawn (only ${(r.lit * 100).toFixed(0)}% lit)`);
-  assert.ok(low.pixelRatio < high.pixelRatio, 'Low renders at a lower resolution');
+  assert.ok(low.pixelRatio <= high.pixelRatio, 'Low renders at no more than High\'s resolution');
   assert.ok(low.calls < high.calls, `Low draws less (${low.calls} vs ${high.calls} draw calls)`);
   assert.ok(await page.evaluate(() => Graphics.needsReload()), 'High\'s full scene waits for a reload');
   // Cartoon, live: the low-poly orchard, a tiny fraction of the triangles.
-  await page.evaluate(() => Graphics.set({ preset: 'cartoon', scale: null }));
+  await page.evaluate(() => Graphics.set({ preset: 'cartoon' }));
   const toon = await draw();
   assert.ok(toon.lit > 0.5, 'Cartoon draws the scene');
   assert.ok(toon.triangles < low.triangles / 20, `Cartoon draws a tiny scene (${toon.triangles} vs Low's ${low.triangles} triangles)`);
