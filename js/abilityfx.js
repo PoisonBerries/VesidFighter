@@ -1167,6 +1167,49 @@ const AbilityFX = (() => {
     ctx.restore();
   }
 
+  // Artur's tongue: a thick pink line from the mouth to its tip (or to whoever it has hold of), with a sticky blob
+  // on the end; a green gathering at the mouth while it winds up.
+  function drawTongue(ctx, f, def) {
+    const a = f._ability || {}, t = f.actionTimer, m = f.tongueMouth(), now = performance.now();
+    if (t <= def.startup) { // the wind-up: the mouth swells and green gas gathers
+      const p = clamp(t / def.startup, 0, 1);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      glow(ctx, m.x, m.y, 10 + 26 * p, '#9be04a', 0.15 + 0.4 * p);
+      ctx.restore();
+      return;
+    }
+    const len = a.len || 0;
+    if (len < 4) return;
+    const tipX = m.x + f.facing * len, tipY = a.tipY !== undefined ? a.tipY : m.y;
+    const wob = a.reeling ? 0 : Math.sin(now / 35) * 2;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#8a2f48'; ctx.lineWidth = 15;
+    ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.quadraticCurveTo((m.x + tipX) / 2, (m.y + tipY) / 2 + wob * 3, tipX, tipY); ctx.stroke();
+    ctx.strokeStyle = '#e0587d'; ctx.lineWidth = 11;
+    ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.quadraticCurveTo((m.x + tipX) / 2, (m.y + tipY) / 2 + wob * 3, tipX, tipY); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,200,215,0.55)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(m.x, m.y - 3); ctx.quadraticCurveTo((m.x + tipX) / 2, (m.y + tipY) / 2 + wob * 3 - 3, tipX, tipY - 3); ctx.stroke();
+    ctx.fillStyle = '#e0587d'; ctx.strokeStyle = '#8a2f48'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(tipX, tipY, 11, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Sam's Splashdown leaves them dizzy in the air: a ring of little stars (and drops) circling their head.
+  function drawDizzy(ctx, f) {
+    const now = performance.now(), cx = f.x, cy = f.y - f.height * 1.08;
+    ctx.save();
+    for (let i = 0; i < 4; i++) {
+      const ang = now / 260 + i * TAU / 4, x = cx + Math.cos(ang) * 26, y = cy + Math.sin(ang) * 7;
+      ctx.fillStyle = i % 2 ? '#fff6a8' : '#7fe9ff';
+      ctx.beginPath();
+      for (let k = 0; k < 10; k++) { const r = k % 2 ? 3 : 7, aa = k * Math.PI / 5 - Math.PI / 2; ctx.lineTo(x + Math.cos(aa) * r, y + Math.sin(aa) * r); }
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawClawTelegraph(ctx, f, def) {
     const s0 = def.hits[0].start, t = f.actionTimer;
     if (t > s0) return;
@@ -1604,6 +1647,7 @@ const AbilityFX = (() => {
     if (f.reflectTimer > 0) drawReflectDome(ctx, f);
     if (f.isPhased) drawPhaseGlitch(ctx, f);
     if (f.buffTimer > 0) drawBuffAura(ctx, f);
+    if (f.juggleTimer > 0 && !f.grounded) drawDizzy(ctx, f);
 
     const def = defOf(f);
     if (!def) return;
@@ -1613,6 +1657,7 @@ const AbilityFX = (() => {
       case 'projectileCharge': drawChargeOrb(ctx, f, def); break;
       case 'multiHit': if (def.hits.length === 1) drawClawTelegraph(ctx, f, def); break;
       case 'nuke': drawNukeChannel(ctx, f, def); break;
+      case 'tongue': drawTongue(ctx, f, def); break;
       case 'buff': if (t <= def.castFrames) drawCastRings(ctx, f, def); break;
       case 'lunge':
         if (t > def.startup - 3 && t <= def.startup + def.active + 8) rollFX(ctx, f, false);
@@ -1692,7 +1737,7 @@ const AbilityFX = (() => {
     const prevT = sameAction ? m.t : -1; // -1: a fresh action, so every threshold counts as newly crossed
     const newFrame = t !== m.frame || st !== m.st;
     if (!sameAction) { // a new action: forget the previous one's phase flags
-      m.hasLanded = m.hasHit = m.fired = m.charging = m.diving = false;
+      m.hasLanded = m.hasHit = m.fired = m.charging = m.diving = m.farted = false;
       m.phase = null;
     }
 
@@ -1742,6 +1787,16 @@ const AbilityFX = (() => {
     if (def) {
       const isUlt = st === 'ultimate';
       switch (def.type) {
+        case 'tongue': // the big fart in their face once they've been reeled in
+          if (a.farted && !m.farted) {
+            m.farted = true;
+            const fd = def.fart, cx = f.x + f.facing * def.arrive * 0.5, cy = f.y - H * 0.5;
+            const puffs = [], bubbles = [];
+            for (let i = 0; i < 40; i++) puffs.push({ ox: rnd(-0.5, 0.5) * fd.width, oy: rnd(-0.4, 0.4) * fd.height, r: rnd(24, 44) * 1.7, delay: rnd(0, 0.28), ph: rnd(0, 6), rise: rnd(0, 30) });
+            for (let i = 0; i < 12; i++) bubbles.push({ ox: rnd(-0.45, 0.45) * fd.width, oy: rnd(-0.2, 0.4) * fd.height, r: rnd(2.5, 6), delay: rnd(0, 0.5), ph: rnd(0, 6) });
+            add({ kind: 'gas', dur: 1900, cx, cy, w: fd.width, h: fd.height, rx: f.x - f.facing * f.width * 0.42, ry: f.y - H * 0.32, puffs, bubbles });
+          }
+          break;
         case 'poisonBurst': {
           if (crossed(prevT, t, def.startup)) {
             const box = f.burstBox(def);

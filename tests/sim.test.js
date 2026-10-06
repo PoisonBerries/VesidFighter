@@ -1880,7 +1880,7 @@ test('Artur voice lines: the fart special and ultimate, and being hit by a punch
   ({ f } = startFighter(sim, 'artur', 400));
   f.ultCharge = sim.ULT_METER_MAX; events();
   f.startUltimate();
-  assert.ok(events().includes('artur:fart'), 'ultimate');
+  assert.ok(!events().includes('artur:fart'), 'the ultimate farts when the tongue has reeled them in, not at the start'); // (see the tongue test)
   ({ f } = startFighter(sim, 'keenan', 400));
   f.startSpecial();
   assert.ok(!events().includes('keenan:fart'), 'only Artur farts');
@@ -2333,41 +2333,92 @@ test('John\'s Momentum Roll takes a bit longer to come back (5s, was 4s)', () =>
   assert.strictEqual(f.specialCooldownTimer, 5.0, 'the cooldown starts at 5 seconds');
 });
 
-test('Artur\'s ultimate also sends out fart darts; cast in the air, the cloud and the darts rain down below him', () => {
+test('Artur\'s ultimate is a tongue: it shoots out, and if it connects it reels them in and he lets off a big fart on them', () => {
   const sim = createSim();
   const u = sim.CHARACTERS.artur.ultimate;
-  assert.ok(u.darts && u.darts.count >= 2);
-  const darts = () => sim.Game.getSnapshot().pr.filter((p) => p.kind === 'fartDart');
-  const cast = (airborne) => {
+  assert.strictEqual(u.type, 'tongue');
+  const events = () => sim.Effects.drainEvents().filter((e) => e[0] === 'v').map((e) => e.slice(1).join(':'));
+  const cast = (foe, opts = {}) => {
     sim.Game.startMatch('artur', 'keenan', () => {}, { ball: 'off', balance: false });
     step(sim, 200);
-    sim.Game.applySnapshot({ f: [airborne ? { x: 500, y: sim.GROUND_Y - 160, grounded: false, vy: 0, state: 'fall', ultCharge: 100 } : { x: 500, ultCharge: 100 }, { x: 900 }] });
-    sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
-    let seen = 0, maxAt = [], fired = 0;
-    for (let i = 0; i < 45; i++) { step(sim, 1); const d = darts(); seen = Math.max(seen, d.length); if (d.length) maxAt = d; fired = Math.max(fired, sim.Game.world().p1._ability.darts || 0); }
-    return { seen, maxAt, fired };
-  };
-  const ground = cast(false);
-  assert.strictEqual(ground.fired, u.darts.count, 'a few darts on the ground');
-  assert.ok(ground.seen >= 2);
-  assert.ok(ground.maxAt.every((p) => p.vx > 0 && Math.abs(p.vy) < u.darts.speed), 'flying forward');
-  const air = cast(true);
-  assert.strictEqual(air.fired, u.darts.airCount, 'more of them when raining down');
-  assert.ok(air.seen >= 2);
-  assert.ok(air.maxAt.every((p) => p.vy > 5), 'raining down');
-  assert.ok(air.maxAt.every((p) => p.y > sim.GROUND_Y - 160), 'from below him');
-  // The air burst hits (and poisons) someone standing under him; the ground burst does not.
-  const under = (x) => {
-    sim.Game.startMatch('artur', 'keenan', () => {}, { ball: 'off', balance: false });
-    step(sim, 200);
-    sim.Game.applySnapshot({ f: [{ x: 500, y: sim.GROUND_Y - 160, grounded: false, vy: 0, state: 'fall', ultCharge: 100 }, { x }] });
+    sim.Effects.setRecording(true); events();
+    sim.Game.applySnapshot({ f: [{ x: 500, ultCharge: 100 }, { x: foe }] });
     const hp0 = sim.Game.world().p2.hp;
+    if (opts.guard) sim.InputManager.setVirtual(sim.VCONTROLS.p2.guard, true, true);
     sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
-    step(sim, 60);
+    let reeled = false, nearest = 9999, voices = [];
+    for (let i = 0; i < 90; i++) {
+      step(sim, 1);
+      const w = sim.Game.world();
+      if (w.p2.state === 'grabbed') reeled = true;
+      nearest = Math.min(nearest, Math.abs(w.p2.x - w.p1.x));
+      voices = voices.concat(events());
+    }
+    return { reeled, nearest, lost: hp0 - sim.Game.world().p2.hp, poisoned: sim.Game.world().p2.poisonTicksLeft > 0 || sim.Game.world().p2.inPoison, voices, p1: sim.Game.world().p1 };
+  };
+  const hit = cast(780); // well out in front of him, but inside the tongue's reach
+  assert.ok(hit.reeled, 'hauled in on the tongue');
+  assert.ok(hit.nearest <= u.arrive + 15, 'right up in his face');
+  assert.ok(hit.lost >= u.fart.damage, 'and the fart hurts: ' + hit.lost);
+  assert.ok(hit.voices.includes('artur:fart'), 'the fart noise');
+  assert.notStrictEqual(hit.p1.state, 'ultimate', 'and he recovers');
+  const miss = cast(980); // too far away
+  assert.ok(!miss.reeled && miss.lost === 0, 'out of reach: nothing');
+  const blocked = cast(780, { guard: true });
+  assert.ok(!blocked.reeled && blocked.lost < u.damage, 'a block stops the tongue');
+});
+
+test('Artur\'s tongue can be cast in the air too (he hangs there), and it only hits at head height: a crouch goes under it', () => {
+  const sim = createSim();
+  sim.Game.startMatch('artur', 'keenan', () => {}, { ball: 'off', balance: false });
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: 500, y: sim.GROUND_Y - 160, grounded: false, vy: 0, state: 'fall', ultCharge: 100 }, { x: 780 }] });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  step(sim, 10);
+  assert.ok(sim.Game.world().p1.y < sim.GROUND_Y - 100, 'still hanging in the air while it winds up');
+  // The box itself sits above a crouched foe's head.
+  sim.Game.startMatch('artur', 'keenan', () => {}, { ball: 'off', balance: false });
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: 500, ultCharge: 100 }, { x: 780 }] });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  let box = null;
+  for (let i = 0; i < 40 && !box; i++) { step(sim, 1); box = sim.Game.world().p1.getHitbox(); }
+  assert.ok(box, 'the tongue has a hitbox');
+  const crouched = sim.Game.world().p2;
+  crouched.isCrouching = true;
+  assert.ok(box.y + box.h < sim.GROUND_Y - 55, 'at about head height');
+});
+
+test('Sam\'s Splashdown bounces them high into the air, stunned (not knocked down), and each hit he lands while they are up there does extra damage', () => {
+  const sim = createSim();
+  const u = sim.CHARACTERS.sam.ultimate;
+  assert.ok(u.juggle && !u.knockdownOnHit);
+  sim.Game.startMatch('sam', 'keenan', () => {}, { ball: 'off', balance: false });
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: 500, y: sim.GROUND_Y - 160, grounded: false, vy: 0, state: 'fall', ultCharge: 100, jumpsUsed: 1 }, { x: 520 }] });
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  let sawStun = false, peak = 0;
+  for (let i = 0; i < 40; i++) {
+    step(sim, 1);
+    const p2 = sim.Game.world().p2;
+    if (p2.state === 'hitstun' && !p2.grounded) { sawStun = true; peak = Math.max(peak, sim.GROUND_Y - p2.y); }
+    assert.notStrictEqual(p2.state, 'knockdown', 'not knocked down');
+  }
+  assert.ok(sawStun && peak > 120, 'sent up into the air, stunned (peak ' + peak + ')');
+  // While they are still up there, a hit does `mul` times as much as the same hit on the ground.
+  const damageOfHit = (airborne) => {
+    sim.Game.startMatch('sam', 'keenan', () => {}, { ball: 'off', balance: false });
+    step(sim, 200);
+    const foe = airborne
+      ? { x: 560, y: sim.GROUND_Y - 120, grounded: false, vy: -2, state: 'hitstun', stunFrames: 60, juggleTimer: 60, juggleBy: 'p1' }
+      : { x: 560 };
+    sim.Game.applySnapshot({ f: [{ x: 500 }, foe] });
+    const hp0 = sim.Game.world().p2.hp;
+    punch(sim, 'p1'); step(sim, 12);
     return hp0 - sim.Game.world().p2.hp;
   };
-  assert.ok(under(500) > u.damage * 0.8, 'standing under him is hit');
-  assert.ok(under(900) < 1, 'far away is not');
+  const up = damageOfHit(true), down = damageOfHit(false);
+  assert.ok(down > 0 && up >= down * u.juggle.mul * 0.95, `airborne hit ${up} vs grounded ${down}`);
 });
 
 test('John\'s ultimate is a takedown: he leaps and drops hip-first onto them, then both on the ground he punches a few times', () => {

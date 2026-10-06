@@ -137,6 +137,8 @@ const Cpu = (() => {
       switch (def.type) {
         case 'lunge': case 'growRoll':
           return toward && dist < 380 ? { frames: 6, kind: 'dash' } : null;
+        case 'tongue': // the tongue shoots out ahead of him (at head height)
+          return toward && dist < def.reach + 40 ? { frames: Math.max(2, def.startup - o.t), kind: 'melee' } : null;
         case 'takedown': // the leap and the hip drop: he comes down on whoever's under him
           return dist < 260 ? { frames: 8, kind: 'dive' } : null;
         case 'dive':
@@ -522,6 +524,7 @@ const Cpu = (() => {
           case 'dive': go = u.angle === 'down' ? (dist < 70 && !me.grounded) : (dist > 60 && dist < u.speed * u.travel * 0.8 && o.grounded && !o.crouching && dashSafe(u.speed * u.travel)); break;
           case 'nuke': go = dist < u.radius - 20 && !o.invuln; break;
           case 'growRoll': go = dist > 80 && dist < 380 && o.grounded && dashSafe(u.dashSpeed * u.active); break;
+          case 'tongue': go = dist > 50 && dist < u.reach * 0.8 && !o.invuln && !o.crouching; break;
           case 'takedown': go = dist > 40 && dist < u.maxSpeed * (u.jump / GRAVITY) * 0.85 && o.grounded && !o.invuln && me.grounded; break;
           case 'buff': go = dist > 180; break;
           default: break;

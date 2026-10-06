@@ -347,6 +347,10 @@ const Animator = (() => {
         T.crouch = 0.05 * Math.sin(clamp(t / Math.max(1, def.castFrames || 20), 0, 1) * Math.PI);
         T.fA = F(-14, 0); T.fB = F(14, 0);
         break;
+      case 'tongue': // rears back to wind up, then snaps forward as the tongue shoots out
+        T.lean = t < def.startup ? -14 : 10; T.armPose = 'forward';
+        T.fA = F(-16, 0); T.fB = F(16, 0);
+        break;
       case 'poisonBurst':
         T.lean = -22; T.armPose = 'balance';
         T.fA = F(-20, 0); T.fB = F(20, 0);

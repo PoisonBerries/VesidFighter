@@ -88,6 +88,8 @@ class Fighter {
     this._foeX = 0;        // the opponent's x as of last frame (the flurry stops drifting once it is up close)
     this.finishUltimate = false; // the round is over but this ultimate is still playing out (finishOnKo)
     this.foeHitTimer = 0;  // frames left in which the opponent backing off counts as running away (voice line)
+    this.juggleTimer = 0;  // frames left in which hits from juggleBy do extra while we're airborne (Sam's Splashdown)
+    this.juggleBy = null;
     this.comboHits = 0;    // hits landed in a row without being hit or blocked
     this.comboTimer = 0;   // frames left to keep the string going
     this.jumpBuffer = 0;   // frames a jump press is still remembered (Owen's charged jump; see chargeJump.buffer)
@@ -351,6 +353,12 @@ class Fighter {
         }
         return null;
 
+      case 'tongue': // the tongue shooting out (thin, at mouth height); it's spent once it connects
+        if (this.actionTimer > def.startup && this.actionTimer <= def.startup + def.extend + def.hold && !a.reeling && a.len > 0) {
+          return this._forwardBox(def.offset, a.len, def.height, def.bottom);
+        }
+        return null;
+
       case 'takedown': // the hip-first plunge is live: a box around and under his hips
         if (a.phase === 'plunge') return this._centeredBox(def.width, def.height);
         return null;
@@ -473,6 +481,9 @@ class Fighter {
         this._ability.launched = false;
         this._ability.justLanded = false;
         this._ability.hasLanded = false;
+        break;
+      case 'tongue':
+        this._ability.len = 0;
         break;
       case 'dive':
         this._ability.diving = false;
@@ -648,7 +659,7 @@ class Fighter {
     this.upAttackActive = false;
     this.downAttackActive = false;
     this.phaseCooldown = 0;
-    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0; this.airSuspend = 0; this.airChain = 0; this.finaleArmed = 0; this.finaleKick = false; this.finishUltimate = false; this.jumpBuffer = 0; this.cloud = null; this.phaseFlurryIn = 0; this._flurryPending = false;
+    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0; this.juggleTimer = 0; this.juggleBy = null; this.airSuspend = 0; this.airChain = 0; this.finaleArmed = 0; this.finaleKick = false; this.finishUltimate = false; this.jumpBuffer = 0; this.cloud = null; this.phaseFlurryIn = 0; this._flurryPending = false;
     this.fartPower = 0; this.jumpStacks = 0; this.poisonFrom = null; this.poisonTickDamage = 0;
     this._comboHeld = false;
     this._crouchHeld = false;
@@ -712,7 +723,7 @@ class Fighter {
       this.vx = 0; this.vy = 0;
       // With more than two fighters, whoever grabbed us may not be the nearest one.
       const holder = this._matchFighter(this.grabbedBy) || opponent;
-      if (!this.heldByStage && holder.state !== 'grabslam' && holder.state !== 'grabbeat' && holder.state !== 'takedown') this.state = 'fall';
+      if (!this.heldByStage && holder.state !== 'grabslam' && holder.state !== 'grabbeat' && holder.state !== 'takedown' && !(holder.state === 'ultimate' && holder._ability && holder._ability.reeling)) this.state = 'fall';
       return;
     }
 
@@ -720,6 +731,8 @@ class Fighter {
       this._flurryPending = false;
       if (this.state !== 'ko' && this.state !== 'victory' && this.state !== 'hitstun' && this.state !== 'knockdown' && this.state !== 'grabbed') this._startFlurry(opponent);
     }
+    if (this.juggleTimer > 0 && (this.grounded || this.state === 'ko')) this.juggleTimer = 0; // (it only counts while they're still in the air)
+    else if (this.juggleTimer > 0) this.juggleTimer--;
     this.rolling = false; // set again below while a crouch-roll is in progress
     if (this.state !== 'block') this.sliding = false; // a slide only lasts while crouched
     const held = (this._ability && this._matchFighter(this._ability.target)) || opponent;
@@ -1412,6 +1425,7 @@ class Fighter {
       case 'dive': return this._updateDive(def);
       case 'growRoll': return this._updateGrowRoll(def);
       case 'takedown': return this._updateTakedownDash(def);
+      case 'tongue': return this._updateTongue(def);
       case 'counterDodge': return this._updateCounterDodge(def);
       case 'projectileCharge': return this._updateProjectileCharge(def);
       case 'soundwaveProjectile': return this._updateInstantProjectile(def);
@@ -1479,6 +1493,83 @@ class Fighter {
     }
     const total = def.startup + def.active + def.recovery;
     if (this.actionTimer > total) this._endAbility();
+  }
+
+  // Artur's ultimate: the tongue shoots out (the hitbox is the length it has reached), holds a beat and snaps back.
+  // If it connects, Game.tryHit calls startTongueReel: they're hauled in to him, and he lets one go in their face.
+  tongueMouth() { return { x: this.x + this.facing * this.width * 0.34, y: this.y - this.height * 0.66 }; }
+
+  _updateTongue(def) {
+    const a = this._ability, t = this.actionTimer;
+    this._decelerate();
+    if (a.air === undefined) a.air = !this.grounded;
+    if (a.air) this.vy = -GRAVITY * (this.character.gravityMul || 1); // cast in the air: he hangs there for the whole thing
+    const m = this.tongueMouth();
+    if (a.reeling) {
+      const opp = this._matchFighter(a.target);
+      if (!opp || opp.state !== 'grabbed') { a.reeling = false; a.endAt = t + def.retract + def.recovery; a.len = 0; return; } // (they got free)
+      const u = Math.min(1, ++a.reelT / def.reel), e = u * u;
+      const destX = Math.max(STAGE_LEFT_EDGE + 20, Math.min(STAGE_RIGHT_EDGE - 20, this.x + this.facing * def.arrive));
+      opp.x = a.fromX + (destX - a.fromX) * e;
+      opp.y = a.fromY + (this.y - a.fromY) * e;
+      a.len = Math.abs(opp.x - m.x);
+      a.tipY = opp.y - opp.height * 0.6;
+      if (u >= 1) this._tongueFart(opp, def);
+      return;
+    }
+    if (a.farted) { a.len = 0; if (t >= a.endAt) this._endAbility(); return; }
+    if (a.endAt !== undefined) { // snapping back (it missed, was blocked, or they broke free)
+      a.len *= 0.7;
+      if (t >= a.endAt) this._endAbility();
+      return;
+    }
+    if (t <= def.startup) return;
+    if (this.attackHasHit) { a.endAt = t + def.retract + def.recovery; return; } // blocked: it's spent
+    const k = t - def.startup;
+    if (k <= def.extend) a.len = def.reach * k / def.extend;
+    else if (k <= def.extend + def.hold) a.len = def.reach;
+    else if (k <= def.extend + def.hold + def.retract) a.len = def.reach * (1 - (k - def.extend - def.hold) / def.retract);
+    else { a.len = 0; a.endAt = t + def.recovery; }
+    a.tipY = m.y;
+  }
+
+  startTongueReel(opp) {
+    const a = this._ability;
+    a.reeling = true; a.reelT = 0; a.target = opp.slot;
+    a.fromX = opp.x; a.fromY = opp.y;
+    opp._refundInterruptedAbility();
+    opp.state = 'grabbed';
+    opp.grabbedBy = this.slot;
+    opp.vx = 0; opp.vy = 0;
+    opp.blocking = false; opp.stunFrames = 0; opp.launched = false; opp.facingLocked = false;
+    opp.actionTimer = 0;
+  }
+
+  // They've arrived: a huge fart right in their face.
+  _tongueFart(opp, def) {
+    const a = this._ability, f = def.fart;
+    a.reeling = false; a.farted = true; a.len = 0;
+    a.endAt = this.actionTimer + def.recovery;
+    const dmg = f.damage * this.damageMultiplier * Game.fightDamageMul();
+    opp.hp = Math.max(0, opp.hp - dmg);
+    opp.state = 'hitstun'; opp.stunFrames = f.hitstun; opp.actionTimer = 0;
+    opp.grabbedBy = null;
+    opp.vx = this.facing * f.knockback * KNOCKBACK_MUL; opp.vy = -f.knockbackUp * KNOCKBACK_MUL;
+    opp.grounded = false;
+    opp.sinceHit = 0;
+    opp.hitFlashTimer = 14;
+    opp.noteImpact('hit', this.facing, 1.3);
+    opp._maybeTransform();
+    // The cloud hangs around them: whoever stays in it is poisoned.
+    const cx = (this.x + opp.x) / 2;
+    const box = { x: cx - f.width / 2, y: Math.min(this.y, opp.y) - f.height, w: f.width, h: f.height };
+    opp.applyPoison(f, box, this.slot);
+    this.cloud = { x: box.x, y: box.y, w: box.w, h: box.h, life: f.lingerFrames, poisonDamage: f.poisonDamage, poisonTicks: f.poisonTicks, poisonTickInterval: f.poisonTickInterval };
+    this.gainFartPower(dmg);
+    Effects.voice(this.character.id, 'fart');
+    Effects.voice(opp.character.id, 'hitByUltimate:' + this.character.id + '|hitByUltimate');
+    Effects.shake(14, 18);
+    Effects.spawnHitSpark(opp.x, opp.y - opp.height * 0.5, '#9be04a');
   }
 
   _updateSlam(def) {

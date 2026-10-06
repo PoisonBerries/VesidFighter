@@ -378,6 +378,10 @@ const Game = (() => {
       knockdownDuration = stats.knockdownDuration;
     }
 
+    // Sam's Splashdown leaves them stunned in the air: every hit he lands on them while they're still up there does extra.
+    const jg = attacker.character.ultimate.juggle;
+    const juggled = !!jg && defender.juggleTimer > 0 && defender.juggleBy === attacker.slot && !defender.grounded;
+    if (juggled) dmg *= jg.mul;
     if (isUlt && stats.type === 'takedown') dmg *= attacker.takedownMul(); // (the higher he is, the harder it lands)
     dmg *= attacker.damageMultiplier * fightDamageMul();
 
@@ -405,6 +409,10 @@ const Game = (() => {
     } else if (result === 'blocked') {
       attacker.comboHits = 0;
     }
+    if (result === 'hit' && stats.juggle) { defender.juggleBy = attacker.slot; defender.juggleTimer = stats.juggle.frames; }
+    else if (result === 'hit' && juggled) { defender.juggleTimer = Math.max(defender.juggleTimer, 40); Effects.spawnHitSpark(defender.x, defender.y - defender.height * 0.5, '#7fe9ff'); }
+    // Artur's tongue: connecting reels them in.
+    if (result === 'hit' && isUlt && stats.type === 'tongue' && defender.hp > 0) attacker.startTongueReel(defender);
     // John's Takedown: the charge connecting with someone standing starts the hip slam.
     if (result === 'hit' && isUlt && attacker.character.ultimate.type === 'takedown' && defender.y >= GROUND_Y - 1 && defender.hp > 0) {
       attacker.startTakedown(defender);

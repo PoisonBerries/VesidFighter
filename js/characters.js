@@ -132,22 +132,20 @@ const CHARACTERS = {
       // The cloud hangs where it was let off for this long: anyone who walks into it is poisoned while they're in it.
       lingerFrames: 84,
     },
+    // His ultimate: a long sticky tongue lashes out; if it connects it reels them in and he lets one go in their face.
+    // (The tongue is thin and at head height, so a crouch goes under it, and a block stops it.)
     ultimate: {
-      type: 'poisonBurst',
-      name: 'Massive Fart',
-      description: 'An enormous toxic blast that poisons and shoves back everything nearby, plus a spread of poison fart darts. In the air the cloud and the darts rain down below him.',
-      startup: 16, active: 14, recovery: 22,
-      offset: 10, width: 220, height: 130,
-      damage: 12, knockback: 15, knockbackUp: 6, hitstun: 20,
-      poisonDamage: 5, poisonTicks: 6, poisonTickInterval: 18,
-      lingerFrames: 114,
-      // Also lets fly a few fart darts: fanned out ahead of him on the ground; cast in the air, the cloud
-      // becomes a column below him and the darts (`airCount` of them) rain straight down.
-      darts: {
-        count: 3, airCount: 5, every: 5, speed: 15, fall: 13, width: 36, height: 14,
-        spread: [-0.2, 0, 0.2],
-        damage: 4, knockback: 3, knockbackUp: 1, hitstun: 11,
-        poisonDamage: 2, poisonTicks: 4, poisonTickInterval: 18,
+      type: 'tongue',
+      name: 'Tongue Lash',
+      description: 'He lashes out a long sticky tongue. If it connects it reels the opponent right in, and he lets off an enormous poison fart in their face.',
+      startup: 16, extend: 9, hold: 5, retract: 10, recovery: 14,
+      reach: 340, offset: 18, height: 26, bottom: 64, // the tongue: how far it shoots, and its (thin) box, at about mouth height
+      reel: 16, arrive: 46,                            // frames to haul them in, and how close (px in front of him) they end up
+      damage: 6, knockback: 2, knockbackUp: 0, hitstun: 12, // the lick itself
+      fart: {
+        damage: 22, knockback: 15, knockbackUp: 7, hitstun: 24,
+        poisonDamage: 5, poisonTicks: 6, poisonTickInterval: 18,
+        lingerFrames: 114, width: 230, height: 140,
       },
     },
   },
@@ -509,7 +507,7 @@ const CHARACTERS = {
     ultimate: {
       type: 'dive',
       name: 'Splashdown',
-      description: 'In the air only: a crushing dive that knocks the opponent down on landing.',
+      description: 'In the air only: a crushing dive that bounces the opponent high into the air, stunned. Every hit he lands on them while they\'re still airborne does extra damage.',
       airOnly: true,
       angle: 'down',
       startup: 6,
@@ -517,8 +515,9 @@ const CHARACTERS = {
       recovery: 16,
       speed: 30,
       width: 90, height: 110,
-      damage: 24, knockback: 14, knockbackUp: 6, hitstun: 22,
-      knockdownOnHit: true, knockdownDuration: 55,
+      damage: 24, knockback: 3, knockbackUp: 24, hitstun: 70, // (bounces them high into the air, stunned: no knockdown)
+      // While they're still airborne from it, every hit he lands on them does `mul` times the damage.
+      juggle: { frames: 90, mul: 1.6 },
     },
   },
 
