@@ -85,6 +85,10 @@
     "neck",
     "torso",
     "upperArm",
-    "forearm"
+    "forearm",
+    "fist",
+    "thigh",
+    "shin",
+    "shoe"
   ]
 }
