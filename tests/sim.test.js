@@ -2323,3 +2323,12 @@ test('Keenan\'s flurry punches do not charge his own ultimate meter, though they
   assert.strictEqual(p1().ultCharge, 0, 'and Keenan\'s own meter did not move');
   assert.ok(p2().ultCharge > 0, 'the victim\'s meter still fills');
 });
+
+test('John\'s Momentum Roll takes a bit longer to come back (5s, was 4s)', () => {
+  const sim = createSim();
+  const sp = sim.CHARACTERS.john.special;
+  assert.strictEqual(sp.cooldown, 5.0);
+  const { f } = startFighter(sim, 'john', 400);
+  f.startSpecial();
+  assert.strictEqual(f.specialCooldownTimer, 5.0, 'the cooldown starts at 5 seconds');
+});

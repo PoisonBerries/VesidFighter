@@ -534,7 +534,7 @@ const CHARACTERS = {
       type: 'lunge',
       name: 'Momentum Roll',
       description: 'Spins forward with his full weight, stunning on impact.',
-      cooldown: 4.0,
+      cooldown: 5.0, // (was 4.0: his special comes back a bit slower)
       startup: 9, active: 10, recovery: 18,
       dashSpeed: 15,
       offset: 30, width: 90, height: 110,
