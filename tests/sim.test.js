@@ -1520,7 +1520,7 @@ test('John: midair down + F is an elbow drop that knocks the opponent down; on t
   setKey(sim, C.block, false, false);
   assert.ok(downed, 'knocked down');
   assert.ok(p2().hp < hp0, 'and hurt');
-  assert.ok(p2().knockdownTimer >= 55, 'long enough for a free hit');
+  assert.ok(p2().knockdownTimer >= 35 && p2().knockdownTimer <= 40, 'a short knockdown (was 62 frames)');
 });
 
 test('John: three unanswered hits carry the opponent over the shoulder and pummel them until they break loose', () => {

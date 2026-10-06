@@ -548,7 +548,7 @@ const CHARACTERS = {
       startup: 4, active: 14, recovery: 14,
       slamSpeed: 15, slamVx: 2,
       knockback: 3, knockbackUp: 0, hitstun: 20,
-      knockdownOnHit: true, knockdownDuration: 62,
+      knockdownOnHit: true, knockdownDuration: 40, // (was 62: a shorter window for the free hit)
     },
     // Three unanswered hits: he hoists the opponent over his shoulder and
     // hammers them until they wriggle free.
