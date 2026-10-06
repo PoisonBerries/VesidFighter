@@ -130,12 +130,20 @@ const CHARACTERS = {
     ultimate: {
       type: 'poisonBurst',
       name: 'Massive Fart',
-      description: 'An enormous toxic blast that poisons and shoves back everything nearby.',
+      description: 'An enormous toxic blast that poisons and shoves back everything nearby, plus a spread of poison fart darts. In the air the cloud and the darts rain down below him.',
       startup: 16, active: 14, recovery: 22,
       offset: 10, width: 220, height: 130,
       damage: 12, knockback: 15, knockbackUp: 6, hitstun: 20,
       poisonDamage: 5, poisonTicks: 6, poisonTickInterval: 18,
       lingerFrames: 114,
+      // Also lets fly a few fart darts: fanned out ahead of him on the ground; cast in the air, the cloud
+      // becomes a column below him and the darts (`airCount` of them) rain straight down.
+      darts: {
+        count: 3, airCount: 5, every: 5, speed: 15, fall: 13, width: 36, height: 14,
+        spread: [-0.2, 0, 0.2],
+        damage: 4, knockback: 3, knockbackUp: 1, hitstun: 11,
+        poisonDamage: 2, poisonTicks: 4, poisonTickInterval: 18,
+      },
     },
   },
 
@@ -541,18 +549,18 @@ const CHARACTERS = {
       damage: 16, knockback: 10, knockbackUp: 3, hitstun: 40,
     },
     ultimate: {
-      type: 'growRoll',
-      name: 'Big Silb Roll',
-      description: 'Grows huge, then rolls straight over the opponent.',
-      growFrames: 14,
-      sizeMul: 1.5,
-      // Slower than it was (dash 20 over 22 frames): the same distance, over a longer time.
-      dashSpeed: 17,
-      active: 26,
-      recovery: 18,
-      shrinkFrames: 14,
-      offset: 30, width: 120, height: 140,
-      damage: 34, knockback: 22, knockbackUp: 8, hitstun: 26,
+      type: 'takedown',
+      name: 'Takedown',
+      description: 'Charges in, hip-tosses them to the mat, then drops on top of them and punches them a few times. An MMA takedown.',
+      // The charge in (a tackle that must connect), then the hip slam and the ground and pound.
+      startup: 10, speed: 16, travel: 18, recovery: 20,
+      offset: 24, width: 90, height: 120,
+      damage: 6, knockback: 1, knockbackUp: 0, hitstun: 6, // the contact
+      lift: 14,            // frames hoisting them onto his hip
+      slamDamage: 14,      // the hip slam itself
+      pause: 10,           // a beat on the mat before the punches
+      punches: 3, every: 14, punchDamage: 5,
+      end: 16,             // getting up
     },
   },
 };

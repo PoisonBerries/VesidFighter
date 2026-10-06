@@ -2279,14 +2279,13 @@ test('Keenan: when the phase ultimate ends he unphases into a 9-punch flurry; hi
   assert.ok(gain('keenan') > gain('ryan') * 1.4, 'Keenan\'s meter fills faster');
 });
 
-test('John\'s, Robert\'s and Carlos\'s ultimates move more slowly than before but still cover the same ground', () => {
+test('Robert\'s and Carlos\'s ultimates move more slowly than before but still cover the same ground', () => {
   const sim = createSim();
   const C = sim.CHARACTERS;
-  const was = { carlos: { speed: 19, dist: 19 * 26 }, robert: { speed: 18, dist: 18 * 24 }, john: { speed: 20, dist: 20 * 22 } };
+  const was = { carlos: { speed: 19, dist: 19 * 26 }, robert: { speed: 18, dist: 18 * 24 } }; // (John's ultimate is now the takedown, tested below)
   const now = {
     carlos: { speed: C.carlos.ultimate.speed, dist: C.carlos.ultimate.speed * C.carlos.ultimate.travel },
     robert: { speed: C.robert.ultimate.speed, dist: C.robert.ultimate.speed * C.robert.ultimate.travel },
-    john: { speed: C.john.ultimate.dashSpeed, dist: C.john.ultimate.dashSpeed * C.john.ultimate.active },
   };
   for (const id of Object.keys(was)) {
     assert.ok(now[id].speed <= was[id].speed * 0.88 && now[id].speed >= was[id].speed * 0.75, `${id}: slightly slower (${now[id].speed} vs ${was[id].speed})`);
@@ -2331,4 +2330,80 @@ test('John\'s Momentum Roll takes a bit longer to come back (5s, was 4s)', () =>
   const { f } = startFighter(sim, 'john', 400);
   f.startSpecial();
   assert.strictEqual(f.specialCooldownTimer, 5.0, 'the cooldown starts at 5 seconds');
+});
+
+test('Artur\'s ultimate also sends out fart darts; cast in the air, the cloud and the darts rain down below him', () => {
+  const sim = createSim();
+  const u = sim.CHARACTERS.artur.ultimate;
+  assert.ok(u.darts && u.darts.count >= 2);
+  const darts = () => sim.Game.getSnapshot().pr.filter((p) => p.kind === 'fartDart');
+  const cast = (airborne) => {
+    sim.Game.startMatch('artur', 'keenan', () => {}, { ball: 'off', balance: false });
+    step(sim, 200);
+    sim.Game.applySnapshot({ f: [airborne ? { x: 500, y: sim.GROUND_Y - 160, grounded: false, vy: 0, state: 'fall', ultCharge: 100 } : { x: 500, ultCharge: 100 }, { x: 900 }] });
+    sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+    let seen = 0, maxAt = [], fired = 0;
+    for (let i = 0; i < 45; i++) { step(sim, 1); const d = darts(); seen = Math.max(seen, d.length); if (d.length) maxAt = d; fired = Math.max(fired, sim.Game.world().p1._ability.darts || 0); }
+    return { seen, maxAt, fired };
+  };
+  const ground = cast(false);
+  assert.strictEqual(ground.fired, u.darts.count, 'a few darts on the ground');
+  assert.ok(ground.seen >= 2);
+  assert.ok(ground.maxAt.every((p) => p.vx > 0 && Math.abs(p.vy) < u.darts.speed), 'flying forward');
+  const air = cast(true);
+  assert.strictEqual(air.fired, u.darts.airCount, 'more of them when raining down');
+  assert.ok(air.seen >= 2);
+  assert.ok(air.maxAt.every((p) => p.vy > 5), 'raining down');
+  assert.ok(air.maxAt.every((p) => p.y > sim.GROUND_Y - 160), 'from below him');
+  // The air burst hits (and poisons) someone standing under him; the ground burst does not.
+  const under = (x) => {
+    sim.Game.startMatch('artur', 'keenan', () => {}, { ball: 'off', balance: false });
+    step(sim, 200);
+    sim.Game.applySnapshot({ f: [{ x: 500, y: sim.GROUND_Y - 160, grounded: false, vy: 0, state: 'fall', ultCharge: 100 }, { x }] });
+    const hp0 = sim.Game.world().p2.hp;
+    sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+    step(sim, 60);
+    return hp0 - sim.Game.world().p2.hp;
+  };
+  assert.ok(under(500) > u.damage * 0.8, 'standing under him is hit');
+  assert.ok(under(900) < 1, 'far away is not');
+});
+
+test('John\'s ultimate is a takedown: charge in, hip slam, then both on the ground he punches a few times', () => {
+  const sim = createSim();
+  const u = sim.CHARACTERS.john.ultimate;
+  assert.strictEqual(u.type, 'takedown');
+  const fire = (foeX, foeProps = {}) => {
+    sim.Game.startMatch('john', 'keenan', () => {}, { ball: 'off', balance: false });
+    step(sim, 200);
+    sim.Game.applySnapshot({ f: [{ x: 400, ultCharge: 100 }, Object.assign({ x: foeX }, foeProps)] });
+    sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  };
+  const p1 = () => sim.Game.world().p1, p2 = () => sim.Game.world().p2;
+  fire(560);
+  const hp0 = p2().hp;
+  const seen = new Set(), foeStates = new Set();
+  let punches = 0, prev = hp0, ground = true;
+  for (let i = 0; i < 200 && (p1().state === 'ultimate' || p1().state === 'takedown' || i < 30); i++) {
+    step(sim, 1);
+    seen.add(p1().state); foeStates.add(p2().state);
+    if (p1().state === 'takedown' && p1()._ability.slammed) { punches = p1()._ability.punched; ground = ground && p2().y >= sim.GROUND_Y - 1 && p1().y >= sim.GROUND_Y - 1; }
+  }
+  assert.ok(seen.has('ultimate') && seen.has('takedown'), `states: ${[...seen]}`);
+  assert.ok(foeStates.has('grabbed') && foeStates.has('knockdown'), `foe states: ${[...foeStates]}`);
+  assert.strictEqual(punches, u.punches, 'a few punches on the mat');
+  assert.ok(ground, 'both on the ground for the punches');
+  const dealt = hp0 - p2().hp;
+  const total = u.damage + u.slamDamage + u.punches * u.punchDamage;
+  assert.ok(Math.abs(dealt - total) < 2, `dealt ${dealt}, expected about ${total}`);
+  assert.strictEqual(p1().ultCharge < 100, true);
+  // A miss is only a whiff; an airborne target is not taken down.
+  fire(1000);
+  step(sim, 120);
+  assert.strictEqual(p2().hp, sim.Game.world().p2.maxHp, 'a miss deals nothing');
+  assert.notStrictEqual(p1().state, 'takedown');
+  fire(540, { y: sim.GROUND_Y - 150, grounded: false, vy: 0, state: 'fall' });
+  let tookDown = false;
+  for (let i = 0; i < 80; i++) { step(sim, 1); if (p1().state === 'takedown') tookDown = true; }
+  assert.strictEqual(tookDown, false, 'someone in the air is not taken down');
 });

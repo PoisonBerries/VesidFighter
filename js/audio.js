@@ -255,6 +255,7 @@ const Sfx = (() => {
       case 'slam':
       case 'lunge':
       case 'growRoll':
+      case 'takedown':
         noise({ f0: 250, f1: 2000, q: 1, dur: 0.34, vol: 0.28, attack: 0.05, pan });
         tone({ f0: 120, f1: 70, dur: 0.3, vol: 0.2, pan });
         break;

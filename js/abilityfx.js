@@ -86,6 +86,33 @@ const AbilityFX = (() => {
   function drawProjectile(ctx, p) {
     const now = performance.now();
     const dir = p.vx >= 0 ? 1 : -1;
+    if (p.kind === 'fartDart') { // a poison dart: green teardrop pointing the way it flies, shedding bubbles
+      const ang = Math.atan2(p.vy || 0, p.vx || 1);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(ang);
+      ctx.globalCompositeOperation = 'lighter';
+      glow(ctx, 0, 0, p.h * 1.6, '#7ed321', 0.5);
+      ctx.globalCompositeOperation = 'source-over';
+      const g = ctx.createLinearGradient(-p.w / 2, 0, p.w / 2, 0);
+      g.addColorStop(0, 'rgba(90,170,40,0)'); g.addColorStop(0.5, '#6cc12f'); g.addColorStop(1, '#e6ff9a');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(p.w * 0.5, 0);
+      ctx.quadraticCurveTo(p.w * 0.1, -p.h * 0.55, -p.w * 0.5, 0);
+      ctx.quadraticCurveTo(p.w * 0.1, p.h * 0.55, p.w * 0.5, 0);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(30,70,10,0.8)'; ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.restore();
+      ctx.save();
+      ctx.strokeStyle = 'rgba(197,245,122,0.6)'; ctx.lineWidth = 1;
+      for (let i = 1; i <= 3; i++) {
+        const k = i * 12 + Math.sin(now / 90 + i) * 2;
+        ctx.beginPath(); ctx.arc(p.x - Math.cos(ang) * k, p.y - Math.sin(ang) * k + Math.sin(now / 70 + i * 2) * 3, 2.5 + i * 0.6, 0, TAU); ctx.stroke();
+      }
+      ctx.restore();
+      return true;
+    }
     if (p.kind === 'plasmaQuick') {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
@@ -1595,6 +1622,9 @@ const AbilityFX = (() => {
         if (t <= a.tGrowEnd) growRings(ctx, f, a);
         else if (t > a.tGrowEnd - 4 && t <= a.tRollEnd + 6) rollFX(ctx, f, true);
         break;
+      case 'takedown':
+        if (a.dashing) diveStreaks(ctx, f);
+        break;
       case 'dive':
         if (def.angle === 'down') waterJacket(ctx, f, def);
         else if (def.tell && !a.diving && !a.hasHitOrLanded) drawDiveTell(ctx, f, def);
@@ -1671,6 +1701,11 @@ const AbilityFX = (() => {
       }
     }
 
+    if (st === 'takedown' && a.slammed && !m.slammed) { // the hip slam lands: a shock ring along the mat
+      m.slammed = true;
+      add({ kind: 'shockring', dur: 520, x: f.x + f.facing * 54, y: GROUND_Y - 4, r: 150, color: 'rgba(255,214,140,A)', flat: true });
+    }
+    if (st !== 'takedown') m.slammed = false;
     if (st === 'flurry') { // a swoosh and a swing sound for each of the punches
       const fl = f.character.ultimate.flurry;
       for (let i = 0; i < fl.count; i++) {
@@ -1704,9 +1739,9 @@ const AbilityFX = (() => {
       switch (def.type) {
         case 'poisonBurst': {
           if (crossed(prevT, t, def.startup)) {
-            const box = f._forwardBox(def.offset, def.width, def.height);
+            const box = f.burstBox(def);
             const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
-            const n = isUlt ? 30 : 17, pr = isUlt ? 1.7 : 1;
+            const n = isUlt ? (box.h > def.height * 1.5 ? 44 : 30) : 17, pr = isUlt ? 1.7 : 1; // (a taller column when it's cast in the air)
             const puffs = [], bubbles = [];
             for (let i = 0; i < n; i++) {
               puffs.push({ ox: rnd(-0.5, 0.5) * box.w, oy: rnd(-0.4, 0.4) * box.h, r: rnd(24, 44) * pr, delay: rnd(0, 0.28), ph: rnd(0, 6), rise: rnd(0, 30) });

@@ -146,6 +146,21 @@ const Animator = (() => {
         }
         break;
       }
+      case 'takedown': { // John's charge in: coil, then drive forward low like a wrestler shooting for the legs
+        if (ab.dashing) {
+          T.lean = 30; T.crouch = 0.26; T.armPose = 'tackle';
+          T.fA = F(-20, 0); T.fB = F(14, 0);
+          T.rate = 55; T.slideDust = g;
+        } else if (ab.dashEnd !== undefined) {
+          T.lean = 14; T.crouch = 0.2; T.armPose = 'balance';
+          T.fA = F(-18, 0); T.fB = F(12, 0); T.rate = 40;
+        } else {
+          const c = easeOutCubic(clamp(t / def.startup, 0, 1));
+          T.lean = -8 * c; T.crouch = 0.22 * c; T.armPose = 'balance';
+          T.fA = F(-18, 0); T.fB = F(12, 0); T.rate = 50;
+        }
+        break;
+      }
       case 'growRoll': { // John's Big Silb Roll: power-up -> roll -> shrink
         const a = ab;
         if (a.tGrowEnd === undefined) break;
@@ -610,6 +625,27 @@ const Animator = (() => {
         T.lean = punching ? 8 + 6 * out : 4; T.crouch = 0.1;
         T.fA = F(-16, 0); T.fB = F(14, 0);
         T.rate = 85;
+        break;
+      }
+
+      case 'takedown': { // John's hip slam, then the ground and pound
+        const d = fighter.character.ultimate, ab = fighter._ability || {};
+        if (!ab.slammed) {
+          const u = clamp(t / d.lift, 0, 1);
+          T.crouch = lerp(0.12, 0.34, u); T.lean = lerp(12, -20, u);
+          T.arms = [P(lerp(-10, -6, u), lerp(14, -6, u), -4, 1), P(lerp(16, 10, u), lerp(14, -12, u), 4, 1)];
+          T.fA = F(-20, 0); T.fB = F(18, 0);
+        } else {
+          const k = t - ab.slamT - d.pause, kk = Math.max(0, k);
+          const pu = (kk % d.every) / d.every;
+          const out = k >= 0 && ab.punched < d.punches + 1 ? Math.sin(Math.min(1, pu * 1.8) * Math.PI * 0.5) * (1 - Math.max(0, pu - 0.7) / 0.3 * 0.6) : 0;
+          const right = Math.floor(kk / d.every) % 2 === 0;
+          const jab = P(lerp(14, R * 0.55, out), lerp(18, 46, out), 0, 1), guard = P(6, 20, -6, 1);
+          T.arms = right ? [guard, jab] : [jab, guard];
+          T.crouch = 0.4; T.lean = 20 + 8 * out;
+          T.fA = F(-22, 0); T.fB = F(18, 0);
+        }
+        T.rate = 60;
         break;
       }
 

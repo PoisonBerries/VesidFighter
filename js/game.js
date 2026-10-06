@@ -397,6 +397,10 @@ const Game = (() => {
     } else if (result === 'blocked') {
       attacker.comboHits = 0;
     }
+    // John's Takedown: the charge connecting with someone standing starts the hip slam.
+    if (result === 'hit' && isUlt && attacker.character.ultimate.type === 'takedown' && attacker.grounded && defender.y >= GROUND_Y - 1 && defender.hp > 0) {
+      attacker.startTakedown(defender);
+    }
     const gs = attacker.character.grabSlam || attacker.character.grabBeat;
     if (result === 'hit' && gs && attacker.comboHits >= gs.hits && attacker.state === 'attack' && attacker.grounded && defender.y >= GROUND_Y - 1 && defender.hp > 0) {
       attacker.startGrabSlam(defender);
@@ -460,17 +464,19 @@ const Game = (() => {
   // ---- Projectiles (Owen's plasma, Ryan's soundwave) ----
   function spawnProjectile(owner, stats, opts) {
     opts = opts || {};
-    const spawnX = owner.x + owner.facing * (owner.width * 0.5 + 8);
-    const spawnY = owner.y - owner.height * 0.55;
+    const spawnX = opts.x !== undefined ? opts.x : owner.x + owner.facing * (owner.width * 0.5 + 8);
+    const spawnY = opts.y !== undefined ? opts.y : owner.y - owner.height * 0.55;
     projectiles.push({
       owner,
       x: spawnX, y: spawnY,
-      vx: owner.facing * stats.speed,
+      vx: opts.vx !== undefined ? opts.vx : owner.facing * stats.speed,
+      vy: opts.vy || 0,
+      poison: opts.poison || null, // (poisonDamage / poisonTicks / poisonTickInterval) applied on a hit
       w: stats.width, h: stats.height,
       damage: stats.damage, knockback: stats.knockback, knockbackUp: stats.knockbackUp, hitstun: stats.hitstun,
       color: opts.color || '#bfefff',
       kind: opts.kind || null,
-      life: 90,
+      life: opts.life || 90,
       parryKnockdown: !!opts.parryKnockdown,
       knockdownDuration: opts.knockdownDuration || 0,
     });
@@ -481,7 +487,15 @@ const Game = (() => {
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const p = projectiles[i];
       p.x += p.vx;
+      p.y += p.vy || 0;
       p.life--;
+      // Darts that come down (or are fired down) stop at the floor.
+      if (p.vy > 0 && p.y >= GROUND_Y - 4) {
+        Effects.spawnHitSpark(p.x, GROUND_Y - 6, p.color, 'muzzle');
+        Effects.spawnDust(p.x, GROUND_Y, 4, 2);
+        projectiles.splice(i, 1);
+        continue;
+      }
       if (p.life <= 0 || p.x < WORLD_LEFT - 40 || p.x > WORLD_RIGHT + 40) {
         projectiles.splice(i, 1);
         continue;
@@ -522,6 +536,10 @@ const Game = (() => {
       });
 
       if (result === 'hit') Effects.voice(defender.character.id, 'hitByProjectile');
+      if (result === 'hit' && p.poison) { // a fart dart: poisons them (and feeds Toxic Rush)
+        defender.applyPoison(p.poison, null, p.owner.slot);
+        p.owner.gainFartPower(dmg);
+      }
       if (result === 'hit' || result === 'blocked') {
         grantUltCharge(p.owner, defender, true);
       }

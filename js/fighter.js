@@ -317,10 +317,13 @@ class Fighter {
 
     switch (def.type) {
       case 'lunge':
-      case 'poisonBurst':
         if (this.actionTimer > def.startup && this.actionTimer <= def.startup + def.active) {
           return this._forwardBox(def.offset, def.width, def.height);
         }
+        return null;
+
+      case 'poisonBurst':
+        if (this.actionTimer > def.startup && this.actionTimer <= def.startup + def.active) return this.burstBox(def);
         return null;
 
       case 'multiHit':
@@ -344,6 +347,12 @@ class Fighter {
           return def.angle === 'down'
             ? this._centeredBox(def.width, def.height)
             : this._forwardBox(def.offset || 30, def.width, def.height);
+        }
+        return null;
+
+      case 'takedown': // the charge in: live while he dashes
+        if (this.actionTimer > def.startup && this.actionTimer <= def.startup + def.travel) {
+          return this._forwardBox(def.offset, def.width, def.height);
         }
         return null;
 
@@ -696,7 +705,7 @@ class Fighter {
       this.vx = 0; this.vy = 0;
       // With more than two fighters, whoever grabbed us may not be the nearest one.
       const holder = this._matchFighter(this.grabbedBy) || opponent;
-      if (!this.heldByStage && holder.state !== 'grabslam' && holder.state !== 'grabbeat') this.state = 'fall';
+      if (!this.heldByStage && holder.state !== 'grabslam' && holder.state !== 'grabbeat' && holder.state !== 'takedown') this.state = 'fall';
       return;
     }
 
@@ -709,6 +718,7 @@ class Fighter {
     const held = (this._ability && this._matchFighter(this._ability.target)) || opponent;
     if (this.state === 'grabslam') this._updateGrabSlam(held);
     if (this.state === 'grabbeat') this._updateGrabBeat(held);
+    if (this.state === 'takedown') this._updateTakedown(held);
     if (this.state !== 'ko' && this.state !== 'victory') {
       this._handleInput(controls, opponent);
     }
@@ -879,7 +889,7 @@ class Fighter {
     // Shortly after a hit you can still slip away, even once you're back on your feet.
     const ps = this.character.phaseStep;
     if (ps && comboEdge && this.sinceHit <= ps.window && this.state !== 'phasestep' && this._tryPhaseStep(opponent)) return;
-    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep' || this.state === 'hoverdive' || this.state === 'whirlwind' || this.state === 'grabslam' || this.state === 'grabbeat' || this.state === 'flurry') {
+    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep' || this.state === 'hoverdive' || this.state === 'whirlwind' || this.state === 'grabslam' || this.state === 'grabbeat' || this.state === 'flurry' || this.state === 'takedown') {
       return; // committed to the action until it finishes
     }
 
@@ -1078,6 +1088,82 @@ class Fighter {
     opp.vx = 0; opp.vy = 0;
     opp.blocking = false; opp.stunFrames = 0; opp.launched = false; opp.facingLocked = false;
     opp.actionTimer = 0;
+  }
+
+  // John's Takedown, part 1: the charge in. It has to connect with someone standing; Game.tryHit then
+  // calls startTakedown. A miss is just a long recovery.
+  _updateTakedownDash(def) {
+    const a = this._ability;
+    if (this.actionTimer <= def.startup) { this._decelerate(); return; }
+    if (a.dashEnd === undefined) { a.dashEnd = def.startup + def.travel; a.dashing = true; }
+    if (a.dashing) {
+      this.vx = this.facing * def.speed;
+      if (this.actionTimer >= a.dashEnd || this.attackHasHit) { a.dashing = false; a.recoveryTimer = def.recovery; }
+      return;
+    }
+    this._decelerate();
+    if (--a.recoveryTimer <= 0) this._endAbility();
+  }
+
+  // Part 2: they're hoisted onto his hip, slammed to the mat, and then -- both on the ground -- he punches them.
+  startTakedown(opp) {
+    this.state = 'takedown';
+    this.actionTimer = 0;
+    this.attackHasHit = true;
+    this.facingLocked = true;
+    this.vx = 0;
+    this.blocking = false;
+    this._ability = { slammed: false, punched: 0, slamT: 0, target: opp.slot };
+    opp._refundInterruptedAbility();
+    opp.state = 'grabbed';
+    opp.grabbedBy = this.slot;
+    opp.vx = 0; opp.vy = 0;
+    opp.blocking = false; opp.stunFrames = 0; opp.launched = false; opp.facingLocked = false;
+    opp.actionTimer = 0;
+  }
+
+  _updateTakedown(opp) {
+    const d = this.character.ultimate, a = this._ability, t = this.actionTimer;
+    this.vx = 0;
+    const done = () => { this.state = 'idle'; this.facingLocked = false; };
+    if (!a.slammed) {
+      if (opp.state !== 'grabbed') { done(); return; }
+      if (t <= d.lift) { // up onto the hip...
+        const u = t / d.lift, e = u * u * (3 - 2 * u);
+        opp.x = this.x + this.facing * (34 - 26 * e);
+        opp.y = this.y - this.height * 0.62 * e;
+        return;
+      }
+      // ...and down onto the mat in front of him: the hip slam.
+      a.slammed = true; a.slamT = t;
+      opp.x = Math.max(STAGE_LEFT_EDGE + 20, Math.min(STAGE_RIGHT_EDGE - 20, this.x + this.facing * 54));
+      opp.y = GROUND_Y;
+      opp.grounded = true;
+      opp.state = 'knockdown';
+      opp.knockdownTimer = d.pause + d.punches * d.every + d.end + 12; // down until he's done with them
+      opp.actionTimer = 0;
+      opp.hp = Math.max(0, opp.hp - d.slamDamage * this.damageMultiplier * Game.fightDamageMul());
+      opp.hitFlashTimer = 14;
+      opp.noteImpact('hit', this.facing, 1.4);
+      opp._maybeTransform();
+      Effects.voice(opp.character.id, 'knockedDown');
+      Effects.shake(14, 18);
+      Effects.spawnHitSpark(opp.x, opp.y - 12, '#ffe066');
+      Effects.spawnDust(opp.x, GROUND_Y, 10, 4);
+      return;
+    }
+    // On the mat: a punch every `every` frames, after a short pause.
+    const k = t - a.slamT - d.pause;
+    if (k >= 0 && a.punched < d.punches && k >= a.punched * d.every && opp.state === 'knockdown') {
+      a.punched++;
+      opp.hp = Math.max(0, opp.hp - d.punchDamage * this.damageMultiplier * Game.fightDamageMul());
+      opp.hitFlashTimer = 8;
+      opp.noteImpact('hit', this.facing, 0.8);
+      opp._maybeTransform();
+      Effects.shake(6, 8);
+      Effects.spawnHitSpark(opp.x, opp.y - 14, '#ffe066');
+    }
+    if (t > a.slamT + d.pause + d.punches * d.every + d.end) done();
   }
 
   // John: carried over the shoulder and pummelled, then they wriggle free.
@@ -1292,6 +1378,7 @@ class Fighter {
       case 'poisonBurst': return this._updatePoisonBurstAction(def);
       case 'dive': return this._updateDive(def);
       case 'growRoll': return this._updateGrowRoll(def);
+      case 'takedown': return this._updateTakedownDash(def);
       case 'counterDodge': return this._updateCounterDodge(def);
       case 'projectileCharge': return this._updateProjectileCharge(def);
       case 'soundwaveProjectile': return this._updateInstantProjectile(def);
@@ -1320,12 +1407,41 @@ class Fighter {
     if (this.actionTimer > lastWindow.end + def.recovery) this._endAbility();
   }
 
+  // Where a poison burst's cloud is: ahead of him, or -- for Artur's ultimate let off in the air -- a column
+  // from his body down to the floor beneath him.
+  burstBox(def) {
+    if (def.darts && this._ability && this._ability.air) {
+      const top = this.y - this.height * 0.3, bottom = GROUND_Y + 30;
+      return { x: this.x - def.width / 2, y: top, w: def.width, h: Math.max(120, bottom - top) };
+    }
+    return this._forwardBox(def.offset, def.width, def.height);
+  }
+
   _updatePoisonBurstAction(def) {
     this._decelerate();
+    const a = this._ability;
+    if (a.air === undefined) a.air = !!def.darts && !this.grounded;
+    // In the air he hangs there while the burst goes off, then drops.
+    if (a.air && this.actionTimer <= def.startup + def.active) this.vy = -GRAVITY * (this.character.gravityMul || 1);
+    // The fart darts: a few, one every `every` frames from just after the burst goes off.
+    if (def.darts) {
+      const d = def.darts, n = a.air ? d.airCount : d.count;
+      a.darts = a.darts || 0;
+      while (a.darts < n && this.actionTimer >= def.startup + 2 + a.darts * d.every) {
+        const i = a.darts++, mid = (n - 1) / 2, off = i - mid;
+        if (a.air) {
+          // Raining down from under him, fanned out a little, each one slightly outward.
+          Game.spawnProjectile(this, d, { kind: 'fartDart', color: '#9be04a', x: this.x + off * 58, y: this.y - this.height * 0.1, vx: off * 1.2, vy: d.fall, poison: d, life: 120 });
+        } else {
+          const ang = d.spread[i % d.spread.length];
+          Game.spawnProjectile(this, d, { kind: 'fartDart', color: '#9be04a', y: this.y - this.height * (0.5 - 0.06 * (i % 3)), vx: this.facing * d.speed * Math.cos(ang), vy: d.speed * Math.sin(ang), poison: d });
+        }
+      }
+    }
     // The cloud is left hanging where it was let off (Game.updateClouds poisons whoever is in it).
     if (def.lingerFrames && this.actionTimer > def.startup && !this._ability.cloudMade) {
       this._ability.cloudMade = true;
-      const b = this._forwardBox(def.offset, def.width, def.height);
+      const b = this.burstBox(def);
       this.cloud = { x: b.x, y: b.y, w: b.w, h: b.h, life: def.lingerFrames, poisonDamage: def.poisonDamage, poisonTicks: def.poisonTicks, poisonTickInterval: def.poisonTickInterval };
     }
     const total = def.startup + def.active + def.recovery;
@@ -1635,6 +1751,7 @@ class Fighter {
       case 'phasestep': return 'special';
       case 'hoverdive': case 'whirlwind': case 'grabslam': case 'grabbeat': return 'special';
       case 'flurry': return 'attack';
+      case 'takedown': return 'special';
       case 'jumpcharge': return 'block';
       case 'grabbed': return 'hit';
       case 'hitstun': return 'hit';
