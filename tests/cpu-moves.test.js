@@ -119,3 +119,32 @@ test('Unbeatable has an option for each character\'s particular moves', () => {
   assert.ok(!names('keenan').includes('phase step'), 'no phase step when he has not just been hit');
   assert.ok(!names('ryan').includes('chain kick') && !names('ryan').includes('up + attack'));
 });
+
+// A telegraphed move (an ultimate charging up, a slow special) is sometimes met with a full guard, more often at the
+// higher levels. Owen's Plasma Nuke is the clean case: nothing else makes a CPU guard against it.
+test('the CPU sometimes guards against a telegraphed ultimate: about 5% on Easy, a little more on Normal and Hard', () => {
+  const guardRate = (level) => {
+    let blocked = 0, trials = 400;
+    for (let seed = 1; seed <= trials; seed++) {
+      const sim = createSim();
+      sim.Game.startMatch('keenan', 'owen', () => {}, { ball: 'off', balance: false });
+      for (let i = 0; i < 200; i++) sim.Game.update(sim.FIXED_STEP);
+      const brain = sim.Cpu.createBrain('p1', level, seed);
+      const w = sim.Game.world();
+      w.p1.x = 500; w.p2.x = 640; w.p2.facing = -1;
+      let any = false;
+      for (let t = 0; t < 130 && !any; t++) {
+        if (t < 30) { w.p2.state = 'idle'; w.p2.actionTimer = 0; } // (standing there, then the ultimate starts: the CPU notices it a moment later)
+        else { w.p2.state = 'ultimate'; w.p2.actionTimer = Math.min(t - 30, 40); w.p2._ability = { fired: false }; }
+        const bits = brain.think(w.p1, w.p2, [], 'fight', null);
+        if (bits & sim.Rollback.BIT.guard) any = true;
+      }
+      if (any) blocked++;
+    }
+    return blocked / trials;
+  };
+  const easy = guardRate('easy'), normal = guardRate('normal'), hard = guardRate('hard');
+  assert.ok(easy > 0.02 && easy < 0.1, `Easy guards ${(easy * 100).toFixed(1)}%`);
+  assert.ok(normal > easy && hard > normal * 0.9, `Normal ${(normal * 100).toFixed(1)}%, Hard ${(hard * 100).toFixed(1)}%`);
+  assert.ok(hard < 0.18, `Hard guards ${(hard * 100).toFixed(1)}%: still only occasionally`);
+});

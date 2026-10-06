@@ -29,9 +29,11 @@ const Cpu = (() => {
     // off (px) its sense of range can be, so it swings early/late sometimes.
     // pressGap: minimum frames between button presses (no chaining attacks).
     // idle: chance each new plan is to just stand there for a moment.
-    easy: { reaction: 45, block: 0.05, punish: 0.05, iq: 0.15, mistake: 0.55, aggression: 0.2, spacing: 0.2, anticipate: 0.1, aim: 70, replan: [24, 48], pressGap: 22, idle: 0.4 },
-    normal: { reaction: 34, block: 0.1, punish: 0.1, iq: 0.3, mistake: 0.38, aggression: 0.25, spacing: 0.4, anticipate: 0.3, aim: 50, replan: [18, 36], pressGap: 20, idle: 0.3 },
-    hard: { reaction: 28, block: 0.2, punish: 0.2, iq: 0.45, mistake: 0.25, aggression: 0.3, spacing: 0.55, anticipate: 0.45, aim: 36, replan: [14, 28], pressGap: 16, idle: 0.2 },
+    // teleBlock: chance it blocks (a full guard) a telegraphed move -- an ultimate charging up, or a special with a long
+    // wind-up -- the moment it sees it.
+    easy: { teleBlock: 0.05, reaction: 45, block: 0.05, punish: 0.05, iq: 0.15, mistake: 0.55, aggression: 0.2, spacing: 0.2, anticipate: 0.1, aim: 70, replan: [24, 48], pressGap: 22, idle: 0.4 },
+    normal: { teleBlock: 0.07, reaction: 34, block: 0.1, punish: 0.1, iq: 0.3, mistake: 0.38, aggression: 0.25, spacing: 0.4, anticipate: 0.3, aim: 50, replan: [18, 36], pressGap: 20, idle: 0.3 },
+    hard: { teleBlock: 0.10, reaction: 28, block: 0.2, punish: 0.2, iq: 0.45, mistake: 0.25, aggression: 0.3, spacing: 0.55, anticipate: 0.45, aim: 36, replan: [14, 28], pressGap: 16, idle: 0.2 },
   };
 
   function rng(seed) {
@@ -64,6 +66,7 @@ const Cpu = (() => {
   function createBrain(slot, levelName, seed) {
     const L = LEVELS[levelName] || LEVELS.normal;
     const rand = rng(seed || 1);
+    const randTele = rng(((seed || 1) ^ 0x9e3779b9) >>> 0); // its own stream, so the telegraph-block roll doesn't shift every other random choice
     const history = [];
     let plan = { kind: 'neutral', until: 0, dir: 0, aimError: 0 };
     let blockUntil = 0;
@@ -71,6 +74,7 @@ const Cpu = (() => {
     let holdJump = 0;      // frames left to keep jump held (Owen's charged jump)
     let blockWith = 0;     // how we're defending right now: crouch (B.block) or a full guard (B.guard)
     let lastPress = -99;   // no button mashing: at most one press every few frames
+    let teleRolled = -1;   // which opponent move we've already decided about blocking (see teleBlock)
     let oppAttacks = [];   // ticks when we saw the opponent start an attack (to read spamming)
     let ballKey = '';      // the ball's current flight, to decide once per flight...
     let ballWill = false;  // ...whether we'll deal with it properly this time
@@ -90,7 +94,21 @@ const Cpu = (() => {
 
     // How dangerous is what the opponent is doing (as perceived)? Returns
     // { frames, low, kind } for an attack about to land on us, or null.
+    // A move that gives itself away: an ultimate charging up, or a special with a long wind-up.
+    function windupOf(def) {
+      if (def.startup !== undefined) return def.startup;
+      if (def.channel !== undefined) return def.channel;
+      if (def.castFrames !== undefined) return def.castFrames;
+      if (def.hits && def.hits.length) return def.hits[0].start;
+      return 0;
+    }
     function threatFrom(me, o) {
+      const t = threatRaw(me, o);
+      if (t && (o.state === 'ultimate' || (o.state === 'special' && windupOf(CHARACTERS[opp.character.id].special) >= 14))) t.tele = true;
+      return t;
+    }
+
+    function threatRaw(me, o) {
       if (o.state === 'hoverdive') { // Carlos's claw dive: forward and down
         const dd = me.x - o.x;
         return Math.sign(dd) === o.facing && Math.abs(dd) < 300 ? { frames: 5, kind: 'dash' } : null;
@@ -414,6 +432,14 @@ const Cpu = (() => {
       // ---- 2. Defend what we can see coming ----
       const threat = threatFrom(me, o);
       const shot = incomingProjectile(me, projectiles);
+      // A telegraphed move (an ultimate charging up, a slow special) is sometimes met with a full guard.
+      if (threat && threat.tele && me.grounded && oppAttacks.length) {
+        const id = oppAttacks[oppAttacks.length - 1];
+        if (teleRolled !== id) { // (once per move, not every frame)
+          teleRolled = id;
+          if (randTele() < L.teleBlock) { blockUntil = tick + Math.max(24, Math.min(80, threat.frames + 30)); blockWith = B.guard; }
+        }
+      }
       if (tick < blockUntil && (threat || shot)) return blockWith;
 
       if ((threat || shot) && !chance(L.mistake)) {
