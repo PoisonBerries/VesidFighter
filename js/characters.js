@@ -37,6 +37,11 @@ const CHARACTERS = {
     phaseStep: { window: 75, cooldown: 480, dashFrames: 9, invulnTail: 6, recovery: 6, behind: 85 },
     faceAfterAbility: true, // turns back to face the opponent after a phase step / counter
     ultChargeMul: 1.6, // his ultimate meter fills faster (Game.grantUltCharge)
+    // Shown on the character select screen, below the abilities (name, the keys involved, what it does).
+    extraMoves: [
+      { name: 'Air Kick Chain', keys: ['attack'], description: 'Attack in the air for a kick. If it lands he pushes off them and stays up, so he can follow with another -- up to 6 in a row -- until they get away.' },
+      { name: 'Quick Ultimate', description: 'His ultimate meter fills 60% faster, and the flurry that ends Foreseen Escape doesn\'t refill it.' },
+    ],
     // Passive: for a while after taking a hit, he hits harder.
     retaliate: { damage: 0.15, frames: 300 },
     passive: { name: 'Adrenaline', description: 'For 5 seconds after taking a hit he deals 15% more damage.' },
@@ -118,7 +123,7 @@ const CHARACTERS = {
     special: {
       type: 'poisonBurst',
       name: 'Poison Fart',
-      description: 'A short-range toxic cloud that poisons anyone caught in it.',
+      description: 'A toxic cloud that hangs where it\'s let off for a moment: anyone caught in it, or who walks in after, is poisoned while they stand in it.',
       cooldown: 4.0,
       startup: 10, active: 10, recovery: 16,
       offset: 30, width: 110, height: 90,
@@ -196,7 +201,7 @@ const CHARACTERS = {
     ultimate: {
       type: 'dive',
       name: 'Rending Dive',
-      description: 'Launches forward with both claws for massive damage.',
+      description: 'Coils with glowing claws -- a clear tell -- then launches forward for massive damage. If it wins the round it plays out in full.',
       angle: 'forward',
       // A clear tell: he coils with glowing claws and the path of the dive lights up before he goes.
       startup: 26,
@@ -227,6 +232,9 @@ const CHARACTERS = {
     // moves, stretches when it jumps, and stretches and rebounds when hit,
     // blocked or reflecting. reach = how far the arm is drawn out.
     elastic: { reach: true },
+    extraMoves: [
+      { name: 'Uppercut', keys: ['jump', 'attack'], description: 'Jump + attack: both fists shoot straight up, high enough to catch anyone in the air above him, even at the top of a double jump.' },
+    ],
     // Passive: rubber shrugs off shots (and the ball).
     projectileResist: 0.35,
     passive: { name: 'Rubber Skin', description: 'Takes 35% less damage from projectiles, including the ball.' },
@@ -464,6 +472,9 @@ const CHARACTERS = {
       speedMul: 0.5, height: 0.28, widthMul: 1.5,
       slide: { minSpeed: 3.2, boost: 1.12, friction: 0.965, endSpeed: 1.6 },
     },
+    extraMoves: [
+      { name: 'Pike Kick', keys: ['attack'], description: 'Attack in the air: he folds into a pike and kicks out low and long, with a long window to connect.' },
+    ],
     // Passive: hits landed from the air heal him a little.
     airLeech: 3,
     passive: { name: 'Second Wind', description: 'Landing a hit while airborne restores a little health.' },

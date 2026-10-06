@@ -239,7 +239,7 @@ const UI = (() => {
         ${controls ? `<span class="key-badge">${keyLabel(controls.jump)}+${keyLabel(controls.block)}</span>` : ''}
         <div>
           <div class="ability-name">Phase Step</div>
-          <div class="ability-desc">While being hit, press jump and crouch together to slip through your opponent and come out behind them. ${Math.round(char.phaseStep.cooldown / 60)}s cooldown.</div>
+          <div class="ability-desc">While being hit (or just after), press jump and crouch together to slip through your opponent and come out behind them. ${Math.round(char.phaseStep.cooldown / 60)}s cooldown.</div>
         </div>
       </div>` : ''}
       ${char.passive ? `<div class="ability-row">
@@ -284,7 +284,7 @@ const UI = (() => {
         ${controls ? `<span class="key-badge">${keyLabel(controls.block)}+${keyLabel(controls.attack)}</span>` : ''}
         <div>
           <div class="ability-name">Combo Tune &amp; Shockwave</div>
-          <div class="ability-desc">Every hit plays a note &mdash; string hits together and it becomes a song. In the air: attack is a backflip kick; down + attack sends out a musical shockwave that stuns.</div>
+          <div class="ability-desc">Every hit plays a note &mdash; string hits together and it becomes a song. In the air: attack is a backflip kick; down + attack sends out a musical shockwave that stuns. Landing the shockwave, or a 3-hit combo, powers up his next air kick (more damage and knockback).</div>
         </div>
       </div>` : ''}
       ${char.bloodDonor ? `<div class="ability-row">
@@ -307,12 +307,26 @@ const UI = (() => {
           <div class="ability-desc">Moving while crouched is a tuck-and-roll, nearly as fast as running.</div>
         </div>
       </div>` : ''}
+      ${(char.extraMoves || []).map((m) => `<div class="ability-row">
+        ${controls && m.keys ? `<span class="key-badge">${m.keys.map((k) => keyLabel(controls[k])).join('+')}</span>` : ''}
+        <div>
+          <div class="ability-name">${m.name}</div>
+          <div class="ability-desc">${m.description}</div>
+        </div>
+      </div>`).join('')}
       ${char.elastic ? `<div class="ability-row">
         <div>
           <div class="ability-name">Rubber body</div>
           <div class="ability-desc">Stretching punches with a very long reach; the body wobbles, squashes and rebounds when hit.</div>
         </div>
       </div>` : ''}
+      <div class="ability-row">
+        ${controls ? `<span class="key-badge">${keyLabel(controls.guard)}</span>` : ''}
+        <div>
+          <div class="ability-name">Guard</div>
+          <div class="ability-desc">Hold to stand in a full block: nothing gets through. It slowly drains your ultimate meter, and you can't move. Crouching (${controls ? keyLabel(controls.block) : 'down'}) still cuts damage by 85%.</div>
+        </div>
+      </div>
       </div>
     `;
     container.querySelectorAll('.form-toggle button').forEach((btn) => {
