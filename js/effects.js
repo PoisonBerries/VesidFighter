@@ -5,6 +5,7 @@ const Effects = (() => {
   let particles = [];
   let shakeTime = 0;
   let shakeMagnitude = 0;
+  let shakeScale = 1; // the victory screens shake much less (see Game.update)
   // Online host records sparks/shakes/resets so the guest can replay them.
   let recording = false;
   // Set by rollback netcode while it re-simulates frames it already showed,
@@ -101,9 +102,11 @@ const Effects = (() => {
     else shakeMagnitude = 0;
   }
 
+  function setShakeScale(v) { shakeScale = v; }
+
   function getShakeOffset() {
     if (shakeTime <= 0) return { x: 0, y: 0 };
-    const m = shakeMagnitude * (shakeTime / 12);
+    const m = shakeMagnitude * shakeScale * (shakeTime / 12);
     return {
       x: (Math.random() * 2 - 1) * m,
       y: (Math.random() * 2 - 1) * m,
@@ -156,5 +159,5 @@ const Effects = (() => {
     }
   }
 
-  return { voice, setRecording, setSuppressed, drainEvents, replayEvents, spawnHitSpark, spawnAuraPuff, spawnDust, spawn, shake, update, getShakeOffset, draw, reset };
+  return { voice, setRecording, setSuppressed, drainEvents, replayEvents, spawnHitSpark, spawnAuraPuff, spawnDust, spawn, shake, setShakeScale, update, getShakeOffset, draw, reset };
 })();

@@ -178,6 +178,13 @@ const Game = (() => {
 
     if (matchState === 'idle') return;
 
+    // The round-end and match-over screens shake far less, and the shake (and sparks) still wind down there:
+    // Effects.update() only ran during the fight, so a shake from the knockout blow used to freeze on screen
+    // and keep jittering all through the victory screen.
+    const resting = matchState === 'roundEnd' || matchState === 'matchEnd';
+    Effects.setShakeScale(resting ? 0.3 : 1);
+    if (resting || matchState === 'countdown') Effects.update();
+
     if (matchState === 'countdown') {
       stateTimer -= dt;
       if (stateTimer <= 0) matchState = 'fight';

@@ -2506,3 +2506,17 @@ test('John\'s punch is a little slower than it was (9 / 5 / 18 frames)', () => {
   const total = a.startup + a.active + a.recovery;
   assert.ok(total > 9 + 5 + 18 && total <= 9 + 5 + 18 + 5, `${total} frames in all: slower, but only slightly`);
 });
+
+test('the screen shake dies away on the victory screen (it used to freeze there and keep jittering), and is much gentler', () => {
+  const sim = createSim();
+  startGame(sim, 'ryan', 'keenan', 500, 800);
+  sim.Game.applySnapshot({ f: [{ x: 500 }, { x: 800, y: 5000, grounded: false, vy: 5 }] });
+  step(sim, 3);
+  assert.strictEqual(sim.Game.getState(), 'roundEnd');
+  const worst = () => { let m = 0; for (let i = 0; i < 40; i++) { const o = sim.Effects.getShakeOffset(); m = Math.max(m, Math.abs(o.x), Math.abs(o.y)); } return m; };
+  sim.Effects.shake(10, 24); // the knockout blow
+  const early = worst();
+  assert.ok(early <= 10 * 0.3 * (24 / 12) + 1e-6, `gentle on the victory screen (${early.toFixed(1)}px, it would be up to ${(10 * 2).toFixed(0)}px mid-fight)`);
+  step(sim, 40); // a little under a second of the victory screen
+  assert.strictEqual(worst(), 0, 'and it has stopped shaking');
+});
