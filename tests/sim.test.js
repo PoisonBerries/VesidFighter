@@ -2500,3 +2500,9 @@ test('John\'s takedown from the top of the orchard\'s apple tree goes crazy', ()
   assert.ok(mul <= u.maxMul + 1e-9);
   assert.ok(dealt > 90, `dealt ${dealt.toFixed(0)}`);
 });
+
+test('John\'s punch is a little slower than it was (9 / 5 / 18 frames)', () => {
+  const a = createSim().CHARACTERS.john.attack;
+  const total = a.startup + a.active + a.recovery;
+  assert.ok(total > 9 + 5 + 18 && total <= 9 + 5 + 18 + 5, `${total} frames in all: slower, but only slightly`);
+});

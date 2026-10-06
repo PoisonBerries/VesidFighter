@@ -536,7 +536,7 @@ const CHARACTERS = {
     maxHp: 186,
     attack: {
       damage: 14, offset: 32, width: 84, height: 106,
-      startup: 9, active: 5, recovery: 18,
+      startup: 10, active: 5, recovery: 20, // (was 9 / 5 / 18: a little slower)
       knockback: 11, knockbackUp: 4, hitstun: 19,
     },
     // Midair down + F: drops like a stone elbow-first. Whoever it catches is
