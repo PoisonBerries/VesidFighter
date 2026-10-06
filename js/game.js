@@ -335,8 +335,9 @@ const Game = (() => {
   }
 
   function grantUltCharge(attacker, defender, landedSpecial) {
-    attacker.ultCharge = Math.min(ULT_METER_MAX, attacker.ultCharge + (landedSpecial ? ULT_GAIN_ON_LAND_SPECIAL : ULT_GAIN_ON_LAND_NORMAL));
-    defender.ultCharge = Math.min(ULT_METER_MAX, defender.ultCharge + ULT_GAIN_ON_TAKEN);
+    // (a character with an ultChargeMul fills the meter faster, from landing hits and from taking them)
+    attacker.ultCharge = Math.min(ULT_METER_MAX, attacker.ultCharge + (landedSpecial ? ULT_GAIN_ON_LAND_SPECIAL : ULT_GAIN_ON_LAND_NORMAL) * (attacker.character.ultChargeMul || 1));
+    defender.ultCharge = Math.min(ULT_METER_MAX, defender.ultCharge + ULT_GAIN_ON_TAKEN * (defender.character.ultChargeMul || 1));
   }
 
   function tryHit(attacker, defender) {
@@ -351,6 +352,7 @@ const Game = (() => {
     const isSpecial = attacker.state === 'special';
     let stats = attacker.state === 'attack' || attacker.state === 'whirlwind' ? attacker.attackBox(attacker.attackDef)
       : attacker.state === 'hoverdive' ? attacker.character.hoverDive
+      : attacker.state === 'flurry' ? attacker.flurryStats()
       : (isUlt ? attacker.character.ultimate : attacker.character.special);
 
     let dmg = stats.damage, kb = stats.knockback, kbUp = stats.knockbackUp, hs = stats.hitstun;

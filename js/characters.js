@@ -36,6 +36,7 @@ const CHARACTERS = {
     // Untouchable for the dash and a moment after; then a short cooldown.
     phaseStep: { window: 75, cooldown: 480, dashFrames: 9, invulnTail: 6, recovery: 6, behind: 85 },
     faceAfterAbility: true, // turns back to face the opponent after a phase step / counter
+    ultChargeMul: 1.6, // his ultimate meter fills faster (Game.grantUltCharge)
     // Passive: for a while after taking a hit, he hits harder.
     retaliate: { damage: 0.15, frames: 300 },
     passive: { name: 'Adrenaline', description: 'For 5 seconds after taking a hit he deals 15% more damage.' },
@@ -73,8 +74,16 @@ const CHARACTERS = {
     ultimate: {
       type: 'phase',
       name: 'Foreseen Escape',
-      description: 'Phase out of reality briefly -- untouchable, but can only move.',
+      description: 'Phase out of reality briefly -- untouchable, but can only move. When he unphases he lets fly a 9-punch flurry.',
       duration: 100,
+      // The flurry when the phase ends: `count` fast punches, one every `every` frames (each live for `active`),
+      // while he drifts forward; the last one hits harder and knocks them back.
+      flurry: {
+        count: 9, start: 3, every: 4, active: 2, recovery: 14, drift: 3.2,
+        offset: 24, width: 64, height: 82,
+        hit: { damage: 3.2, knockback: 1.2, knockbackUp: 0.4, hitstun: 12 },
+        last: { damage: 6, knockback: 9, knockbackUp: 4, hitstun: 20 },
+      },
     },
   },
 

@@ -83,6 +83,9 @@ class Fighter {
     this.airSuspend = 0;   // frames left hanging in the air after landing an air kick (Keenan)
     this.airChain = 0;     // air kicks that have kept him up this jump
     this.cloud = null;     // a lingering poison cloud this fighter has let off (Artur): { x, y, w, h, life, poison... }
+    this.phaseFlurryIn = 0; // frames until the phase ultimate ends in a flurry (Keenan)
+    this._flurryPending = false; // the phase just ended: start the flurry this frame
+    this._foeX = 0;        // the opponent's x as of last frame (the flurry stops drifting once it is up close)
     this.finishUltimate = false; // the round is over but this ultimate is still playing out (finishOnKo)
     this.foeHitTimer = 0;  // frames left in which the opponent backing off counts as running away (voice line)
     this.comboHits = 0;    // hits landed in a row without being hit or blocked
@@ -280,6 +283,14 @@ class Fighter {
       }
       return null;
     }
+    if (this.state === 'flurry') {
+      const f = this.character.ultimate.flurry, a = this._ability, k = this.actionTimer - f.start;
+      if (k < 0) return null;
+      const i = Math.floor(k / f.every);
+      if (i >= f.count || k % f.every >= f.active || a.hitFlags[i]) return null;
+      this._pendingHitIndex = i;
+      return this._forwardBox(f.offset, f.width, f.height, this.height * HIGH_ATTACK_BOTTOM);
+    }
     if (this.state === 'special') return this._abilityHitbox(this.character.special);
     if (this.state === 'ultimate') return this._abilityHitbox(this.character.ultimate);
     if (this.state === 'whirlwind') {
@@ -405,6 +416,7 @@ class Fighter {
       this.ultCharge = 0;
       this.invulnerableTimer = def.duration;
       this._dodging = false;
+      this.phaseFlurryIn = def.flurry ? def.duration : 0; // frames until he unphases into the flurry
       return;
     }
 
@@ -626,7 +638,7 @@ class Fighter {
     this.upAttackActive = false;
     this.downAttackActive = false;
     this.phaseCooldown = 0;
-    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0; this.airSuspend = 0; this.airChain = 0; this.finaleArmed = 0; this.finaleKick = false; this.finishUltimate = false; this.cloud = null;
+    this.comboHits = 0; this.comboTimer = 0; this.jumpCharge = 0; this.plasmaJumping = false; this.foeHitTimer = 0; this.airSuspend = 0; this.airChain = 0; this.finaleArmed = 0; this.finaleKick = false; this.finishUltimate = false; this.cloud = null; this.phaseFlurryIn = 0; this._flurryPending = false;
     this.fartPower = 0; this.jumpStacks = 0; this.poisonFrom = null; this.poisonTickDamage = 0;
     this._comboHeld = false;
     this._crouchHeld = false;
@@ -676,6 +688,7 @@ class Fighter {
   update(controls, opponent) {
     this._controls = controls;
     this._updateStatusTimers();
+    if (opponent) this._foeX = opponent.x;
 
     // Picked up by Robert (or the orchard's monster, stages.js): carried
     // around by them (they position us), no input, no physics.
@@ -687,6 +700,10 @@ class Fighter {
       return;
     }
 
+    if (this._flurryPending) { // the phase ended: unphase into the flurry
+      this._flurryPending = false;
+      if (this.state !== 'ko' && this.state !== 'victory' && this.state !== 'hitstun' && this.state !== 'knockdown' && this.state !== 'grabbed') this._startFlurry(opponent);
+    }
     this.rolling = false; // set again below while a crouch-roll is in progress
     if (this.state !== 'block') this.sliding = false; // a slide only lasts while crouched
     const held = (this._ability && this._matchFighter(this._ability.target)) || opponent;
@@ -710,6 +727,7 @@ class Fighter {
     if (this.hitFlashTimer > 0) this.hitFlashTimer--;
     if (this.phaseCooldown > 0) this.phaseCooldown--;
     if (this.sinceHit < 999) this.sinceHit++;
+    if (this.phaseFlurryIn > 0 && --this.phaseFlurryIn === 0) this._flurryPending = true;
     if (this.comboTimer > 0 && --this.comboTimer === 0) this.comboHits = 0;
     if (this.finaleArmed > 0) this.finaleArmed--;
     if (this.invulnerableTimer > 0) this.invulnerableTimer--;
@@ -861,7 +879,7 @@ class Fighter {
     // Shortly after a hit you can still slip away, even once you're back on your feet.
     const ps = this.character.phaseStep;
     if (ps && comboEdge && this.sinceHit <= ps.window && this.state !== 'phasestep' && this._tryPhaseStep(opponent)) return;
-    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep' || this.state === 'hoverdive' || this.state === 'whirlwind' || this.state === 'grabslam' || this.state === 'grabbeat') {
+    if (this.state === 'attack' || this.state === 'special' || this.state === 'ultimate' || this.state === 'phasestep' || this.state === 'hoverdive' || this.state === 'whirlwind' || this.state === 'grabslam' || this.state === 'grabbeat' || this.state === 'flurry') {
       return; // committed to the action until it finishes
     }
 
@@ -1155,6 +1173,35 @@ class Fighter {
     }
   }
 
+  // Keenan's flurry (the end of his phase ultimate): 9 quick punches while he drifts at them.
+  _startFlurry(opp) {
+    const f = this.character.ultimate.flurry;
+    this.state = 'flurry';
+    this.actionTimer = 0;
+    this.attackHasHit = false;
+    this.facing = opp && opp.x < this.x ? -1 : 1;
+    this.facingLocked = true;
+    this.blocking = false;
+    this.guarding = false;
+    this._ability = { hitFlags: Array.from({ length: f.count }, () => false) };
+    Effects.voice(this.character.id, 'flurry');
+  }
+
+  // The numbers for the flurry punch that just connected (the last one hits hardest).
+  flurryStats() {
+    const f = this.character.ultimate.flurry;
+    return this._pendingHitIndex === f.count - 1 ? f.last : f.hit;
+  }
+
+  _updateFlurry() {
+    const f = this.character.ultimate.flurry;
+    const end = f.start + f.count * f.every + f.recovery;
+    // Drifts in at them, but stops once he's right up against them (rather than walking through).
+    const gap = (this._foeX - this.x) * this.facing;
+    this.vx = this.facing * (this.actionTimer < f.start + f.count * f.every && gap > 50 ? f.drift : 0);
+    if (this.actionTimer > end) this._endAbility();
+  }
+
   // Hold-jump hover (characters with a `hover` block, e.g. Carlos). While
   // held in normal air movement, gravity is cancelled and fuel drains; it
   // refills on landing. Getting hit or starting an attack ends it.
@@ -1212,6 +1259,7 @@ class Fighter {
     if (this.state === 'phasestep') this._updatePhaseStep();
     if (this.state === 'hoverdive') this._updateHoverDive();
     if (this.state === 'whirlwind') this._updateWhirlwind();
+    if (this.state === 'flurry') this._updateFlurry();
     if (this.state === 'special') this._updateAbilityState(this.character.special);
     if (this.state === 'ultimate') this._updateAbilityState(this.character.ultimate);
 
@@ -1586,6 +1634,7 @@ class Fighter {
       case 'ultimate': return 'special';
       case 'phasestep': return 'special';
       case 'hoverdive': case 'whirlwind': case 'grabslam': case 'grabbeat': return 'special';
+      case 'flurry': return 'attack';
       case 'jumpcharge': return 'block';
       case 'grabbed': return 'hit';
       case 'hitstun': return 'hit';

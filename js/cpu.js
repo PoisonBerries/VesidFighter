@@ -95,6 +95,10 @@ const Cpu = (() => {
         const dd = me.x - o.x;
         return Math.sign(dd) === o.facing && Math.abs(dd) < 300 ? { frames: 5, kind: 'dash' } : null;
       }
+      if (o.state === 'flurry') { // Keenan's punch flurry: close and fast
+        const dd = me.x - o.x;
+        return Math.sign(dd) === o.facing && Math.abs(dd) < 140 ? { frames: 3, kind: 'melee' } : null;
+      }
       if (!ACTING.has(o.state)) return null;
       const oc = CHARACTERS[opp.character.id];
       const dx = me.x - o.x;

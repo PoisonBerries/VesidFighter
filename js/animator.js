@@ -599,6 +599,20 @@ const Animator = (() => {
         break;
       }
 
+      case 'flurry': { // Keenan's 9-punch flurry: alternating jabs, fast, leaning into them
+        const f = fighter.character.ultimate.flurry;
+        const k = Math.max(0, t - f.start), i = Math.floor(k / f.every), ph = (k % f.every) / f.every;
+        const out = Math.sin(Math.min(1, ph * 1.6) * Math.PI * 0.5) * (1 - Math.max(0, ph - 0.7) / 0.3 * 0.5); // snaps out, then draws back
+        const punching = i < f.count && t >= f.start;
+        const right = i % 2 === 0;
+        const jab = P(lerp(14, R, punching ? out : 0), lerp(10, -4, punching ? out : 0), 0, 1), guard = P(10, 2, -6, 1);
+        T.arms = right ? [guard, jab] : [jab, guard];
+        T.lean = punching ? 8 + 6 * out : 4; T.crouch = 0.1;
+        T.fA = F(-16, 0); T.fB = F(14, 0);
+        T.rate = 85;
+        break;
+      }
+
       case 'phasestep': { // Keenan slipping through the opponent: a low, fast, leaning dash
         const ps = fighter.character.phaseStep;
         const u = clamp(t / ps.dashFrames, 0, 1);

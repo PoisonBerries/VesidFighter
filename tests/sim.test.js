@@ -1563,7 +1563,7 @@ test('guard is a full block that slowly drains the ultimate meter; crouching sti
   assert.strictEqual(g.lost, 0, 'guard lets nothing through');
   assert.strictEqual(g.guarding, true);
   assert.strictEqual(g.crouching, false, 'guard stands tall');
-  assert.ok(g.ult < 50 + 6 && g.ult > 40, `the meter drains slowly (${g.ult})`);
+  assert.ok(g.ult < 50 + 6 * (sim.CHARACTERS.keenan.ultChargeMul || 1) && g.ult > 40, `the meter drains slowly (${g.ult})`);
   assert.ok(c.lost > 0 && c.crouching, 'a crouch still takes the chip damage');
 });
 
@@ -2236,4 +2236,45 @@ test('Artur\'s kick is a touch quicker than before (7 / 4 / 13 frames)', () => {
   const a = createSim().CHARACTERS.artur.attack;
   assert.ok(a.startup + a.active + a.recovery < 7 + 4 + 13);
   assert.ok(a.startup + a.active + a.recovery >= 7 + 4 + 13 - 4, 'slightly, not a lot');
+});
+
+test('Keenan: when the phase ultimate ends he unphases into a 9-punch flurry; his ultimate charges faster', () => {
+  const sim = createSim();
+  const K = sim.CHARACTERS.keenan, fl = K.ultimate.flurry;
+  assert.strictEqual(fl.count, 9);
+  assert.ok(K.ultChargeMul > 1 && !sim.CHARACTERS.ryan.ultChargeMul, 'only Keenan fills the meter faster');
+  sim.Game.startMatch('keenan', 'john', () => {}, { ball: 'off', balance: false });
+  step(sim, 200);
+  sim.Game.applySnapshot({ f: [{ x: 500, ultCharge: 100 }, { x: 560 }] });
+  const hp0 = sim.Game.world().p2.hp;
+  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+  const p1 = () => sim.Game.world().p1;
+  assert.ok(p1().isPhased, 'phased out first');
+  // The phase runs its course (he stays near the opponent), then the flurry.
+  let flurryStart = -1;
+  for (let i = 0; i < 160 && flurryStart < 0; i++) { step(sim, 1); if (p1().state === 'flurry') flurryStart = i; }
+  assert.ok(flurryStart >= K.ultimate.duration - 3, `flurry after the phase (${flurryStart} frames in)`);
+  assert.strictEqual(p1().isPhased, false, 'unphased');
+  sim.Game.applySnapshot({ f: [{}, { x: p1().x + 60, state: 'idle' }] });
+  const hits = new Set();
+  let last = sim.Game.world().p2.hp;
+  for (let i = 0; i < 80 && p1().state === 'flurry'; i++) {
+    step(sim, 1);
+    const p2 = sim.Game.world().p2;
+    if (p2.hp < last) { hits.add(i); last = p2.hp; }
+    sim.Game.applySnapshot({ f: [{}, { x: p1().x + 60, vx: 0, vy: 0, state: p2.state === 'hitstun' ? 'hitstun' : 'idle' }] });
+  }
+  const dealt = hp0 - sim.Game.world().p2.hp;
+  assert.ok(hits.size >= 7, `most of the 9 punches landed (${hits.size})`);
+  assert.ok(dealt > fl.hit.damage * 6, `flurry damage ${dealt}`);
+  assert.notStrictEqual(p1().state, 'flurry');
+  // The meter: one landed punch gives him more than anyone else's.
+  const gain = (id) => {
+    sim.Game.startMatch(id, 'john', () => {}, { ball: 'off', balance: false });
+    step(sim, 200);
+    sim.Game.applySnapshot({ f: [{ x: 500, ultCharge: 0 }, { x: 560 }] });
+    punch(sim, 'p1'); step(sim, 25);
+    return sim.Game.world().p1.ultCharge;
+  };
+  assert.ok(gain('keenan') > gain('ryan') * 1.4, 'Keenan\'s meter fills faster');
 });

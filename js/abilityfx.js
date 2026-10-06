@@ -1671,6 +1671,15 @@ const AbilityFX = (() => {
       }
     }
 
+    if (st === 'flurry') { // a swoosh and a swing sound for each of the punches
+      const fl = f.character.ultimate.flurry;
+      for (let i = 0; i < fl.count; i++) {
+        if (crossed(prevT, t, fl.start + i * fl.every)) {
+          add({ kind: 'swoosh', dur: 130, x: f.x, y: f.y - H * 0.6, dir: f.facing, r: fl.offset + fl.width * 0.8 });
+          if (typeof Sfx !== 'undefined') Sfx.swing((f.x - CANVAS_WIDTH / 2) / (CANVAS_WIDTH / 2));
+        }
+      }
+    }
     if (st === 'attack' && f.downAttackActive && f.character.comboSong && crossed(prevT, t, f.attackDef.startup)) {
       add({ kind: 'shockring', dur: 560, x: f.x, y: f.y - H * 0.5, r: f.attackDef.width * 0.55, color: 'rgba(255,150,225,A)', notes: 7, a: Math.random() * TAU });
     }
