@@ -357,7 +357,7 @@ const UI = (() => {
       if (ticks < total) { renderPreview(slot, order[at++ % order.length]); return; }
       clearInterval(timer);
       spinning[slot] = false;
-      if (Net.isOnline()) Net.sendCtrl({ t: 'pick', slot, id: final, v: myBuild });
+      if (Net.isOnline()) sendPick(slot, final);
       selected[slot] = final;
       buildCharCards(containerId, slot);
       refreshSelect();
@@ -382,7 +382,7 @@ const UI = (() => {
       icon.addEventListener('click', () => {
         if (Net.isOnline()) {
           if (slot !== Net.localSlot()) return;
-          Net.sendCtrl({ t: 'pick', slot, id: char.id, v: myBuild });
+          sendPick(slot, char.id);
         }
         selected[slot] = char.id;
         Sfx.voice(char.id, 'selected'); // the fighter's "picked me" line
@@ -407,7 +407,8 @@ const UI = (() => {
     const local = Net.localSlot();
     document.getElementById('p1-cards').classList.toggle('locked', online && local !== 'p1');
     document.getElementById('p2-cards').classList.toggle('locked', online && local !== 'p2');
-    document.getElementById('btn-fight').disabled = online && !Net.isLeader();
+    resetReady();
+    document.getElementById('btn-fight').disabled = false;
     document.getElementById('cpu-difficulty').classList.toggle('hidden', !cpuMode);
     syncDifficulty();
     syncStage();
@@ -465,8 +466,8 @@ const UI = (() => {
     if (online && versionMismatch) parts.push(VERSION_NOTE);
     if (online) {
       const k = CONTROLS.solo;
-      parts.push(Net.isLeader() ? 'You are Player 1. Press Fight! when you are both ready.'
-        : 'You are Player 2. Waiting for the host to start...');
+      parts.push((Net.isLeader() ? 'You are Player 1 (host).' : 'You are Player 2.') + ' Press Ready when you have picked: the match starts as soon as you are both ready.');
+      parts.push(readyMe ? (readyOpp ? 'You are both ready...' : 'You are ready. Waiting for your opponent...') : (readyOpp ? 'Your opponent is ready!' : 'Waiting for you both to ready up.'));
       parts.push(`Your controls: ${keyLabel(k.left)}/${keyLabel(k.right)} move · ${keyLabel(k.jump)} jump · ${keyLabel(k.block)} crouch · ${keyLabel(k.guard)} guard · ${keyLabel(k.attack)} attack · ${keyLabel(k.special)} special · ${keyLabel(k.ultimate)} ultimate (arrow keys move too)`);
     }
     if (cpuMode) {
@@ -475,6 +476,46 @@ const UI = (() => {
     }
     if (selected.p1 === selected.p2) parts.push('Mirror match: Player 2 gets an alternate colour scheme.');
     document.getElementById('select-online-note').innerHTML = parts.join('<br>');
+  }
+
+  // ---- Readying up (online, one-on-one) ----
+  // Each player presses Ready (on the select screen, or Rematch after a match); the host starts the match the moment both
+  // are ready. The flag rides along on the 'pick' message the relay already passes on, so it needs no new message type.
+  // Changing your pick takes your ready back.
+  let readyMe = false, readyOpp = false;
+  const isDuel = () => Net.isOnline() && !Net.isFfa();
+  function sendPick(slot, id, keepReady) {
+    if (!keepReady && slot === Net.localSlot() && id !== selected[slot]) readyMe = false; // (a new pick takes your ready back)
+    Net.sendCtrl({ t: 'pick', slot, id, ready: slot === Net.localSlot() && readyMe, v: myBuild });
+    syncReady();
+  }
+  function resetReady() { readyMe = false; readyOpp = false; syncReady(); }
+  function syncReady() {
+    const duel = isDuel();
+    const fight = document.getElementById('btn-fight');
+    fight.textContent = duel ? (readyMe ? 'Ready \u2713 (click to cancel)' : 'Ready') : 'Fight!';
+    fight.classList.toggle('is-ready', duel && readyMe);
+    const rematch = document.getElementById('btn-rematch');
+    if (duel) {
+      rematch.disabled = false;
+      rematch.textContent = readyMe ? 'Ready \u2713 (click to cancel)' : 'Rematch';
+      rematch.classList.toggle('is-ready', readyMe);
+    } else {
+      rematch.classList.remove('is-ready');
+    }
+    const status = document.getElementById('matchend-status');
+    status.textContent = !duel ? '' : readyMe ? (readyOpp ? 'Starting...' : 'Waiting for your opponent to ready up...') : (readyOpp ? 'Your opponent is ready for a rematch!' : '');
+    if (!screens.select.classList.contains('hidden')) refreshSelect();
+  }
+  function toggleReady() {
+    if (!isDuel()) return;
+    readyMe = !readyMe;
+    sendPick(Net.localSlot(), selected[Net.localSlot()], true);
+    maybeStartReady();
+  }
+  function maybeStartReady() {
+    const onMenu = !screens.select.classList.contains('hidden') || !screens.matchend.classList.contains('hidden');
+    if (isDuel() && Net.isLeader() && readyMe && readyOpp && onMenu) startFight();
   }
 
   // ---- Match flow ----
@@ -493,6 +534,7 @@ const UI = (() => {
   }
 
   function beginMatch(matchId) {
+    resetReady();
     hideAll();
     window.VF_setPaused(false);
     isPaused = false;
@@ -505,8 +547,12 @@ const UI = (() => {
   function onMatchEnd(winnerSlot) {
     // With rollback both players see the match end themselves.
     const online = Net.isOnline();
-    document.getElementById('btn-rematch').disabled = online && !Net.isLeader();
-    document.getElementById('btn-rematch').textContent = online && !Net.isLeader() ? 'P1 picks rematch' : 'Rematch';
+    if (Net.isFfa()) { // (free-for-all keeps the host in charge of the rematch)
+      document.getElementById('btn-rematch').disabled = !Net.isLeader();
+      document.getElementById('btn-rematch').textContent = Net.isLeader() ? 'Rematch' : 'P1 picks rematch';
+    } else {
+      syncReady();
+    }
     Stats.reportMatch(cpuMode ? 'cpu' : online ? 'online' : 'local', selected.p1, selected.p2, winnerSlot, { stage: stageId, ball: ballMode, balance: balanceOn, cpuLevel });
     const winnerChar = CHARACTERS[selected[winnerSlot]];
     const you = cpuMode ? 'p1' : online ? Net.localSlot() : null;
@@ -589,9 +635,9 @@ const UI = (() => {
   }
 
   document.getElementById('btn-select-back').addEventListener('click', () => show('title'));
-  document.getElementById('btn-fight').addEventListener('click', startFight);
+  document.getElementById('btn-fight').addEventListener('click', () => { if (isDuel()) toggleReady(); else startFight(); });
 
-  document.getElementById('btn-rematch').addEventListener('click', startFight);
+  document.getElementById('btn-rematch').addEventListener('click', () => { if (isDuel()) toggleReady(); else startFight(); });
   document.getElementById('btn-change-chars').addEventListener('click', () => {
     Net.sendCtrl({ t: 'select' });
     if (Net.isFfa()) openFfa(); else openSelect();
@@ -654,7 +700,8 @@ const UI = (() => {
   });
   Net.on('connected', () => {
     versionMismatch = false;
-    buildId.then((v) => Net.sendCtrl({ t: 'pick', slot: Net.localSlot(), id: selected[Net.localSlot()], v }));
+    resetReady();
+    buildId.then(() => sendPick(Net.localSlot(), selected[Net.localSlot()])); // (carries our build fingerprint, see checkVersion)
     openSelect();
   });
   Net.on('disconnected', (reason) => {
@@ -670,6 +717,7 @@ const UI = (() => {
     if (msg.t === 'pick' && (msg.slot === 'p1' || msg.slot === 'p2') && CHARACTERS[msg.id]) {
       checkVersion(msg.v); // (an older game sends none: that's a mismatch too)
       selected[msg.slot] = msg.id;
+      if (msg.slot !== Net.localSlot()) { readyOpp = !!msg.ready; syncReady(); maybeStartReady(); }
       if (!screens.select.classList.contains('hidden')) {
         buildCharCards(msg.slot + '-cards', msg.slot);
         refreshSelect();

@@ -29,6 +29,7 @@ Locally: `git diff --name-only <base> | node tools/needs-3d.js --stdin && npm ru
 | `ffa.test.js` | Online free-for-all: up to four fighters, double health, out on a KO or ring-out, last one standing; every character survives four-way matches in every ball mode; Robert's grab keeps hold of the right fighter; rollback keeps three and four players' games identical over a bad network. | no |
 | `stats.test.js` | Match stats: the sim logs how each round ended (and rollback can't log one twice); only online and live-site local matches get reported, once; the server's `/stats` endpoints store, reject junk and filter by date. | no |
 | `e2e.test.js` | The real page in headless Chrome: menus, starting a fight, both fighters actually drawn (pixel check), every character running its whole move set with rendering on, the online-guest snapshot path, mirror matches, sound and the playlist. | yes |
+| `online-ready.test.js` | Two real browsers (one per player) and the real relay server running locally: ready up to start, a new pick cancels your ready, the post-match options for both players, a rematch once both are ready. | no |
 
 `npm run test:fast` skips the browser test (a few seconds).
 

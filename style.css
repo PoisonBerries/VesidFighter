@@ -123,6 +123,12 @@ button:active {
   background: #ff4d5e;
 }
 
+/* Online: you've pressed Ready (or Rematch) and are waiting for the other player */
+.btn-primary.is-ready, .btn-primary.is-ready:hover {
+  background: #2e9e57;
+  border-color: #6fe39a;
+}
+
 .menu-buttons {
   display: flex;
   gap: 8px;
