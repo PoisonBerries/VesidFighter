@@ -517,9 +517,10 @@ const Sfx = (() => {
 
   // ---- Jon, the Orchard's giant: his recording while he's at the fence ----
   // (game.js starts it as he comes in to the fence and stops it as he runs
-  // off). Bass-boosted and blown out -- a big low shelf into hard clipping,
-  // the harsh top rolled off -- then levelled to the same loudness as the
-  // voice lines, so it sounds wrecked without being louder. Made once.
+  // off). Bass-boosted and blown out -- a big low shelf into very hard
+  // clipping (twice), the harsh top rolled off -- then a big, echoing
+  // reverb, and levelled to the same loudness as the plain recording, so it
+  // sounds wrecked without being louder. Made once.
   const JON_FILE = 'assets/voice/jon/JonArrives.mp3';
   let jonBuf, jonNow = null;
   function jonCurve(drive) {
@@ -532,10 +533,12 @@ const Sfx = (() => {
     const src = off.createBufferSource(); src.buffer = buf;
     const bass = off.createBiquadFilter(); bass.type = 'lowshelf'; bass.frequency.value = 160; bass.gain.value = 16;
     const punch = off.createBiquadFilter(); punch.type = 'peaking'; punch.frequency.value = 70; punch.Q.value = 1; punch.gain.value = 8;
-    const pre = off.createGain(); pre.gain.value = 3;
-    const clip = off.createWaveShaper(); clip.curve = jonCurve(9); clip.oversample = '4x';
-    const tame = off.createBiquadFilter(); tame.type = 'lowpass'; tame.frequency.value = 6500;
-    src.connect(bass); bass.connect(punch); punch.connect(pre); pre.connect(clip); clip.connect(tame); tame.connect(off.destination);
+    const pre = off.createGain(); pre.gain.value = 6;
+    const clip = off.createWaveShaper(); clip.curve = jonCurve(30); clip.oversample = '4x';
+    const mid = off.createBiquadFilter(); mid.type = 'peaking'; mid.frequency.value = 900; mid.Q.value = 0.8; mid.gain.value = 6; // (a nasal, blown-speaker honk)
+    const clip2 = off.createWaveShaper(); clip2.curve = jonCurve(12); clip2.oversample = '4x';
+    const tame = off.createBiquadFilter(); tame.type = 'lowpass'; tame.frequency.value = 5500;
+    src.connect(bass); bass.connect(punch); punch.connect(pre); pre.connect(clip); clip.connect(mid); mid.connect(clip2); clip2.connect(tame); tame.connect(off.destination);
     src.start();
     return off.startRendering();
   }
@@ -562,6 +565,30 @@ const Sfx = (() => {
       }
     }
   }
+  // A big hall: a synthetic impulse response (decaying noise, the highs
+  // dying faster), mixed in fairly wet.
+  const JON_VERB = { seconds: 2.6, wet: 0.45, dry: 0.75 };
+  function jonReverb(buf) {
+    const sr = buf.sampleRate, len = Math.round(sr * JON_VERB.seconds);
+    const off = new OfflineAudioContext(2, buf.length, sr);
+    const ir = off.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch); let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const t = i / len;
+        lp += ((Math.random() * 2 - 1) - lp) * (0.6 - 0.5 * t);   // darker as it dies away
+        d[i] = lp * Math.pow(1 - t, 2.2);
+      }
+    }
+    const src = off.createBufferSource(); src.buffer = buf;
+    const conv = off.createConvolver(); conv.buffer = ir;
+    const wet = off.createGain(); wet.gain.value = JON_VERB.wet;
+    const dry = off.createGain(); dry.gain.value = JON_VERB.dry;
+    src.connect(dry); dry.connect(off.destination);
+    src.connect(conv); conv.connect(wet); wet.connect(off.destination);
+    src.start();
+    return off.startRendering();
+  }
   function jonLoad() {
     if (jonBuf !== undefined) return;
     jonBuf = null;
@@ -569,8 +596,9 @@ const Sfx = (() => {
       .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('missing'))))
       .then((data) => new Promise((resolve, reject) => ac.decodeAudioData(data, resolve, reject)))
       .then(async (raw) => {
-        const buf = await jonProcess(raw);
-        jonGate(raw, buf);
+        const crushed = await jonProcess(raw);
+        jonGate(raw, crushed);            // (before the reverb, so its tail rings on through the pauses)
+        const buf = await jonReverb(crushed);
         // Exactly as loud on average as the plain recording at the voice lines' level.
         buf.leveled = (rmsOf(raw) * loudnessGain(raw)) / Math.max(1e-9, rmsOf(buf));
         jonBuf = buf;
