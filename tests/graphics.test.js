@@ -1,6 +1,6 @@
 // Graphics settings (js/graphics.js) without a browser: the tier guessed from
-// the GPU, what each preset turns on, what's saved, and dropping to Cartoon
-// when fights run slowly.
+// the GPU, what each preset turns on, and what's saved -- and that slow
+// fights never change the setting.
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -100,21 +100,10 @@ test('an old save (Auto, or a lower resolution) starts over from the GPU guess',
   assert.ok(!('scale' in Graphics.config()), 'no resolution setting: always full');
 });
 
-test('a fight that runs slowly drops to Cartoon -- from any preset -- and remembers it', () => {
+test('a fight that runs slowly keeps the chosen setting (it just runs at a lower frame rate)', () => {
   const { Graphics, store } = load({ gpu: 'NVIDIA GeForce RTX 3060' });
   assert.strictEqual(Graphics.config().tier, 'high');
-  const run = (G, fps, seconds, fighting = true) => { for (let i = 0; i < fps * seconds; i++) G.frame(1 / fps, fighting); };
-  run(Graphics, 60, 10);
-  assert.strictEqual(Graphics.config().tier, 'high', 'a smooth fight changes nothing');
-  run(Graphics, 30, 10, false);
-  assert.strictEqual(Graphics.config().tier, 'high', 'menus and pauses do not count');
-  run(Graphics, 30, 6); // 2s to settle, then a 3s window
-  assert.strictEqual(Graphics.config().tier, 'cartoon', 'straight to the cartoon scenery');
-  assert.ok(Graphics.slowedDown());
-  assert.strictEqual(JSON.parse(store['vesid.graphics']).preset, 'cartoon', 'remembered for next time');
-  // Picking a preset again is allowed (and watched the same way).
-  Graphics.set({ preset: 'low' });
-  assert.ok(!Graphics.slowedDown());
-  run(Graphics, 20, 6);
-  assert.strictEqual(Graphics.config().tier, 'cartoon');
+  for (let i = 0; i < 20 * 60; i++) Graphics.frame(1 / 20);   // a minute at 20 fps
+  assert.strictEqual(Graphics.config().tier, 'high');
+  assert.strictEqual(JSON.parse(store['vesid.graphics']).preset, 'high');
 });

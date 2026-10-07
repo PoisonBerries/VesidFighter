@@ -55,7 +55,6 @@ const STAGES = {
     // fighter). Phases in frames; the 3D view (renderer3d.js) moves and
     // animates it to match.
     monster: {
-      off: true,        // TODO: the giant is switched off for now -- we'll add him back later (delete this line)
       at: 15 * 60,
       lanes: [175, 970, 1235], // (clear of the apple tree, which would hide it, and the tractor)
       hand: 145,        // its grabbing hand comes down this far to the right of its lane
@@ -66,7 +65,8 @@ const STAGES = {
       hold: 45, throw: 100, release: 0.65, // throw: turns side-on and lets go this far through
       turn: 98, back: 230, descend: 500,
       held: [110, 350], // where it holds them (x from its lane, height)
-      fling: [430, 520], // where its fist is as it lets go (x along the throw, height)
+      fling: [572, 424], // where its fist is as it lets go (x along the throw from where it stands, height)
+      flingV: [44, 24],  // how fast they leave its hand (along the throw, up): its arm's whip, measured from the clip
     },
   },
 };
@@ -166,11 +166,12 @@ const Stage = (() => {
         // (and off the edge, for balance mode where an empty bar doesn't end
         // the round).
         const dir = mon.dir;
-        held.x = mon.x + dir * m.fling[0]; held.y = GROUND_Y - m.fling[1];
+        const at = mon.gx === undefined ? mon.x : mon.gx - m.hand; // where it stands (it leaned over to grab them)
+        held.x = at + dir * m.fling[0]; held.y = GROUND_Y - m.fling[1];
         mon.thrown = dir;
         held.heldByStage = false;
-        held.state = 'hitstun'; held.stunFrames = 60; held.launched = true;
-        held.vx = dir * 38; held.vy = -18;
+        held.state = 'hitstun'; held.stunFrames = 60; held.launched = true; held.flung = true;
+        held.vx = dir * m.flingV[0]; held.vy = -m.flingV[1]; // (out past the edge of the world and away: see Fighter.flung)
         held.hp = 0;
         mon.held = null;
         if (typeof Effects !== 'undefined') { Effects.shake(18, 24); Effects.spawnHitSpark(held.x, held.y - 40, '#ffe066', 'boom'); }

@@ -105,6 +105,7 @@ class Fighter {
     this._comboHeld = false; // jump + crouch both down last frame (to catch the moment the pair is completed)
     this._crouchHeld = false; // crouch down last frame (pressing it on a platform drops you through)
     this.heldByStage = false; // held up by the stage's monster (stages.js)
+    this.flung = false;       // thrown away by the monster: sails off past the edge of the world, out of sight
     this.grabbedBy = null;    // slot of the fighter holding us (Robert's slam, John's carry)
     this.phaseStepFrom = 0;
     this.phaseStepTo = 0;
@@ -669,6 +670,7 @@ class Fighter {
     this._comboHeld = false;
     this._crouchHeld = false;
     this.heldByStage = false;
+    this.flung = false;
     this.blocking = false;
     this.guarding = false;
     this.facingLocked = false;
@@ -1852,8 +1854,9 @@ class Fighter {
     }
     if (!plat && this.y < GROUND_Y) this.platform = null; // walked, jumped or was knocked off it
 
-    // Keep fighters from flying fully out of the world while airborne.
-    this.x = Math.max(WORLD_LEFT, Math.min(WORLD_RIGHT, this.x));
+    // Keep fighters from flying fully out of the world while airborne
+    // (except when the giant throws them: they sail on out of sight).
+    if (!this.flung) this.x = Math.max(WORLD_LEFT, Math.min(WORLD_RIGHT, this.x));
 
     this.walkCycle += Math.abs(this.vx) * 0.05;
   }

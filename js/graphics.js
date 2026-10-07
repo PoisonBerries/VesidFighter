@@ -1,6 +1,7 @@
 // Graphics settings: Cartoon / Low / Medium / High. The first visit starts
-// on a tier guessed from the GPU; if a fight runs slowly on any of them, it
-// drops to Cartoon on its own. Always full resolution. The 3D view
+// on a tier guessed from the GPU; after that it only changes when you pick
+// another (a slow machine just runs at a lower frame rate). Always full
+// resolution. The 3D view
 // (renderer3d.js) reads Graphics.config()
 // and listens for changes; the settings panel (the gear by the sound
 // button) writes them. Saved in localStorage.
@@ -113,34 +114,12 @@ const Graphics = (() => {
 
   function set(patch) {
     Object.assign(settings, patch);
-    if (patch.preset) { perf.reset(); slowedDown = false; }
     changed();
   }
 
-  // ---- Slow fights drop to Cartoon ----
-  // The renderer reports each frame (fight frames only). Every few seconds,
-  // if the average is under the target, switch to Cartoon (and save it).
-  const perf = {
-    frames: 0, time: 0, warm: 0,
-    reset() { this.frames = 0; this.time = 0; this.warm = 0; },
-  };
-  let slowedDown = false; // (for the settings panel's note)
-  function frame(dt, fighting) {
+  // The renderer reports each frame (for the FPS counter).
+  function frame(dt) {
     fps.tick(dt);
-    if (!fighting || settings.preset === 'cartoon') { perf.reset(); return; }
-    if (dt >= 0.25) return; // a hitch (tab switch, loading), not the steady rate
-    perf.warm += dt;
-    if (perf.warm < 2) return; // settle in first
-    perf.frames++; perf.time += dt;
-    if (perf.time < 3) return;
-    const rate = perf.frames / perf.time;
-    perf.frames = 0; perf.time = 0;
-    if (rate >= 48) return;
-    console.info(`[graphics] running at ${rate.toFixed(0)} fps on ${settings.preset} -- switching to cartoon`);
-    settings.preset = 'cartoon';
-    slowedDown = true;
-    perf.reset();
-    changed();
   }
 
   // ---- FPS counter ----
@@ -163,7 +142,7 @@ const Graphics = (() => {
     },
   };
 
-  return { PRESETS, TIERS, settings, config, set, onChange, frame, needsReload, guessTier, slowedDown: () => slowedDown };
+  return { PRESETS, TIERS, settings, config, set, onChange, frame, needsReload, guessTier };
 })();
 
 // ---- The settings panel (the gear by the sound button) ----
@@ -173,14 +152,11 @@ const Graphics = (() => {
   if (!btn || !panel) return;
   const presets = [...panel.querySelectorAll('[data-gfx]')];
   const fps = document.getElementById('gfx-fps');
-  const note = document.getElementById('gfx-note');
   const reload = document.getElementById('gfx-reload');
 
   function refresh() {
     const s = Graphics.settings;
     for (const b of presets) b.classList.toggle('active', b.dataset.gfx === s.preset);
-    note.textContent = Graphics.slowedDown() ? 'Switched to Cartoon: fights were running slowly' : '';
-    note.hidden = !note.textContent;
     fps.checked = !!s.fps;
     reload.hidden = !Graphics.needsReload();
   }

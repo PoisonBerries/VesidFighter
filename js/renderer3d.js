@@ -1044,7 +1044,7 @@ if (webglAvailable()) {
     }
   }
   // The monster (stages.js def.monster): a giant -- a rigged humanoid with
-  // its clips (assets/models/monster.glb: swat, run, jump, look, grab, throw,
+  // its clips (assets/models/monster.glb -- Jon, rigged by tools/blender/rig_giant.py: swat, run, jump, look, grab, throw,
   // turn) --
   // moved along its lane to match the game's phases. The clips' own forward
   // travel is taken out (we move it), and it blends smoothly from one clip
@@ -1052,8 +1052,9 @@ if (webglAvailable()) {
   const MON = orchardDef.monster;
   const MON_SCALE = 5.5;           // ~9.5 m tall
   const MON_BLEND = 0.35;          // seconds to cross-fade between clips
+  const THROW_RELEASE = 0.305;     // how far through the throw clip its hand lets go (matches stages.js fling/flingV)
   const newHand = () => ({ hand: null, knuckle: null, fingers: [], thumb: [], tips: [], thumbTip: null, curlAxis: null, thumbAxis: null, curl: 0 });
-  const monster = { group: new THREE.Group(), mixer: null, acts: {}, w: {}, ready: false, last: null, hands: { Left: newHand(), Right: newHand() }, carry: 0, mats: [], yaw: undefined, ground: [] };
+  const monster = { group: new THREE.Group(), mixer: null, acts: {}, w: {}, ready: false, last: null, hands: { Left: newHand(), Right: newHand() }, mats: [], yaw: undefined, ground: [] };
   monster.group.visible = false;
   orchard.add(monster.group);
   (async () => {
@@ -1240,7 +1241,8 @@ if (webglAvailable()) {
       case 'throw': { // turns side-on towards the nearer end of the floor, steps in and hurls them along it
         const r = MON.release;
         heading = (m.dir || 1) * (Math.PI / 2);
-        clip = 'throw'; at = u < r ? 0.4 * (u / r) : 0.4 + 0.15 * ((u - r) / (1 - r)); break;
+        // (THROW_RELEASE: the point in the clip where its arm whips forward, when the game lets go)
+        clip = 'throw'; at = u < r ? THROW_RELEASE * (u / r) : THROW_RELEASE + 0.22 * ((u - r) / (1 - r)); break;
       }
       case 'turn': // turns round (the clip itself turns it; it's facing away by the end)
         clip = 'turn'; at = u; turnInClip = true; break;
@@ -1254,21 +1256,18 @@ if (webglAvailable()) {
     // (out of the turn clip it's already facing away: no second turn)
     if (fresh || monster.yaw === undefined || (m.phase === 'back' && monster.last === 'turn')) monster.yaw = heading;
     else monster.yaw += Math.atan2(Math.sin(heading - monster.yaw), Math.cos(heading - monster.yaw)) * Math.min(1, dt * 5);
-    // Which fist they're in: the left (the one it grabs with) -- unless it's
-    // throwing to the right, when it turns that fist away from us, so it
-    // passes them to the right one as it winds up.
+    // They're in its left fist, the one it grabs with, all the way through:
+    // the throw clip is mirrored to throw with that hand (tools/blender/rig_giant.py).
     const holding = !!m.held && (m.phase === 'grab' || m.phase === 'hold' || m.phase === 'throw');
-    monster.carry = m.phase === 'throw' && m.dir > 0 ? ease(Math.min(1, u / 0.3)) : 0;
     const k8 = Math.min(1, (monster.last ? dt : 1) * 8);
-    monster.hands.Left.curl += ((holding ? 1 - monster.carry : 0) - monster.hands.Left.curl) * k8;
-    monster.hands.Right.curl += ((holding ? monster.carry : 0) - monster.hands.Right.curl) * k8;
+    monster.hands.Left.curl += ((holding ? 1 : 0) - monster.hands.Left.curl) * k8;
     poseMonster(clip, at, monster.last ? dt : 1);
     fadeMonster(alpha);
     monster.last = m.phase;
     // Reaching for someone: it leans over so its hand comes down on them,
     // and keeps them in that hand as it straightens.
     let reach = 0;
-    if (m.held && m.gx !== undefined) reach = (m.gx - (m.x + MON.hand)) * S;
+    if ((m.held || m.phase === 'throw') && m.gx !== undefined) reach = (m.gx - (m.x + MON.hand)) * S; // (stays put through the throw)
     else if (m.phase === 'look' || m.phase === 'grab') {
       const zn = Stage.monsterZone(), st = monster.fighters;
       if (zn && st) {
@@ -1320,24 +1319,31 @@ if (webglAvailable()) {
   // Whoever it's holding: drawn in its fist -- their middle at the palm, the
   // curled fingers in front of them, head and arms above, legs below. As it
   // lets go they leave the fist smoothly rather than jumping.
-  const handPos = new THREE.Vector3(), knucklePos = new THREE.Vector3(), otherPos = new THREE.Vector3();
+  const handPos = new THREE.Vector3(), knucklePos = new THREE.Vector3();
   const fistPos = (h, out) => {
     h.hand.getWorldPosition(out);
     if (h.knuckle) out.lerp(h.knuckle.getWorldPosition(knucklePos), 0.6);
     return out;
   };
+  const FLING_BLEND = 450; // ms for someone the giant throws to go from its fist onto their path
   function holdInHand(card, f, now) {
-    const L = monster.hands.Left, R = monster.hands.Right;
+    const L = monster.hands.Left;
     const held = L.hand && monster.group.visible && f.state === 'grabbed' && f.heldByStage;
     if (held) {
       fistPos(L, handPos);
-      if (monster.carry > 0 && R.hand) handPos.lerp(fistPos(R, otherPos), monster.carry);
       const sheet = card.sheet;
       card.mesh.position.set(handPos.x, handPos.y + (sheet.feetY - sheet.h / 2 - 0.5 * f.height) * S, handPos.z);
       card.blob.visible = card.ring.visible = false;
-      card.fistAt = card.mesh.position.clone(); card.fistTill = now + 220;
+      card.fistAt = card.mesh.position.clone(); card.fistTill = now + FLING_BLEND; card.fistOff = null;
     } else if (card.fistTill > now) {
-      card.mesh.position.lerp(card.fistAt, (card.fistTill - now) / 220);
+      // Just thrown: they leave from its fist and fly on at full speed, the
+      // gap between its fist and their path (it stands well behind the fight
+      // line) closing as they go -- rather than hanging at the fist first.
+      if (!card.fistOff) card.fistOff = card.fistAt.clone().sub(card.mesh.position);
+      const k = (card.fistTill - now) / FLING_BLEND;
+      card.mesh.position.addScaledVector(card.fistOff, k * k);
+    } else {
+      card.fistOff = null;
     }
   }
 
@@ -2015,12 +2021,17 @@ if (webglAvailable()) {
   const camPos = new THREE.Vector3(0, 3, 13);
   let lastRender = performance.now();
 
+  const flungFrom = new Map(); // slot -> where the giant threw them from (see frameCamera)
   function frameCamera(state, dt, t) {
     let tx, ty, dist;
     if (state) {
-      // Frame everyone still in (a free-for-all can have four).
-      let framed = fightersOf(state).filter((f) => !f.out);
-      if (!framed.length) framed = fightersOf(state);
+      // Frame everyone still in (a free-for-all can have four). Someone the
+      // giant threw is framed where they were thrown from, so the camera holds
+      // still and lets them fly out of shot.
+      const all = fightersOf(state);
+      for (const f of all) if (!f.flung) flungFrom.delete(f.slot); else if (!flungFrom.has(f.slot)) flungFrom.set(f.slot, { x: f.x, y: f.y, height: f.height });
+      let framed = all.filter((f) => !f.out || flungFrom.has(f.slot)).map((f) => flungFrom.get(f.slot) || f);
+      if (!framed.length) framed = all;
       const xs = framed.map((f) => toX(f.x));
       // Don't chase a fighter all the way down a ring-out.
       const ys = framed.map((f) => Math.max(toY(f.y), -1.2));
