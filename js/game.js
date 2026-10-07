@@ -194,6 +194,8 @@ const Game = (() => {
     if (matchState === 'roundEnd') {
       // Someone the giant threw keeps sailing away (out of sight) after the round ends.
       for (const f of fighters) if (f.flung) { f.vy += GRAVITY; f.x += f.vx; f.y += f.vy; }
+      // ...and the giant carries on with its moves (it doesn't freeze mid-stride).
+      Stage.coast(fighters);
       for (const f of fighters) {
         if (!f.finishUltimate) continue;
         f.update(Net.controlsFor(f.slot), foeOf(f));

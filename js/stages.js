@@ -62,7 +62,7 @@ const STAGES = {
       top: 150,         // ...on the floor (not up a tree)
       climb: 1450, swat: 270, run: 120, jump: 50, look: 270,
       grab: 140, reach: 0.62, // grab: hands at the floor this far through
-      hold: 45, throw: 100, release: 0.65, // throw: turns side-on and lets go this far through
+      hold: 45, throw: 146, release: 0.445, // throw: turns side-on and lets go this far through (frame 65), then follows through
       turn: 98, back: 230, descend: 500,
       held: [110, 350], // where it holds them (x from its lane, height)
       fling: [572, 424], // where its fist is as it lets go (x along the throw from where it stands, height)
@@ -120,7 +120,9 @@ const Stage = (() => {
   // The monster (def.monster): where it is in its run, and what it does to
   // whoever it catches.
   function monsterNext(mon, phase) { mon.phase = phase; mon.t = 0; }
-  function updateMonster(fighters) {
+  // (coasting: after the round's over it carries on through its moves -- the
+  // follow-through, running off -- but catches no one.)
+  function updateMonster(fighters, coasting) {
     const m = def.monster;
     if (!m || m.off) return; // (switched off for now -- see def.monster.off)
     let mon = state.monster;
@@ -134,11 +136,12 @@ const Stage = (() => {
       return;
     }
     mon.t++;
+    if (coasting && mon.held) mon.held = null;
     const handX = mon.x + m.hand;
     const inReach = (f) => f.state !== 'ko' && f.state !== 'grabbed' && !(f.invulnerableTimer > 0)
       && Math.abs(f.x - handX) <= m.range && f.y >= GROUND_Y - m.top;
     const held = mon.held ? fighters.find((f) => f.slot === mon.held) : null;
-    if (mon.phase === 'grab' && !mon.held && mon.t === Math.round(m.reach * m.grab)) {
+    if (mon.phase === 'grab' && !mon.held && !coasting && mon.t === Math.round(m.reach * m.grab)) {
       // Hand at the floor: catch whoever is still under it.
       let pick = null;
       for (const f of fighters) if (inReach(f) && (!pick || Math.abs(f.x - handX) < Math.abs(pick.x - handX))) pick = f;
@@ -277,7 +280,7 @@ const Stage = (() => {
   }
 
   return {
-    use, reset, update, platforms, platform, save, load, carStart, monsterZone,
+    use, reset, update, coast: (fighters) => updateMonster(fighters, true), platforms, platform, save, load, carStart, monsterZone,
     id: () => id,
     def: () => def,
     car: () => state.car,

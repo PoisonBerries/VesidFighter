@@ -357,7 +357,7 @@ const UI = (() => {
       if (ticks < total) { renderPreview(slot, order[at++ % order.length]); return; }
       clearInterval(timer);
       spinning[slot] = false;
-      if (Net.isOnline()) Net.sendCtrl({ t: 'pick', slot, id: final });
+      if (Net.isOnline()) Net.sendCtrl({ t: 'pick', slot, id: final, v: myBuild });
       selected[slot] = final;
       buildCharCards(containerId, slot);
       refreshSelect();
@@ -382,7 +382,7 @@ const UI = (() => {
       icon.addEventListener('click', () => {
         if (Net.isOnline()) {
           if (slot !== Net.localSlot()) return;
-          Net.sendCtrl({ t: 'pick', slot, id: char.id });
+          Net.sendCtrl({ t: 'pick', slot, id: char.id, v: myBuild });
         }
         selected[slot] = char.id;
         Sfx.voice(char.id, 'selected'); // the fighter's "picked me" line
@@ -422,6 +422,33 @@ const UI = (() => {
   }
 
   // Re-render both previews plus the side labels and the note under them
+  // Online, both players must run the same game logic, or their matches
+  // drift apart (and player 1's overwrites player 2's -- e.g. the giant
+  // appearing for one of them and vanishing). Right after an update a browser
+  // can still have older files cached, so each side fingerprints the game
+  // files it loaded and sends that with its first pick; on a mismatch both are
+  // told to refresh, and the match won't start.
+  const SIM_FILES = ['constants.js', 'stages.js', 'input.js', 'characters.js', 'effects.js', 'fighter.js', 'game.js', 'rollback.js'];
+  const buildId = Promise.all(SIM_FILES.map((f) => fetch('js/' + f, { cache: 'force-cache' }).then((r) => r.text())))
+    .then((texts) => {
+      let h = 2166136261;
+      for (const t of texts) for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); }
+      return (h >>> 0).toString(36);
+    })
+    .catch(() => null);
+  let myBuild; buildId.then((v) => { myBuild = v; });
+  let versionMismatch = false;
+  function checkVersion(theirs) {
+    buildId.then((mine) => {
+      const differ = !!mine && theirs !== mine;
+      if (differ === versionMismatch) return;
+      versionMismatch = differ;
+      if (differ) console.warn('[online] different game version from the opponent:', mine, 'vs', theirs);
+      if (!screens.select.classList.contains('hidden')) refreshSelect();
+    });
+  }
+  const VERSION_NOTE = '<b style="color:#ff6b6b">You and your opponent have different versions of the game. Both of you: refresh the page (Cmd/Ctrl+Shift+R), then reconnect.</b>';
+
   // (a pick on either side can change the other's preview -- mirror match).
   function refreshSelect() {
     const online = Net.isOnline();
@@ -435,6 +462,7 @@ const UI = (() => {
       renderPreview(slot, selected[slot]);
     }
     const parts = [];
+    if (online && versionMismatch) parts.push(VERSION_NOTE);
     if (online) {
       const k = CONTROLS.solo;
       parts.push(Net.isLeader() ? 'You are Player 1. Press Fight! when you are both ready.'
@@ -453,6 +481,7 @@ const UI = (() => {
   function startFight() {
     if (Net.isFfa()) { startFfa(); return; }
     if (Net.isOnline()) {
+      if (versionMismatch) return; // (see checkVersion)
       if (!Net.isLeader()) return; // P1 drives match start
       const mid = Net.isRollback() ? Net.newMatchId() : undefined;
       Net.sendCtrl({ t: 'start', p1: selected.p1, p2: selected.p2, mid, ball: ballMode, balance: balanceOn, stage: stageId });
@@ -624,7 +653,8 @@ const UI = (() => {
     else setOnlineStatus(s.text);
   });
   Net.on('connected', () => {
-    Net.sendCtrl({ t: 'pick', slot: Net.localSlot(), id: selected[Net.localSlot()] });
+    versionMismatch = false;
+    buildId.then((v) => Net.sendCtrl({ t: 'pick', slot: Net.localSlot(), id: selected[Net.localSlot()], v }));
     openSelect();
   });
   Net.on('disconnected', (reason) => {
@@ -638,12 +668,14 @@ const UI = (() => {
     if (!msg) return;
     if (Net.isFfa()) { onFfaCtrl(msg); return; }
     if (msg.t === 'pick' && (msg.slot === 'p1' || msg.slot === 'p2') && CHARACTERS[msg.id]) {
+      checkVersion(msg.v); // (an older game sends none: that's a mismatch too)
       selected[msg.slot] = msg.id;
       if (!screens.select.classList.contains('hidden')) {
         buildCharCards(msg.slot + '-cards', msg.slot);
         refreshSelect();
       }
     } else if (msg.t === 'start' && (Net.isRemoteSim() || (Net.isRollback() && !Net.isLeader())) && CHARACTERS[msg.p1] && CHARACTERS[msg.p2]) {
+      if (versionMismatch) return; // (see checkVersion)
       selected.p1 = msg.p1;
       selected.p2 = msg.p2;
       if (BALL_MODES.includes(msg.ball)) ballMode = msg.ball;

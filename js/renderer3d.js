@@ -1053,6 +1053,7 @@ if (webglAvailable()) {
   const MON_SCALE = 5.5;           // ~9.5 m tall
   const MON_BLEND = 0.35;          // seconds to cross-fade between clips
   const THROW_RELEASE = 0.305;     // how far through the throw clip its hand lets go (matches stages.js fling/flingV)
+  const THROW_SETTLED = 0.67;      // ...and where its follow-through has settled
   const newHand = () => ({ hand: null, knuckle: null, fingers: [], thumb: [], tips: [], thumbTip: null, curlAxis: null, thumbAxis: null, curl: 0 });
   const monster = { group: new THREE.Group(), mixer: null, acts: {}, w: {}, ready: false, last: null, hands: { Left: newHand(), Right: newHand() }, mats: [], yaw: undefined, ground: [] };
   monster.group.visible = false;
@@ -1242,7 +1243,7 @@ if (webglAvailable()) {
         const r = MON.release;
         heading = (m.dir || 1) * (Math.PI / 2);
         // (THROW_RELEASE: the point in the clip where its arm whips forward, when the game lets go)
-        clip = 'throw'; at = u < r ? THROW_RELEASE * (u / r) : THROW_RELEASE + 0.22 * ((u - r) / (1 - r)); break;
+        clip = 'throw'; at = u < r ? THROW_RELEASE * (u / r) : THROW_RELEASE + (THROW_SETTLED - THROW_RELEASE) * ((u - r) / (1 - r)); break;
       }
       case 'turn': // turns round (the clip itself turns it; it's facing away by the end)
         clip = 'turn'; at = u; turnInClip = true; break;

@@ -75,8 +75,9 @@ print('mesh repaired (after simplifying):', jon.data.validate(verbose=False))
 # that bridge the two.
 SHOULDER_MIX_Z = 1.32   # above this, arm and body join (the shoulders)
 def ARM_X(z): return 0.215 if z < 1.1 else 0.20
+ARM_LOWEST = 0.64      # his fingertips hang down to ~0.72: anything lower out to the side is his legs or shoes
 def region(p):
-    if p.z >= SHOULDER_MIX_Z or abs(p.x) <= ARM_X(p.z): return 'body'
+    if p.z >= SHOULDER_MIX_Z or p.z < ARM_LOWEST or abs(p.x) <= ARM_X(p.z): return 'body'
     return 'Left' if p.x > 0 else 'Right'
 bm = bmesh.new(); bm.from_mesh(jon.data)
 bridge = [f for f in bm.faces if len({region(v.co) for v in f.verts}) > 1 and all(v.co.z < SHOULDER_MIX_Z for v in f.verts)]
