@@ -362,6 +362,10 @@ const Sfx = (() => {
     ultimate: 'NathanUlt.mp3',                      // when he uses his ultimate
     'beats:owen': 'NathanBeatsOwen.mp3',            // when he wins a match against Owen
   };
+  // Jon, the Orchard's giant (not a fighter).
+  VOICE.jon = {
+    arrives: 'JonArrives.mp3',                      // he lands behind the fence and looks around (the first 20s of jon_sound.mp3)
+  };
   VOICE.ryan = {
     'vs:john': 'RyanVsJohn.mp3',                    // at the start of a match against John (once per match)
     ultimate: 'RyanYeah.mp3',                       // "Yeah!" as he kicks off Encore

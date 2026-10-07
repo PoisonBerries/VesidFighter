@@ -930,14 +930,18 @@ const Game = (() => {
     lastMatchState = matchState;
   }
 
-  // The stage's own sounds (the car's horn as it comes), also keyed off
-  // what's on screen.
-  let lastCarPhase = null;
+  // The stage's own sounds (the car's horn as it comes, Jon when he lands
+  // behind the fence), also keyed off what's on screen.
+  let lastCarPhase = null, lastMonsterPhase = null;
   function playStageSounds() {
     const car = Stage.car();
     const phase = car && matchState === 'fight' ? car.phase : null;
     if (phase === 'warn' && lastCarPhase !== 'warn' && typeof Sfx !== 'undefined' && Sfx.horn) Sfx.horn(car.dir > 0 ? -1 : 1);
     lastCarPhase = phase;
+    const mon = matchState === 'fight' ? Stage.monster() : null;
+    const mp = mon ? mon.phase : null;
+    if (mp === 'look' && lastMonsterPhase === 'jump' && typeof Sfx !== 'undefined' && Sfx.voice) Sfx.voice('jon', 'arrives');
+    lastMonsterPhase = mp;
   }
 
   // A small chance, every so often during a fight, that a fighter breaks into song (client-side only:
