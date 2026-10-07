@@ -930,18 +930,26 @@ const Game = (() => {
     lastMatchState = matchState;
   }
 
-  // The stage's own sounds (the car's horn as it comes, Jon when he lands
-  // behind the fence), also keyed off what's on screen.
-  let lastCarPhase = null, lastMonsterPhase = null;
+  // The stage's own sounds (the car's horn as it comes, Jon talking while
+  // he's at the fence), also keyed off what's on screen.
+  let lastCarPhase = null;
+  const JON_LEAD = 120, JON_TAIL = 120; // frames: before he lands at the fence, after he starts back
   function playStageSounds() {
     const car = Stage.car();
     const phase = car && matchState === 'fight' ? car.phase : null;
     if (phase === 'warn' && lastCarPhase !== 'warn' && typeof Sfx !== 'undefined' && Sfx.horn) Sfx.horn(car.dir > 0 ? -1 : 1);
     lastCarPhase = phase;
-    const mon = matchState === 'fight' ? Stage.monster() : null;
-    const mp = mon ? mon.phase : null;
-    if (mp === 'look' && lastMonsterPhase === 'jump' && typeof Sfx !== 'undefined' && Sfx.voice) Sfx.voice('jon', 'arrives');
-    lastMonsterPhase = mp;
+    // Jon: from 2s before he lands behind the fence (into his run) until 2s
+    // into his run back. (He carries on after a round ends; a new round or
+    // leaving the match cuts him off.)
+    if (typeof Sfx === 'undefined' || !Sfx.jon) return;
+    const mon = matchState === 'fight' || matchState === 'roundEnd' ? Stage.monster() : null;
+    const ms = Stage.def().monster;
+    if (mon && mon.phase === 'climb' && mon.t === 1) Sfx.jon.load(); // (get it ready)
+    const talking = !!mon && ms && ((mon.phase === 'run' && mon.t >= ms.run + ms.jump - JON_LEAD)
+      || ['jump', 'look', 'grab', 'hold', 'throw', 'turn'].includes(mon.phase) || (mon.phase === 'back' && mon.t < JON_TAIL));
+    if (talking && !Sfx.jon.playing()) Sfx.jon.start();
+    else if (!talking && Sfx.jon.playing()) Sfx.jon.stop();
   }
 
   // A small chance, every so often during a fight, that a fighter breaks into song (client-side only:

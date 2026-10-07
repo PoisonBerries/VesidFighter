@@ -362,10 +362,6 @@ const Sfx = (() => {
     ultimate: 'NathanUlt.mp3',                      // when he uses his ultimate
     'beats:owen': 'NathanBeatsOwen.mp3',            // when he wins a match against Owen
   };
-  // Jon, the Orchard's giant (not a fighter).
-  VOICE.jon = {
-    arrives: 'JonArrives.mp3',                      // he lands behind the fence and looks around (the first 20s of jon_sound.mp3)
-  };
   VOICE.ryan = {
     'vs:john': 'RyanVsJohn.mp3',                    // at the start of a match against John (once per match)
     ultimate: 'RyanYeah.mp3',                       // "Yeah!" as he kicks off Encore
@@ -519,6 +515,92 @@ const Sfx = (() => {
   // 'victoryStreak' line, if they have one, replaces their plain 'victory' line from the second win on.
   let streakChar = null, streakCount = 0;
 
+  // ---- Jon, the Orchard's giant: his recording while he's at the fence ----
+  // (game.js starts it as he comes in to the fence and stops it as he runs
+  // off). Bass-boosted and blown out -- a big low shelf into hard clipping,
+  // the harsh top rolled off -- then levelled to the same loudness as the
+  // voice lines, so it sounds wrecked without being louder. Made once.
+  const JON_FILE = 'assets/voice/jon/JonArrives.mp3';
+  let jonBuf, jonNow = null;
+  function jonCurve(drive) {
+    const n = 2048, c = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * drive) / Math.tanh(drive); }
+    return c;
+  }
+  function jonProcess(buf) {
+    const off = new OfflineAudioContext(buf.numberOfChannels, buf.length, buf.sampleRate);
+    const src = off.createBufferSource(); src.buffer = buf;
+    const bass = off.createBiquadFilter(); bass.type = 'lowshelf'; bass.frequency.value = 160; bass.gain.value = 16;
+    const punch = off.createBiquadFilter(); punch.type = 'peaking'; punch.frequency.value = 70; punch.Q.value = 1; punch.gain.value = 8;
+    const pre = off.createGain(); pre.gain.value = 3;
+    const clip = off.createWaveShaper(); clip.curve = jonCurve(9); clip.oversample = '4x';
+    const tame = off.createBiquadFilter(); tame.type = 'lowpass'; tame.frequency.value = 6500;
+    src.connect(bass); bass.connect(punch); punch.connect(pre); pre.connect(clip); clip.connect(tame); tame.connect(off.destination);
+    src.start();
+    return off.startRendering();
+  }
+  const rmsOf = (b) => { const a = b.getChannelData(0); let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * a[i]; return Math.sqrt(s / a.length); };
+  // The clipping turns the room noise in the pauses into a roar: silence the
+  // processed sound wherever the recording itself is quiet (eased over 20ms).
+  function jonGate(raw, buf) {
+    const a = raw.getChannelData(0), win = Math.round(raw.sampleRate * 0.02);
+    const env = [];
+    let top = 0;
+    for (let i = 0; i < a.length; i += win) {
+      let sum = 0; const end = Math.min(a.length, i + win);
+      for (let j = i; j < end; j++) sum += a[j] * a[j];
+      const r = Math.sqrt(sum / (end - i)); env.push(r); if (r > top) top = r;
+    }
+    const open = env.map((r) => (r > top * 0.1 ? 1 : 0));
+    for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+      const d = buf.getChannelData(ch);
+      let g = 0;
+      for (let i = 0; i < d.length; i++) {
+        const want = open[Math.floor(i / win)] || 0;
+        g += (want - g) * 0.002;   // (~10ms ease at 48kHz)
+        d[i] *= g;
+      }
+    }
+  }
+  function jonLoad() {
+    if (jonBuf !== undefined) return;
+    jonBuf = null;
+    fetch(JON_FILE)
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('missing'))))
+      .then((data) => new Promise((resolve, reject) => ac.decodeAudioData(data, resolve, reject)))
+      .then(async (raw) => {
+        const buf = await jonProcess(raw);
+        jonGate(raw, buf);
+        // Exactly as loud on average as the plain recording at the voice lines' level.
+        buf.leveled = (rmsOf(raw) * loudnessGain(raw)) / Math.max(1e-9, rmsOf(buf));
+        jonBuf = buf;
+        if (jonNow && !jonNow.src) jonPlay();
+      })
+      .catch(() => { /* no Jon */ });
+  }
+  function jonPlay() {
+    if (!jonBuf || !jonNow || settings.muted) return;
+    const src = ac.createBufferSource(); src.buffer = jonBuf;
+    const g = ac.createGain(); g.gain.value = jonBuf.leveled;
+    src.connect(g); g.connect(sfxBus);
+    // (started late if it was still being made: carry on from where it should be)
+    src.start(0, Math.min(jonBuf.duration, (ac.currentTime - jonNow.at)));
+    jonNow.src = src; jonNow.g = g;
+  }
+  function jonStart() {
+    if (jonNow || !ensure()) return;
+    jonNow = { at: ac.currentTime, src: null };
+    jonLoad(); jonPlay();
+  }
+  function jonStop(fade = 0.5) {
+    if (!jonNow) return;
+    const { src, g } = jonNow; jonNow = null;
+    if (!src) return;
+    const t = ac.currentTime;
+    g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(0, t + fade);
+    src.stop(t + fade + 0.05);
+  }
+
   function voice(charId, occasion) {
     const lines = VOICE[charId] || {};
     if (occasion === 'victory') {
@@ -582,6 +664,7 @@ const Sfx = (() => {
 
   const api = {
     voice, loudnessGain, vocode, voiceFx: VOICE_FX,
+    jon: { start: jonStart, stop: jonStop, load: () => ensure() && jonLoad(), playing: () => !!jonNow, buffer: () => jonBuf }, // (buffer: for tests)
     hitTakenChance: 0.5, // chance that a hit-taken line plays when its trigger fires
     swing: (pan) => play('swing', pan),
     hover: (pan) => play('hover', pan),
