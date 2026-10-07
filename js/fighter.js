@@ -11,7 +11,8 @@
 // whose kit reuses an existing type is pure data in characters.js; a
 // genuinely new mechanic needs a new case here.
 
-const TONGUE_MOUTH = 0.86; // how far up his body Artur's mouth is (as a fraction of his height)
+const TONGUE_MOUTH = 0.86;
+const TONGUE_REACH_FROM = 0.34; // how far in front of his centre the mouth is (fraction of his width) // how far up his body Artur's mouth is (as a fraction of his height)
 
 class Fighter {
   constructor(slot, character, startX, facing) {
@@ -356,10 +357,10 @@ class Fighter {
         return null;
 
       case 'tongue': // the tongue shooting out (thin, at mouth height); it's spent once it connects
-        if (this.actionTimer > def.startup && this.actionTimer <= def.startup + def.extend + def.hold && !a.reeling && a.len > 0) {
-          // From his mouth, but the box reaches down to chest height so it catches anyone standing (a crouch still ducks under it).
+        if (this.actionTimer > def.startup && this.actionTimer <= def.startup + def.extend + def.hold + def.retract && !a.reeling && a.len > 0) { // (live for as long as the tongue is out, including as it snaps back)
+          // From his mouth, but the box reaches well down the body, so it catches anyone standing or crouching (a block still stops it).
           const bottom = this.height * def.bottom;
-          return this._forwardBox(def.offset, a.len, this.height * TONGUE_MOUTH + def.height / 2 - bottom, bottom);
+          return this._forwardBox(this.width * TONGUE_REACH_FROM, a.len + def.height / 2, this.height * TONGUE_MOUTH + def.height / 2 - bottom, bottom); // (from the mouth to the end of the blob on its tip)
         }
         return null;
 
@@ -1506,7 +1507,7 @@ class Fighter {
 
   // Artur's ultimate: the tongue shoots out (the hitbox is the length it has reached), holds a beat and snaps back.
   // If it connects, Game.tryHit calls startTongueReel: they're hauled in to him, and he lets one go in their face.
-  tongueMouth() { return { x: this.x + this.facing * this.width * 0.34, y: this.y - this.height * TONGUE_MOUTH }; }
+  tongueMouth() { return { x: this.x + this.facing * this.width * TONGUE_REACH_FROM, y: this.y - this.height * TONGUE_MOUTH }; }
 
   _updateTongue(def) {
     const a = this._ability, t = this.actionTimer;

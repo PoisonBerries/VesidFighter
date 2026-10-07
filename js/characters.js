@@ -133,13 +133,13 @@ const CHARACTERS = {
       lingerFrames: 84,
     },
     // His ultimate: a long sticky tongue lashes out; if it connects it reels them in and he lets one go in their face.
-    // (The tongue is thin and at head height, so a crouch goes under it, and a block stops it.)
+    // (It comes out of his mouth and covers anyone standing or crouching in front of him; a block stops it.)
     ultimate: {
       type: 'tongue',
       name: 'Tongue Lash',
       description: 'He lashes out a long sticky tongue. If it connects it reels the opponent right in, and he lets off an enormous poison fart in their face.',
       startup: 16, extend: 9, hold: 5, retract: 10, recovery: 14,
-      reach: 340, offset: 18, height: 28, bottom: 0.58, // the tongue: how far it shoots; its hit box runs from `bottom` (a fraction of his height) up past his mouth
+      reach: 340, offset: 18, height: 28, bottom: 0.2, // the tongue: how far it shoots; its hit box runs from `bottom` (a fraction of his height) up past his mouth
       reel: 16, arrive: 46,                            // frames to haul them in, and how close (px in front of him) they end up
       damage: 6, knockback: 2, knockbackUp: 0, hitstun: 12, // the lick itself
       fart: {
@@ -515,7 +515,7 @@ const CHARACTERS = {
       recovery: 16,
       speed: 30,
       width: 90, height: 110,
-      damage: 24, knockback: 3, knockbackUp: 24, hitstun: 100, // (bounces them high into the air, stunned: no knockdown)
+      damage: 24, knockback: 3, knockbackUp: 19, hitstun: 100, // (bounces them high into the air, stunned: no knockdown)
       // While they're still airborne from it, every hit he lands on them does `mul` times the damage.
       juggle: { frames: 120, mul: 1.6, gravity: 0.6 }, // (gravity: how much of normal gravity they fall under while stunned up there)
     },

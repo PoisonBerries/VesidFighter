@@ -2368,7 +2368,7 @@ test('Artur\'s ultimate is a tongue: it shoots out, and if it connects it reels 
   assert.ok(!blocked.reeled && blocked.lost < u.damage, 'a block stops the tongue');
 });
 
-test('Artur\'s tongue can be cast in the air too (he hangs there), and it only hits at head height: a crouch goes under it', () => {
+test('Artur\'s tongue can be cast in the air too (he hangs there), and it reaches a foe that is standing, crouched or a little off the ground', () => {
   const sim = createSim();
   sim.Game.startMatch('artur', 'keenan', () => {}, { ball: 'off', balance: false });
   step(sim, 200);
@@ -2376,17 +2376,15 @@ test('Artur\'s tongue can be cast in the air too (he hangs there), and it only h
   sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
   step(sim, 10);
   assert.ok(sim.Game.world().p1.y < sim.GROUND_Y - 100, 'still hanging in the air while it winds up');
-  // The box itself sits above a crouched foe's head.
-  sim.Game.startMatch('artur', 'keenan', () => {}, { ball: 'off', balance: false });
-  step(sim, 200);
-  sim.Game.applySnapshot({ f: [{ x: 500, ultCharge: 100 }, { x: 780 }] });
-  sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
-  let box = null;
-  for (let i = 0; i < 40 && !box; i++) { step(sim, 1); box = sim.Game.world().p1.getHitbox(); }
-  assert.ok(box, 'the tongue has a hitbox');
-  const crouched = sim.Game.world().p2;
-  crouched.isCrouching = true;
-  assert.ok(box.y + box.h < sim.GROUND_Y - 55, 'at about head height');
+  for (const lift of [0, 40, 90]) { // standing, and hopping at different heights
+    sim.Game.startMatch('artur', 'keenan', () => {}, { ball: 'off', balance: false });
+    step(sim, 200);
+    sim.Game.applySnapshot({ f: [{ x: 500, ultCharge: 100 }, lift ? { x: 760, y: sim.GROUND_Y - lift, grounded: false, vy: 0, state: 'fall' } : { x: 760 }] });
+    sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+    let reeled = false;
+    for (let i = 0; i < 40; i++) { step(sim, 1); if (sim.Game.world().p2.state === 'grabbed') reeled = true; }
+    assert.ok(reeled, `reeled in from ${lift}px up`);
+  }
 });
 
 test('Sam\'s Splashdown bounces them high into the air, stunned (not knocked down), and each hit he lands while they are up there does extra damage', () => {
