@@ -2606,3 +2606,36 @@ test('Sam\'s special and ultimate can only be started in the air; trying on the 
   press('special');
   assert.strictEqual(sim.Game.world().p1.state, 'special');
 });
+
+test('Artur\'s tongue starts at his mouth and still reaches every character standing (small or big)', () => {
+  const sim = createSim();
+  for (const id of Object.keys(sim.CHARACTERS)) {
+    if (id === 'artur') continue;
+    sim.Game.startMatch('artur', id, () => {}, { ball: 'off', balance: false });
+    step(sim, 200);
+    sim.Game.applySnapshot({ f: [{ x: 500, ultCharge: 100 }, { x: 760 }] });
+    sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, true); step(sim, 1); sim.InputManager.setVirtual(sim.VCONTROLS.p1.ultimate, false, false);
+    let box = null, reeled = false;
+    for (let i = 0; i < 60; i++) {
+      step(sim, 1);
+      const w = sim.Game.world();
+      if (!box) { box = w.p1.getHitbox(); if (box) assert.ok(box.y < w.p1.tongueMouth().y && box.y + box.h > w.p1.tongueMouth().y, 'the box takes in the mouth'); }
+      if (w.p2.state === 'grabbed') reeled = true;
+    }
+    assert.ok(reeled, `${id}: standing, gets reeled in`);
+  }
+});
+
+test('Sam\'s Splashdown holds them up for a good while: airtime is longer than a plain launch', () => {
+  const sim = createSim();
+  const airtime = (juggle) => {
+    sim.Game.startMatch('sam', 'keenan', () => {}, { ball: 'off', balance: false });
+    step(sim, 200);
+    sim.Game.applySnapshot({ f: [{ x: 300 }, { x: 700, y: sim.GROUND_Y - 1, vy: -20, grounded: false, state: 'hitstun', stunFrames: 100, juggleTimer: juggle ? 120 : 0, juggleBy: 'p1' }] });
+    let n = 0;
+    while (!sim.Game.world().p2.grounded && n < 200) { step(sim, 1); n++; }
+    return n;
+  };
+  const plain = airtime(false), held = airtime(true);
+  assert.ok(held >= plain * 1.2, `held ${held} frames vs plain ${plain}`);
+});

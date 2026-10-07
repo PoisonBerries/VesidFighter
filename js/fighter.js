@@ -11,6 +11,8 @@
 // whose kit reuses an existing type is pure data in characters.js; a
 // genuinely new mechanic needs a new case here.
 
+const TONGUE_MOUTH = 0.86; // how far up his body Artur's mouth is (as a fraction of his height)
+
 class Fighter {
   constructor(slot, character, startX, facing) {
     this.slot = slot; // 'p1' | 'p2'
@@ -355,7 +357,9 @@ class Fighter {
 
       case 'tongue': // the tongue shooting out (thin, at mouth height); it's spent once it connects
         if (this.actionTimer > def.startup && this.actionTimer <= def.startup + def.extend + def.hold && !a.reeling && a.len > 0) {
-          return this._forwardBox(def.offset, a.len, def.height, def.bottom);
+          // From his mouth, but the box reaches down to chest height so it catches anyone standing (a crouch still ducks under it).
+          const bottom = this.height * def.bottom;
+          return this._forwardBox(def.offset, a.len, this.height * TONGUE_MOUTH + def.height / 2 - bottom, bottom);
         }
         return null;
 
@@ -732,7 +736,12 @@ class Fighter {
       if (this.state !== 'ko' && this.state !== 'victory' && this.state !== 'hitstun' && this.state !== 'knockdown' && this.state !== 'grabbed') this._startFlurry(opponent);
     }
     if (this.juggleTimer > 0 && (this.grounded || this.state === 'ko')) this.juggleTimer = 0; // (it only counts while they're still in the air)
-    else if (this.juggleTimer > 0) this.juggleTimer--;
+    else if (this.juggleTimer > 0) {
+      this.juggleTimer--;
+      // Bounced up by Splashdown they hang there a while: gravity is eased so the stunned fall is slower and longer.
+      const jg = (this._matchFighter(this.juggleBy) || {}).character;
+      if (jg && jg.ultimate.juggle && !this.grounded) this.vy -= GRAVITY * (this.character.gravityMul || 1) * (1 - jg.ultimate.juggle.gravity);
+    }
     this.rolling = false; // set again below while a crouch-roll is in progress
     if (this.state !== 'block') this.sliding = false; // a slide only lasts while crouched
     const held = (this._ability && this._matchFighter(this._ability.target)) || opponent;
@@ -1497,7 +1506,7 @@ class Fighter {
 
   // Artur's ultimate: the tongue shoots out (the hitbox is the length it has reached), holds a beat and snaps back.
   // If it connects, Game.tryHit calls startTongueReel: they're hauled in to him, and he lets one go in their face.
-  tongueMouth() { return { x: this.x + this.facing * this.width * 0.34, y: this.y - this.height * 0.66 }; }
+  tongueMouth() { return { x: this.x + this.facing * this.width * 0.34, y: this.y - this.height * TONGUE_MOUTH }; }
 
   _updateTongue(def) {
     const a = this._ability, t = this.actionTimer;
