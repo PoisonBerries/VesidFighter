@@ -522,6 +522,7 @@ const Sfx = (() => {
   // reverb, and levelled to the same loudness as the plain recording, so it
   // sounds wrecked without being louder. Made once.
   const JON_FILE = 'assets/voice/jon/JonArrives.mp3';
+  const JON_END = 11.25; // seconds into the clip where he stops talking (the end of a phrase)
   let jonBuf, jonNow = null;
   function jonCurve(drive) {
     const n = 2048, c = new Float32Array(n);
@@ -552,7 +553,8 @@ const Sfx = (() => {
       for (let j = i; j < end; j++) sum += a[j] * a[j];
       const r = Math.sqrt(sum / (end - i)); env.push(r); if (r > top) top = r;
     }
-    const open = env.map((r) => (r > top * 0.1 ? 1 : 0));
+    // ...and from JON_END on: he's finished his phrase there (the next one gets cut off by him leaving).
+    const open = env.map((r, k) => (r > top * 0.1 && k * win < JON_END * raw.sampleRate ? 1 : 0));
     for (let ch = 0; ch < buf.numberOfChannels; ch++) {
       const d = buf.getChannelData(ch);
       let g = 0;
