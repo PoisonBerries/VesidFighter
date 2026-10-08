@@ -517,8 +517,8 @@ const Sfx = (() => {
 
   // ---- Jon, the Orchard's giant: his recording while he's at the fence ----
   // (game.js starts it as he comes in to the fence and stops it as he runs
-  // off). Bass-boosted and blown out -- a big low shelf into very hard
-  // clipping (twice), the harsh top rolled off -- then a big, echoing
+  // off). Bass-boosted and blown out -- a big low shelf into hard clipping,
+  // the harsh top rolled off -- then a big, echoing
   // reverb, and levelled to the same loudness as the plain recording, so it
   // sounds wrecked without being louder. Made once.
   const JON_FILE = 'assets/voice/jon/JonArrives.mp3';
@@ -533,12 +533,10 @@ const Sfx = (() => {
     const src = off.createBufferSource(); src.buffer = buf;
     const bass = off.createBiquadFilter(); bass.type = 'lowshelf'; bass.frequency.value = 160; bass.gain.value = 16;
     const punch = off.createBiquadFilter(); punch.type = 'peaking'; punch.frequency.value = 70; punch.Q.value = 1; punch.gain.value = 8;
-    const pre = off.createGain(); pre.gain.value = 6;
-    const clip = off.createWaveShaper(); clip.curve = jonCurve(30); clip.oversample = '4x';
-    const mid = off.createBiquadFilter(); mid.type = 'peaking'; mid.frequency.value = 900; mid.Q.value = 0.8; mid.gain.value = 6; // (a nasal, blown-speaker honk)
-    const clip2 = off.createWaveShaper(); clip2.curve = jonCurve(12); clip2.oversample = '4x';
-    const tame = off.createBiquadFilter(); tame.type = 'lowpass'; tame.frequency.value = 5500;
-    src.connect(bass); bass.connect(punch); punch.connect(pre); pre.connect(clip); clip.connect(mid); mid.connect(clip2); clip2.connect(tame); tame.connect(off.destination);
+    const pre = off.createGain(); pre.gain.value = 3.3;   // (the first version's 3 and 9, pushed 10% harder)
+    const clip = off.createWaveShaper(); clip.curve = jonCurve(9.9); clip.oversample = '4x';
+    const tame = off.createBiquadFilter(); tame.type = 'lowpass'; tame.frequency.value = 6500;
+    src.connect(bass); bass.connect(punch); punch.connect(pre); pre.connect(clip); clip.connect(tame); tame.connect(off.destination);
     src.start();
     return off.startRendering();
   }
